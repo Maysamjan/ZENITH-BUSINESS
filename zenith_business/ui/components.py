@@ -8,14 +8,16 @@ locally. Nothing here contains business logic or touches the database.
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QIcon
 from PyQt6.QtWidgets import (
+    QApplication,
     QFrame,
     QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
+    QStyle,
     QVBoxLayout,
     QWidget,
 )
@@ -77,6 +79,28 @@ def chip(text: str, kind: str = "neutral") -> QLabel:
     label.setAlignment(Qt.AlignmentFlag.AlignCenter)
     label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
     return label
+
+
+def standard_icon(name: str) -> QIcon:
+    """Return a platform-style icon by short name (Prompt 01D §6).
+
+    Uses Qt's built-in style icons so no third-party/unlicensed assets are
+    bundled. Unknown names return a null icon (button still shows its text).
+    """
+    mapping = {
+        "new": QStyle.StandardPixmap.SP_FileIcon,
+        "save": QStyle.StandardPixmap.SP_DialogSaveButton,
+        "print": QStyle.StandardPixmap.SP_FileDialogDetailedView,
+        "receive": QStyle.StandardPixmap.SP_DialogApplyButton,
+        "close": QStyle.StandardPixmap.SP_DialogCloseButton,
+        "delete": QStyle.StandardPixmap.SP_TrashIcon,
+        "next": QStyle.StandardPixmap.SP_ArrowForward,
+    }
+    pixmap = mapping.get(name)
+    app = QApplication.instance()
+    if pixmap is None or app is None:
+        return QIcon()
+    return app.style().standardIcon(pixmap)
 
 
 def escape_amp(text: str) -> str:

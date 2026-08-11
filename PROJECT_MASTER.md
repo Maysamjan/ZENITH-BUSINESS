@@ -15,8 +15,8 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 0.4 |
-| Current Stage | **01 — FOUNDATION + 01B/01C PREMIUM UI (implemented; READY FOR OWNER REVIEW)** |
+| PROJECT_MASTER.md Version | 0.5 |
+| Current Stage | **01 — FOUNDATION + 01B/01C/01D PREMIUM UI (implemented; READY FOR OWNER REVIEW)** |
 | Database Schema Version | none (infrastructure only; **no tables created**) |
 | Last Updated | 2026-08-11 |
 
@@ -172,7 +172,7 @@ requested module is implemented.
 | # | Module | Status |
 |---|--------|--------|
 | 00 | MASTER (constitution) | ✅ Ratified (on `main`) |
-| 01 | Project Foundation (+01B/01C premium UI) | 🔶 Implemented — **ready for owner review** (not LOCKED) |
+| 01 | Project Foundation (+01B/01C/01D premium UI) | 🔶 Implemented — **ready for owner review** (not LOCKED) |
 | 02 | Database | ⛔ Not started |
 | 03 | Company & Financial Year | ⛔ Not started |
 | 04 | Chart of Accounts | ⛔ Not started |
@@ -613,6 +613,68 @@ scroll by design); demo figures are illustrative; icon set still deferred.
 
 ---
 
+## 13D. Stage 01D — Rapid Invoice Entry UX + reusable search selectors (pending review)
+
+UI/interaction-only stage (Prompt 01D) turning the Sales Invoice into a
+keyboard-first, search-driven data-entry workspace and establishing a **reusable
+autocomplete selector** architecture for the whole app. Backend untouched; no
+tables, no persistence, no accounting/inventory logic. All data comes from
+clearly-separated mock providers.
+
+### 13D.1 Reusable search-selector architecture (§5, §12) — permanent UX rule
+
+`ui/widgets/search_selector.py`: a data-source-agnostic `SearchSelector` driven
+by a `SearchProvider` Protocol (`columns()` + `search()` returning rich
+`SearchRow`s with display values **and** a structured `payload`). Results render
+in an in-window overlay panel (Code/Name/Unit/Stock/Price, etc.) with keyboard
+nav (↓ open/next, ↑ prev, Enter select, Esc close) and mouse select.
+**Permanent principle:** never make users re-enter data the system already
+knows — future modules (items, customers, suppliers, accounts, warehouses,
+salespersons, units, categories) reuse this instead of long combo boxes. Stage
+02+ supplies repository-backed providers **without changing the UI**.
+
+### 13D.2 Keyboard-first invoice flow (§1-§3)
+
+Item field → type to search → ↑/↓ choose → Enter select → auto-populates code,
+name, unit, default price, warehouse, stock, then focuses **Quantity** →
+Enter → **Unit Price** → Enter → **Discount** → Enter → commits the line, opens a
+fresh line focused on item search. Esc closes suggestions; Delete removes the
+selected committed line. Live line-total and grand-total/received/remaining.
+
+### 13D.3 Customer autocomplete (§4)
+
+Same pattern for the customer field (search by name / code / phone; results show
+Name/Code/Phone/Balance). On selection the header fills phone, previous balance
+(color-coded), and credit limit — no manual re-entry.
+
+### 13D.4 Redesigned invoice workspace (§6-§9)
+
+Denser ERP/POS composition: compact meta row + customer autocomplete on top; the
+**line grid is the operational centre** (# | Code | Item Name [stretch] | Unit |
+Qty | Unit Price | Discount | Total | Warehouse; monetary right-aligned; active
+row uses inline editors + item search); bottom band = quick item info (stock /
+last sale / default price) beside an always-visible payment card (emphasized
+Grand Total, editable Amount Received, computed Remaining, Cash/Credit
+indicator). Platform-style icons on actions with shortcut hints. **Cost & profit
+are hidden by default** — a permission-gated note marks where RBAC integrates
+(§8). No horizontal scroll at 1366×768 (verified).
+
+### 13D.5 RTL & data separation
+
+Full workflow verified in Dari RTL (header, grid, autocomplete popups, totals,
+actions all genuinely mirrored) and English LTR. Mock providers live in
+`ui/mock/` and are explicitly non-production (§13).
+
+### 13D.6 Tests & known issues
+
+**80 tests pass** (added provider matching, selector open/keyboard-select/hide,
+and invoice item/customer population + line-commit + RTL construction). Known
+issues: barcode/alternate-name matching and true per-cell in-grid editing are
+represented at prototype fidelity; real providers/permissions arrive in later
+stages; logo/icon-set still pending.
+
+---
+
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
@@ -621,6 +683,7 @@ scroll by design); demo figures are illustrative; icon set still deferred.
 | 2026-08-11 | 0.2 | Stage 01 (Project Foundation) implemented on feature branch: project structure, config, identity, logging, exceptions/global handler, SQLite infrastructure (connection + transactions + health, FK on, WAL), i18n/RTL-LTR, centralized UI design system, top-nav shell + branded home + status bar, security readiness (PBKDF2 passwords, licensing boundary), 60 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 | 2026-08-11 | 0.3 | Stage 01B (UI/UX refinement) on the same feature branch: three-tier top chrome (navy HeaderBar + white PrimaryNav + contextual ContextBar), redesigned composed home (hero + readiness + reserved quick-access), expanded semantic design system (colors, typography hierarchy, control dims, FieldWidth XS–XL, reusable components), form + table + dialog + empty-state standards, RTL/LTR visual pass. Backend foundation unchanged. 70 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 | 2026-08-11 | 0.4 | Stage 01C (premium UI redesign) on the same feature branch: denser professional layout tokens, grid-based business-form architecture, full **Sales Invoice visual prototype** as the reference design (header + dominant line grid + summary/operational + action bar with shortcut hints), StatTile/LabeledField/apply_shadow/escape_amp components, upgraded list/management screen, home depth refinement, multi-resolution (1366/1600/1920) + Dari-RTL verification. Backend unchanged. 72 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
+| 2026-08-11 | 0.5 | Stage 01D (rapid invoice entry UX) on the same feature branch: reusable provider-driven `SearchSelector` autocomplete architecture; keyboard-first Sales Invoice (item search → populate → qty → price → discount → next line); customer autocomplete filling balance/credit/phone; redesigned ERP/POS invoice workspace with always-visible payment area and permission-gated cost note; platform-style action icons; mock providers in `ui/mock/` (clearly non-production); Dari-RTL + 1366/1600 verification (no horizontal scroll at 1366). Backend unchanged. 80 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 
 ---
 

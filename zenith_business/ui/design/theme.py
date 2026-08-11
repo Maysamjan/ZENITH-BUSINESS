@@ -414,4 +414,11 @@ def build_stylesheet() -> str:
     /* ==== dialogs ======================================================= */
     QDialog {{ background-color: {c.BACKGROUND}; }}
     QMessageBox {{ background-color: {c.SURFACE}; }}
-    """
+    """ + _selector_styles()
+
+
+def _selector_styles() -> str:
+    """Search-selector chrome, kept in its widget module (lazy import)."""
+    from zenith_business.ui.widgets.search_selector import selector_styles
+
+    return selector_styles()

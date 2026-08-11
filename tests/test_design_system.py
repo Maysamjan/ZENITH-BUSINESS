@@ -91,9 +91,10 @@ def test_sales_invoice_prototype_constructs_both_directions() -> None:
 
     for lang in ("en", "fa_AF"):
         page = SalesInvoiceDemoPage(Translator(lang))
-        # Dominant line-item grid with the full column set + a trailing entry row.
+        # Dominant line-item grid with the full column set + committed lines
+        # plus an active entry row.
         assert page._table.columnCount() == 9
-        assert page._table.rowCount() >= 6
+        assert page._table.rowCount() >= 4
         # Retranslate must not raise.
         page.retranslate(Translator("fa_AF" if lang == "en" else "en"))
 

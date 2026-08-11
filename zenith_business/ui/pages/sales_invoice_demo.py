@@ -1,13 +1,23 @@
-"""Sales Invoice — VISUAL PROTOTYPE (Prompt 01C §3).
+"""Sales Invoice — RAPID-ENTRY WORKSPACE PROTOTYPE (Prompt 01D).
 
-The reference design for the whole application. It establishes the grid-based
-business-form architecture: a compact transaction header at the top, a dominant
-line-item grid in the center, and totals + operational info + actions at the
-bottom — using the full workspace width and height.
+The reference screen for the whole application, redesigned around *speed of
+invoice entry*: searchable item + customer selectors (type-ahead), a keyboard-
+first line-entry flow, an unobtrusive quick-item-info strip, and an always-
+visible totals/payment area. The line grid is the operational centre.
 
-IMPORTANT: This is a pure UI prototype. It does NOT save data, performs NO
-accounting/inventory logic, and creates NO database tables. All figures are
-clearly-labelled demonstration data.
+IMPORTANT: pure UI/interaction prototype. It does NOT save data, performs NO
+accounting/inventory logic, and creates NO database tables. All figures come
+from clearly-separated mock providers (``ui.mock.demo_search``). Real, repository
+-backed providers arrive in their authorized stages with no change to this UI.
+
+Keyboard model (Prompt 01D §3)
+------------------------------
+    Item field : type to search · ↑/↓ choose · Enter select → focus Quantity
+    Quantity   : Enter → Unit Price
+    Unit Price : Enter → Discount
+    Discount   : Enter → commit line, open a fresh line, focus its item search
+    Esc        : close an open suggestion popup
+    Delete     : remove the selected committed line
 """
 
 from __future__ import annotations
@@ -17,7 +27,6 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QDateEdit,
-    QDoubleSpinBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -41,40 +50,48 @@ from zenith_business.ui.components import (
     apply_shadow,
     chip,
     escape_amp,
+    field_label,
+    muted,
     primary_button,
     secondary_button,
+    standard_icon,
 )
-from zenith_business.ui.design.tokens import (
-    Color,
-    ControlSize,
-    FieldWidth,
-    Spacing,
-    Typography,
-)
+from zenith_business.ui.design.tokens import ControlSize, FieldWidth, Spacing
+from zenith_business.ui.mock.demo_search import DemoCustomerProvider, DemoItemProvider
+from zenith_business.ui.widgets.search_selector import SearchRow, SearchSelector
 
-# Clearly-fake demonstration line items (no business data / no persistence).
-_ROWS = [
-    ("IT-1001", "Cooking Oil 5L", "Ctn", 10, 320.00, 0.00, 3200.00, "Main"),
-    ("IT-1002", "Basmati Rice 25kg", "Bag", 25, 1450.00, 50.00, 36200.00, "Main"),
-    ("IT-1003", "Green Tea 500g", "Box", 40, 120.00, 0.00, 4800.00, "Main"),
-    ("IT-1004", "Sugar 50kg", "Bag", 8, 2600.00, 0.00, 20800.00, "Main"),
-    ("IT-1005", "Tomato Paste 800g", "Ctn", 15, 540.00, 20.00, 8080.00, "Store-2"),
-    ("IT-1006", "Sunflower Oil 1L", "Ctn", 30, 95.00, 0.00, 2850.00, "Main"),
+# Columns: # | Code | Item Name | Unit | Qty | Unit Price | Discount | Total | Warehouse
+COL_NO, COL_CODE, COL_NAME, COL_UNIT, COL_QTY, COL_PRICE, COL_DISC, COL_TOTAL, COL_WH = range(9)
+
+# Pre-committed demonstration lines (clearly fake; no persistence).
+_DEMO_LINES = [
+    ("IT-1004", "Cooking Oil 5L", "Ctn", 10, 320.00, 0.00, "Main"),
+    ("IT-1002", "Basmati Rice 25kg", "Bag", 25, 1980.00, 50.00, "Main"),
+    ("IT-1006", "Sugar 50kg", "Bag", 8, 2600.00, 0.00, "Main"),
 ]
 
 
-class SalesInvoiceDemoPage(QScrollArea):
-    """Full-workspace Sales Invoice prototype screen.
+def _num(text: str) -> float:
+    try:
+        return float(str(text).replace(",", "").strip() or 0)
+    except ValueError:
+        return 0.0
 
-    Wrapped in a resizable scroll area: at 1600×900 / 1920×1080 the content fills
-    the viewport and the line-item grid expands to dominate; at 1366×768 the
-    grid keeps a healthy minimum and the page scrolls gracefully instead of
-    clipping the totals or actions.
-    """
+
+def _money(value: float) -> str:
+    return f"{value:,.2f}"
+
+
+class SalesInvoiceDemoPage(QScrollArea):
+    """Full-workspace, keyboard-first Sales Invoice prototype."""
 
     def __init__(self, translator: Translator, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._t = translator
+        self._items = DemoItemProvider()
+        self._customers = DemoCustomerProvider()
+        self._received = 40000.0
+
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -89,295 +106,344 @@ class SalesInvoiceDemoPage(QScrollArea):
         root.setSpacing(Spacing.SECTION_GAP)
 
         root.addLayout(self._build_titlebar())
-        root.addLayout(self._build_header_band())
-        root.addWidget(self._build_grid(), stretch=1)   # dominant center
+        root.addWidget(self._build_header())
+        root.addWidget(self._build_grid_card(), stretch=1)
         root.addLayout(self._build_bottom_band())
         root.addWidget(self._build_action_bar())
 
-    # ---- helpers ---------------------------------------------------------
+        self._reload_demo_lines()
+        self._add_active_row()
+        self._recompute_totals()
+
+    # ---- small helpers ---------------------------------------------------
 
     def _combo(self, items: list[str]) -> QComboBox:
-        box = QComboBox()
-        box.addItems(items)
-        return box
+        box = QComboBox(); box.addItems(items); return box
 
-    def _line(self, placeholder: str = "") -> QLineEdit:
-        edit = QLineEdit()
-        if placeholder:
-            edit.setPlaceholderText(placeholder)
+    def _numeric_edit(self, value: str = "", ph: str = "") -> QLineEdit:
+        edit = QLineEdit(value)
+        if ph:
+            edit.setPlaceholderText(ph)
+        edit.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         return edit
 
-    def _amount(self, value: float = 0.0) -> QDoubleSpinBox:
-        box = QDoubleSpinBox()
-        box.setMaximum(1_000_000_000)
-        box.setDecimals(2)
-        box.setGroupSeparatorShown(True)
-        box.setValue(value)
-        box.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        return box
-
-    def _card_title(self, text: str) -> QLabel:
-        lbl = QLabel(text)
-        lbl.setProperty("role", "card-title")
+    def _card_title(self, key: str) -> QLabel:
+        lbl = QLabel(self._t.gettext(key)); lbl.setProperty("role", "card-title")
         return lbl
 
     # ---- title bar -------------------------------------------------------
 
     def _build_titlebar(self) -> QHBoxLayout:
-        row = QHBoxLayout()
-        row.setSpacing(Spacing.MD)
+        row = QHBoxLayout(); row.setSpacing(Spacing.MD)
         self._title = QLabel(self._t.gettext("si.title"))
         self._title.setProperty("role", "page-title")
         row.addWidget(self._title)
         self._badge = chip(self._t.gettext("si.prototype_badge"), "warning")
         row.addWidget(self._badge)
         row.addStretch(1)
-        self._demo_chip = chip(self._t.gettext("si.demo_data"), "neutral")
-        row.addWidget(self._demo_chip)
+        self._kbd_hint = muted(self._t.gettext("si.keyboard_hint"))
+        row.addWidget(self._kbd_hint)
         return row
 
-    # ---- header band (invoice details + customer) ------------------------
+    # ---- header (invoice meta + customer autocomplete) -------------------
 
-    def _build_header_band(self) -> QHBoxLayout:
-        band = QHBoxLayout()
-        band.setSpacing(Spacing.SECTION_GAP)
-        band.addWidget(self._build_invoice_details(), stretch=3)
-        band.addWidget(self._build_customer_panel(), stretch=2)
-        return band
-
-    def _build_invoice_details(self) -> QWidget:
-        card = Card(role="section")
-        apply_shadow(card)
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(Spacing.LG)
-        grid.setVerticalSpacing(Spacing.SM)
-
+    def _build_header(self) -> QWidget:
+        card = Card(role="section"); apply_shadow(card)
         t = self._t
-        inv_no = apply_field_width(self._line("SALE-000001"), FieldWidth.SM)
+
+        meta = QHBoxLayout(); meta.setSpacing(Spacing.LG)
+        inv_no = apply_field_width(QLineEdit("SALE-000001"), FieldWidth.SM)
         date = QDateEdit(); date.setCalendarPopup(True); date.setDisplayFormat("yyyy/MM/dd")
         apply_field_width(date, FieldWidth.SM)
-        currency = self._combo(["AFN", "USD", "PKR", "EUR"]); apply_field_width(currency, FieldWidth.SM)
-        rate = apply_field_width(self._line("1.00"), FieldWidth.SM)
         warehouse = self._combo(["Main", "Store-2", "Transit"]); apply_field_width(warehouse, FieldWidth.MD)
         salesperson = self._combo(["—", "Ahmad", "Sara"]); apply_field_width(salesperson, FieldWidth.MD)
-        reference = apply_field_width(self._line(), FieldWidth.MD)
-        description = apply_field_width(self._line(), FieldWidth.LG)
+        currency = self._combo(["AFN", "USD", "PKR", "EUR"]); apply_field_width(currency, FieldWidth.SM)
+        rate = apply_field_width(QLineEdit("1.00"), FieldWidth.SM)
+        for lbl, ctrl in (
+            ("si.invoice_no", inv_no), ("si.date", date), ("si.warehouse", warehouse),
+            ("si.salesperson", salesperson), ("si.currency", currency), ("si.rate", rate),
+        ):
+            meta.addWidget(LabeledField(t.gettext(lbl), ctrl))
+        meta.addStretch(1)
+        card.body.addLayout(meta)
 
-        cells = [
-            (t.gettext("si.invoice_no"), inv_no),
-            (t.gettext("si.date"), date),
-            (t.gettext("si.currency"), currency),
-            (t.gettext("si.rate"), rate),
-            (t.gettext("si.warehouse"), warehouse),
-            (t.gettext("si.salesperson"), salesperson),
-            (t.gettext("si.reference"), reference),
-        ]
-        self._detail_fields: list[LabeledField] = []
-        for i, (label, control) in enumerate(cells):
-            lf = LabeledField(label, control)
-            self._detail_fields.append(lf)
-            grid.addWidget(lf, i // 4, i % 4)
-        # Description spans the remaining width on its row.
-        desc_lf = LabeledField(t.gettext("si.description"), description)
-        self._detail_fields.append(desc_lf)
-        grid.addWidget(desc_lf, 1, 3)
-        for c in range(4):
-            grid.setColumnStretch(c, 1)
+        # Customer autocomplete row + live info chips.
+        cust_row = QHBoxLayout(); cust_row.setSpacing(Spacing.LG)
+        self._customer_selector = SearchSelector(
+            self._customers, placeholder=t.gettext("si.customer_search_ph"),
+            display_index=0, panel_width=460,
+        )
+        self._customer_selector.rowSelected.connect(self._on_customer_selected)
+        cust_field = LabeledField(t.gettext("si.customer"), self._customer_selector)
+        cust_field.setMinimumWidth(int(FieldWidth.LG))
+        cust_row.addWidget(cust_field, 2)
 
-        card.body.addLayout(grid)
+        self._chip_phone = self._info_chip("si.phone", "—", "neutral")
+        self._chip_balance = self._info_chip("si.prev_balance", "—", "neutral")
+        self._chip_credit = self._info_chip("si.credit_limit", "—", "info")
+        cust_row.addWidget(self._chip_phone)
+        cust_row.addWidget(self._chip_balance)
+        cust_row.addWidget(self._chip_credit)
+        cust_row.addStretch(1)
+        card.body.addLayout(cust_row)
         return card
 
-    def _build_customer_panel(self) -> QWidget:
-        card = Card(role="section")
-        apply_shadow(card)
-        t = self._t
-        card.body.addWidget(self._card_title(t.gettext("si.customer")))
-
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(Spacing.LG)
-        grid.setVerticalSpacing(Spacing.SM)
-
-        code = apply_field_width(self._line("C-1001"), FieldWidth.SM)
-        name = apply_field_width(self._line(t.gettext("list.search")), FieldWidth.LG)
-        phone = apply_field_width(self._line("070 000 0000"), FieldWidth.MD)
-        address = apply_field_width(self._line(), FieldWidth.LG)
-
-        self._customer_fields = [
-            LabeledField(t.gettext("si.customer_code"), code),
-            LabeledField(t.gettext("si.customer_name"), name),
-            LabeledField(t.gettext("si.phone"), phone),
-            LabeledField(t.gettext("si.address"), address),
-        ]
-        grid.addWidget(self._customer_fields[0], 0, 0)
-        grid.addWidget(self._customer_fields[1], 0, 1)
-        grid.addWidget(self._customer_fields[2], 1, 0)
-        grid.addWidget(self._customer_fields[3], 1, 1)
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(1, 2)
-        card.body.addLayout(grid)
-
-        # Balance / credit indicators (demonstration values).
-        indicators = QHBoxLayout()
-        indicators.setSpacing(Spacing.SM)
-        self._prev_balance = self._indicator(
-            t.gettext("si.prev_balance"), "12,500.00 AFN", "danger"
-        )
-        self._credit_limit = self._indicator(
-            t.gettext("si.credit_limit"), "50,000.00 AFN", "info"
-        )
-        indicators.addWidget(self._prev_balance)
-        indicators.addWidget(self._credit_limit)
-        indicators.addStretch(1)
-        card.body.addLayout(indicators)
-        card.body.addStretch(1)
-        return card
-
-    def _indicator(self, label: str, value: str, accent: str) -> QWidget:
-        wrap = QWidget()
-        wrap.setStyleSheet("background: transparent;")
-        row = QHBoxLayout(wrap)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(Spacing.SM)
-        lab = QLabel(label); lab.setProperty("role", "field-label")
-        row.addWidget(lab)
-        row.addWidget(chip(value, accent))
+    def _info_chip(self, label_key: str, value: str, accent: str) -> QWidget:
+        wrap = QWidget(); wrap.setStyleSheet("background: transparent;")
+        row = QHBoxLayout(wrap); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(Spacing.XS)
+        lab = field_label(self._t.gettext(label_key))
+        val = chip(value, accent)
+        row.addWidget(lab); row.addWidget(val)
+        wrap._label = lab  # type: ignore[attr-defined]
+        wrap._value = val  # type: ignore[attr-defined]
+        wrap._label_key = label_key  # type: ignore[attr-defined]
         return wrap
 
-    # ---- center grid -----------------------------------------------------
+    # ---- grid ------------------------------------------------------------
 
-    def _grid_columns(self) -> list[str]:
-        return [
-            "si.col_row", "si.col_item_code", "si.col_item_name", "si.col_unit",
-            "si.col_qty", "si.col_price", "si.col_discount", "si.col_total",
-            "si.col_warehouse",
-        ]
+    def _grid_headers(self) -> list[str]:
+        return ["si.col_row", "si.col_item_code", "si.col_item_name", "si.col_unit",
+                "si.col_qty", "si.col_price", "si.col_discount", "si.col_total",
+                "si.col_warehouse"]
 
-    def _build_grid(self) -> QWidget:
-        keys = self._grid_columns()
-        table = QTableWidget(len(_ROWS) + 1, len(keys))  # +1 empty entry row
-        table.setHorizontalHeaderLabels([self._t.gettext(k) for k in keys])
-        table.verticalHeader().setVisible(False)
-        table.setAlternatingRowColors(True)
-        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        table.verticalHeader().setDefaultSectionSize(ControlSize.TABLE_ROW_HEIGHT)
+    def _build_grid_card(self) -> QWidget:
+        card = Card(role="section"); apply_shadow(card)
+        bar = QHBoxLayout(); bar.setSpacing(Spacing.SM)
+        bar.addWidget(self._card_title("si.lines"))
+        bar.addStretch(1)
+        self._btn_delete = secondary_button(self._t.gettext("si.delete_line"))
+        self._btn_delete.setIcon(standard_icon("delete"))
+        self._btn_delete.clicked.connect(self._delete_selected_line)
+        bar.addWidget(self._btn_delete)
+        card.body.addLayout(bar)
 
-        header = table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)  # Item Name
+        self._table = QTableWidget(0, 9)
+        self._table.setHorizontalHeaderLabels([self._t.gettext(k) for k in self._grid_headers()])
+        self._table.verticalHeader().setVisible(False)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._table.verticalHeader().setDefaultSectionSize(ControlSize.TABLE_ROW_HEIGHT + 2)
+        self._table.setMinimumHeight(230)
+
+        header = self._table.horizontalHeader()
         header.setHighlightSections(False)
-        widths = {0: 44, 1: 110, 3: 70, 4: 80, 5: 110, 6: 90, 7: 120, 8: 100}
+        header.setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Stretch)
+        widths = {COL_NO: 40, COL_CODE: 100, COL_UNIT: 60, COL_QTY: 74,
+                  COL_PRICE: 104, COL_DISC: 84, COL_TOTAL: 116, COL_WH: 92}
         for col, w in widths.items():
-            table.setColumnWidth(col, w)
-        # Keep the grid a healthy, dominant size even on smaller screens.
-        table.setMinimumHeight(220)
+            self._table.setColumnWidth(col, w)
+        card.body.addWidget(self._table)
+        return card
 
-        numeric = {4, 5, 6, 7}
-        for r, (code, name, unit, qty, price, disc, total, wh) in enumerate(_ROWS):
-            values = [str(r + 1), code, name, unit, f"{qty:,}",
-                      f"{price:,.2f}", f"{disc:,.2f}", f"{total:,.2f}", wh]
-            for col, text in enumerate(values):
-                item = QTableWidgetItem(text)
-                align = (Qt.AlignmentFlag.AlignRight if col in numeric
-                         else Qt.AlignmentFlag.AlignLeft)
-                item.setTextAlignment(align | Qt.AlignmentFlag.AlignVCenter)
-                table.setItem(r, col, item)
-        # Trailing empty row hints where the next line is entered.
-        for col in range(len(keys)):
-            table.setItem(len(_ROWS), col, QTableWidgetItem(""))
-        table.item(len(_ROWS), 0).setText(str(len(_ROWS) + 1))
+    def _reload_demo_lines(self) -> None:
+        self._table.setRowCount(0)
+        for line in _DEMO_LINES:
+            self._append_committed_row(*line)
 
-        table.selectRow(1)
-        self._table = table
-        return table
+    def _append_committed_row(self, code, name, unit, qty, price, disc, wh) -> None:
+        r = self._table.rowCount()
+        self._table.insertRow(r)
+        total = qty * price - disc
+        cells = [str(r + 1), code, name, unit, f"{qty:,.0f}", _money(price),
+                 _money(disc), _money(total), wh]
+        numeric = {COL_QTY, COL_PRICE, COL_DISC, COL_TOTAL}
+        for col, text in enumerate(cells):
+            item = QTableWidgetItem(text)
+            align = Qt.AlignmentFlag.AlignRight if col in numeric else Qt.AlignmentFlag.AlignLeft
+            item.setTextAlignment(align | Qt.AlignmentFlag.AlignVCenter)
+            self._table.setItem(r, col, item)
 
-    # ---- bottom band (operational info + summary) ------------------------
+    def _add_active_row(self) -> None:
+        r = self._table.rowCount()
+        self._table.insertRow(r)
+        self._active_row = r
+        self._table.setItem(r, COL_NO, self._ro_item(str(r + 1)))
+        self._table.setItem(r, COL_CODE, self._ro_item(""))
+        self._table.setItem(r, COL_UNIT, self._ro_item(""))
+        self._table.setItem(r, COL_TOTAL, self._ro_item(""))
+        self._table.setItem(r, COL_WH, self._ro_item("Main"))
+
+        self._item_selector = SearchSelector(
+            self._items, placeholder=self._t.gettext("si.item_search_ph"),
+            display_index=1, panel_width=520,
+        )
+        self._item_selector.rowSelected.connect(self._on_item_selected)
+        self._table.setCellWidget(r, COL_NAME, self._item_selector)
+
+        self._qty_edit = self._numeric_edit(ph="0")
+        self._price_edit = self._numeric_edit(ph="0.00")
+        self._disc_edit = self._numeric_edit("0.00")
+        self._table.setCellWidget(r, COL_QTY, self._qty_edit)
+        self._table.setCellWidget(r, COL_PRICE, self._price_edit)
+        self._table.setCellWidget(r, COL_DISC, self._disc_edit)
+
+        self._qty_edit.returnPressed.connect(self._price_edit.setFocus)
+        self._price_edit.returnPressed.connect(self._disc_edit.setFocus)
+        self._disc_edit.returnPressed.connect(self._commit_active_row)
+        for e in (self._qty_edit, self._price_edit, self._disc_edit):
+            e.textEdited.connect(self._recompute_active_total)
+        self._table.selectRow(r)
+
+    def _ro_item(self, text: str) -> QTableWidgetItem:
+        item = QTableWidgetItem(text)
+        item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        return item
+
+    def _on_item_selected(self, row: SearchRow) -> None:
+        p = row.payload
+        self._table.item(self._active_row, COL_CODE).setText(p["code"])
+        self._table.item(self._active_row, COL_UNIT).setText(p["unit"])
+        self._price_edit.setText(_money(p["price"]))
+        if not self._qty_edit.text():
+            self._qty_edit.setText("1")
+        self._update_quick_info(p)
+        self._recompute_active_total()
+        self._qty_edit.setFocus()
+        self._qty_edit.selectAll()
+
+    def _recompute_active_total(self, *_a) -> None:
+        total = _num(self._qty_edit.text()) * _num(self._price_edit.text()) - _num(self._disc_edit.text())
+        self._table.item(self._active_row, COL_TOTAL).setText(_money(total) if self._table.item(self._active_row, COL_CODE).text() else "")
+
+    def _commit_active_row(self) -> None:
+        code = self._table.item(self._active_row, COL_CODE).text()
+        if not code:
+            return
+        r = self._active_row
+        name = self._item_selector.text()
+        unit = self._table.item(r, COL_UNIT).text()
+        qty, price, disc = _num(self._qty_edit.text()), _num(self._price_edit.text()), _num(self._disc_edit.text())
+        wh = self._table.item(r, COL_WH).text()
+        for col in (COL_NAME, COL_QTY, COL_PRICE, COL_DISC):
+            self._table.removeCellWidget(r, col)
+        total = qty * price - disc
+        for col, text, num in (
+            (COL_NAME, name, False), (COL_QTY, f"{qty:,.0f}", True),
+            (COL_PRICE, _money(price), True), (COL_DISC, _money(disc), True),
+            (COL_TOTAL, _money(total), True),
+        ):
+            item = QTableWidgetItem(text)
+            align = Qt.AlignmentFlag.AlignRight if num else Qt.AlignmentFlag.AlignLeft
+            item.setTextAlignment(align | Qt.AlignmentFlag.AlignVCenter)
+            self._table.setItem(r, col, item)
+        self._add_active_row()
+        self._recompute_totals()
+        self._item_selector.focus()
+
+    def _delete_selected_line(self) -> None:
+        r = self._table.currentRow()
+        if r < 0 or r == getattr(self, "_active_row", -1):
+            return
+        self._table.removeRow(r)
+        self._renumber()
+        self._active_row = self._table.rowCount() - 1
+        self._recompute_totals()
+
+    def _renumber(self) -> None:
+        for r in range(self._table.rowCount()):
+            if self._table.item(r, COL_NO):
+                self._table.item(r, COL_NO).setText(str(r + 1))
+
+    # ---- quick item info (permission-aware) ------------------------------
+
+    def _update_quick_info(self, payload: dict) -> None:
+        self._tile_stock.set_value(f"{payload['stock']:,.0f}")
+        self._tile_last_sale.set_value(_money(payload["last_sale"]) + " AFN")
+        self._tile_default.set_value(_money(payload["price"]) + " AFN")
+
+    # ---- bottom band -----------------------------------------------------
 
     def _build_bottom_band(self) -> QHBoxLayout:
-        band = QHBoxLayout()
-        band.setSpacing(Spacing.SECTION_GAP)
-        band.addWidget(self._build_operational(), stretch=3)
-        band.addWidget(self._build_summary(), stretch=2)
+        band = QHBoxLayout(); band.setSpacing(Spacing.SECTION_GAP)
+        band.addWidget(self._build_quick_info(), stretch=3)
+        band.addWidget(self._build_payment(), stretch=2)
         return band
 
-    def _build_operational(self) -> QWidget:
-        card = Card(role="section")
-        apply_shadow(card)
-        t = self._t
-        card.body.addWidget(self._card_title(t.gettext("si.operational")))
-        tiles = QHBoxLayout()
-        tiles.setSpacing(Spacing.MD)
-        self._op_tiles = [
-            StatTile(t.gettext("si.op_stock"), "142 Ctn", accent="info"),
-            StatTile(t.gettext("si.op_last_purchase"), "310.00 AFN"),
-            StatTile(t.gettext("si.op_last_sale"), "325.00 AFN"),
-            StatTile(t.gettext("si.op_avg_cost"), "308.40 AFN", accent="success"),
-        ]
-        for tile in self._op_tiles:
+    def _build_quick_info(self) -> QWidget:
+        card = Card(role="section"); apply_shadow(card)
+        card.body.addWidget(self._card_title("si.operational"))
+        tiles = QHBoxLayout(); tiles.setSpacing(Spacing.MD)
+        self._tile_stock = StatTile(self._t.gettext("si.op_stock"), "—", accent="info")
+        self._tile_last_sale = StatTile(self._t.gettext("si.op_last_sale"), "—")
+        self._tile_default = StatTile(self._t.gettext("si.default_price"), "—")
+        for tile in (self._tile_stock, self._tile_last_sale, self._tile_default):
             tile.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             tiles.addWidget(tile)
         card.body.addLayout(tiles)
+        # Cost/profit is permission-gated (Prompt 01D §8) — not shown by default.
+        self._cost_note = muted(self._t.gettext("si.cost_hidden"))
+        card.body.addWidget(self._cost_note)
         card.body.addStretch(1)
         return card
 
-    def _build_summary(self) -> QWidget:
-        card = Card(role="section")
-        apply_shadow(card)
+    def _build_payment(self) -> QWidget:
+        card = Card(role="section"); apply_shadow(card)
         t = self._t
 
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(Spacing.XL)
-        grid.setVerticalSpacing(Spacing.XS)
-        rows = [
-            ("si.subtotal", "75,930.00"),
-            ("si.discount", "120.00"),
-            ("si.additional", "0.00"),
-            ("si.tax", "0.00"),
-        ]
-        self._summary_labels: list[tuple[str, QLabel]] = []
-        for i, (key, value) in enumerate(rows):
-            name = QLabel(t.gettext(key)); name.setProperty("role", "total-label")
-            val = QLabel(value); val.setProperty("role", "total-value")
-            val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            grid.addWidget(name, i, 0)
-            grid.addWidget(val, i, 1)
-            self._summary_labels.append((key, name))
-        grid.setColumnStretch(1, 1)
-        card.body.addLayout(grid)
+        # Cash / Credit segmented indicator.
+        seg = QHBoxLayout(); seg.setSpacing(Spacing.XS)
+        seg.addWidget(self._card_title("si.payment"))
+        seg.addStretch(1)
+        self._seg_cash = chip(t.gettext("si.pay_cash"), "success")
+        self._seg_credit = chip(t.gettext("si.pay_credit"), "neutral")
+        seg.addWidget(self._seg_cash); seg.addWidget(self._seg_credit)
+        card.body.addLayout(seg)
 
-        # Emphasized grand total.
+        # Grand total (emphasized).
         gt = QFrame(); gt.setProperty("role", "grand-total")
-        gt_row = QHBoxLayout(gt)
-        gt_row.setContentsMargins(Spacing.MD, Spacing.SM, Spacing.MD, Spacing.SM)
+        gtl = QHBoxLayout(gt); gtl.setContentsMargins(Spacing.MD, Spacing.SM, Spacing.MD, Spacing.SM)
         self._grand_label = QLabel(t.gettext("si.grand_total"))
         self._grand_label.setProperty("role", "grand-total-label")
-        gt_val = QLabel("75,810.00 AFN")
-        gt_val.setProperty("role", "grand-total-value")
-        gt_val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        gt_row.addWidget(self._grand_label)
-        gt_row.addStretch(1)
-        gt_row.addWidget(gt_val)
+        self._grand_value = QLabel("—")
+        self._grand_value.setProperty("role", "grand-total-value")
+        self._grand_value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        gtl.addWidget(self._grand_label); gtl.addStretch(1); gtl.addWidget(self._grand_value)
         card.body.addWidget(gt)
 
-        # Payment split.
-        pay = QGridLayout()
-        pay.setHorizontalSpacing(Spacing.XL)
-        pay.setVerticalSpacing(Spacing.XS)
-        self._cash_label = QLabel(t.gettext("si.cash_received"))
-        self._cash_label.setProperty("role", "total-label")
-        cash_val = QLabel("40,000.00"); cash_val.setProperty("role", "total-value")
-        cash_val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._rem_label = QLabel(t.gettext("si.remaining"))
-        self._rem_label.setProperty("role", "total-label")
-        rem_val = QLabel("35,810.00"); rem_val.setProperty("role", "total-value")
-        rem_val.setProperty("accent", "danger")
-        rem_val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        pay.addWidget(self._cash_label, 0, 0); pay.addWidget(cash_val, 0, 1)
-        pay.addWidget(self._rem_label, 1, 0); pay.addWidget(rem_val, 1, 1)
+        # Amount received (editable) + remaining (computed).
+        pay = QGridLayout(); pay.setHorizontalSpacing(Spacing.LG); pay.setVerticalSpacing(Spacing.XS)
+        self._recv_label = QLabel(t.gettext("si.cash_received")); self._recv_label.setProperty("role", "total-label")
+        self._recv_edit = self._numeric_edit(_money(self._received))
+        apply_field_width(self._recv_edit, FieldWidth.SM)
+        self._recv_edit.textEdited.connect(self._on_received_changed)
+        self._rem_label = QLabel(t.gettext("si.remaining")); self._rem_label.setProperty("role", "total-label")
+        self._rem_value = QLabel("—"); self._rem_value.setProperty("role", "total-value")
+        self._rem_value.setProperty("accent", "danger")
+        self._rem_value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        pay.addWidget(self._recv_label, 0, 0); pay.addWidget(self._recv_edit, 0, 1)
+        pay.addWidget(self._rem_label, 1, 0); pay.addWidget(self._rem_value, 1, 1)
         pay.setColumnStretch(1, 1)
         card.body.addLayout(pay)
         return card
+
+    def _on_received_changed(self, *_a) -> None:
+        self._received = _num(self._recv_edit.text())
+        self._recompute_totals()
+
+    # ---- totals ----------------------------------------------------------
+
+    def _committed_subtotal(self) -> float:
+        total = 0.0
+        for r in range(self._table.rowCount()):
+            if r == getattr(self, "_active_row", -1):
+                continue
+            cell = self._table.item(r, COL_TOTAL)
+            if cell:
+                total += _num(cell.text())
+        return total
+
+    def _recompute_totals(self) -> None:
+        grand = self._committed_subtotal()
+        self._grand_value.setText(_money(grand) + " AFN")
+        remaining = grand - self._received
+        self._rem_value.setText(_money(remaining))
+        # Cash when fully paid, otherwise credit.
+        cash = remaining <= 0.001
+        self._seg_cash.setProperty("chip", "success" if cash else "neutral")
+        self._seg_credit.setProperty("chip", "neutral" if cash else "warning")
+        for c in (self._seg_cash, self._seg_credit):
+            c.style().unpolish(c); c.style().polish(c)
 
     # ---- action bar ------------------------------------------------------
 
@@ -387,28 +453,62 @@ class SalesInvoiceDemoPage(QScrollArea):
         row = QHBoxLayout(bar)
         row.setContentsMargins(Spacing.MD, Spacing.SM, Spacing.MD, Spacing.SM)
         row.setSpacing(Spacing.SM)
-        t = self._t
-
-        # (label_key, shortcut, primary)
         specs = [
-            ("si.act_new", "F2", False),
-            ("si.act_save", "Ctrl+S", True),
-            ("si.act_save_print", "Ctrl+P", False),
-            ("si.act_print", "F9", False),
-            ("si.act_receive", "F6", False),
+            ("si.act_new", "new", "F2", False),
+            ("si.act_save", "save", "Ctrl+S", True),
+            ("si.act_save_print", "save", "Ctrl+P", False),
+            ("si.act_print", "print", "F9", False),
+            ("si.act_receive", "receive", "F6", False),
         ]
         self._action_buttons: list[tuple[str, QWidget]] = []
-        for key, shortcut, is_primary in specs:
-            btn = primary_button(t.gettext(key)) if is_primary else secondary_button(t.gettext(key))
-            btn.setToolTip(shortcut)
+        for key, icon, shortcut, primary in specs:
+            btn = primary_button(self._t.gettext(key)) if primary else secondary_button(self._t.gettext(key))
+            btn.setIcon(standard_icon(icon)); btn.setToolTip(shortcut)
             self._action_buttons.append((key, btn))
             row.addWidget(btn)
             hint = QLabel(shortcut); hint.setProperty("role", "shortcut")
             row.addWidget(hint)
         row.addStretch(1)
-        self._close_btn = secondary_button(t.gettext("si.act_close"))
+        self._close_btn = secondary_button(self._t.gettext("si.act_close"))
+        self._close_btn.setIcon(standard_icon("close"))
         row.addWidget(self._close_btn)
         return bar
+
+    # ---- demo drivers (for screenshots / tests) --------------------------
+
+    def open_item_search(self, text: str = "bas") -> None:
+        self._item_selector.open_with(text)
+
+    def select_item(self, index: int = 0, qty: str = "12") -> None:
+        rows = self._item_selector.current_rows() or self._items.search(self._item_selector.text() or "bas")
+        if rows:
+            row = rows[index]
+            self._qty_edit.setText(qty)
+            # Mirror the real accept path: show the item name, close the popup.
+            self._item_selector.set_text(row.values[1])
+            self._item_selector._hide_panel()
+            self._on_item_selected(row)
+
+    def open_customer_search(self, text: str = "ka") -> None:
+        self._customer_selector.open_with(text)
+
+    def select_customer(self, index: int = 0) -> None:
+        rows = self._customers.search("ka")
+        if rows:
+            self._on_customer_selected(rows[index])
+
+    def _on_customer_selected(self, row: SearchRow) -> None:
+        p = row.payload
+        self._set_info_chip(self._chip_phone, p["phone"], "neutral")
+        bal = p["balance"]
+        self._set_info_chip(self._chip_balance, _money(bal) + " AFN",
+                            "danger" if bal > 0 else "success")
+        self._set_info_chip(self._chip_credit, _money(p["credit_limit"]) + " AFN", "info")
+
+    def _set_info_chip(self, wrap: QWidget, value: str, accent: str) -> None:
+        val = wrap._value  # type: ignore[attr-defined]
+        val.setText(value); val.setProperty("chip", accent)
+        val.style().unpolish(val); val.style().polish(val)
 
     # ---- i18n ------------------------------------------------------------
 
@@ -416,14 +516,19 @@ class SalesInvoiceDemoPage(QScrollArea):
         self._t = translator
         self._title.setText(translator.gettext("si.title"))
         self._badge.setText(translator.gettext("si.prototype_badge"))
-        self._demo_chip.setText(translator.gettext("si.demo_data"))
-        keys = self._grid_columns()
-        self._table.setHorizontalHeaderLabels([translator.gettext(k) for k in keys])
+        self._kbd_hint.setText(translator.gettext("si.keyboard_hint"))
+        self._table.setHorizontalHeaderLabels([translator.gettext(k) for k in self._grid_headers()])
         self._grand_label.setText(translator.gettext("si.grand_total"))
-        self._cash_label.setText(translator.gettext("si.cash_received"))
+        self._recv_label.setText(translator.gettext("si.cash_received"))
         self._rem_label.setText(translator.gettext("si.remaining"))
-        for key, label in self._summary_labels:
-            label.setText(translator.gettext(key))
+        self._btn_delete.setText(escape_amp(translator.gettext("si.delete_line")))
+        self._customer_selector.line_edit.setPlaceholderText(translator.gettext("si.customer_search_ph"))
+        self._item_selector.line_edit.setPlaceholderText(translator.gettext("si.item_search_ph"))
+        self._cost_note.setText(translator.gettext("si.cost_hidden"))
+        for wrap in (self._chip_phone, self._chip_balance, self._chip_credit):
+            wrap._label.setText(translator.gettext(wrap._label_key))  # type: ignore[attr-defined]
         for key, btn in self._action_buttons:
             btn.setText(escape_amp(translator.gettext(key)))
         self._close_btn.setText(escape_amp(translator.gettext("si.act_close")))
+        self._seg_cash.setText(translator.gettext("si.pay_cash"))
+        self._seg_credit.setText(translator.gettext("si.pay_credit"))

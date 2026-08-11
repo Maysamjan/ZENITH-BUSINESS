@@ -265,6 +265,29 @@ _CATALOG: dict[str, dict[str, str]] = {
     "si.op_last_purchase": {LANG_ENGLISH: "Last Purchase", LANG_DARI: "آخرین خرید"},
     "si.op_last_sale": {LANG_ENGLISH: "Last Sale", LANG_DARI: "آخرین فروش"},
     "si.op_avg_cost": {LANG_ENGLISH: "Average Cost", LANG_DARI: "اوسط قیمت"},
+    # rapid-entry UX (Stage 01D)
+    "si.item_search_ph": {
+        LANG_ENGLISH: "Type item name, code or barcode…",
+        LANG_DARI: "نام، کود یا بارکد جنس را تایپ کنید…",
+    },
+    "si.customer_search_ph": {
+        LANG_ENGLISH: "Search customer by name, code or phone…",
+        LANG_DARI: "جستجوی مشتری با نام، کود یا تیلیفون…",
+    },
+    "si.keyboard_hint": {
+        LANG_ENGLISH: "Enter next line · ↑ ↓ choose · Enter select · Esc close · Del remove line",
+        LANG_DARI: "Enter سطر بعدی · ↑ ↓ انتخاب · Enter تایید · Esc بستن · Del حذف سطر",
+    },
+    "si.payment": {LANG_ENGLISH: "Payment", LANG_DARI: "پرداخت"},
+    "si.pay_cash": {LANG_ENGLISH: "Cash", LANG_DARI: "نقد"},
+    "si.pay_credit": {LANG_ENGLISH: "Credit", LANG_DARI: "نسیه"},
+    "si.delete_line": {LANG_ENGLISH: "Delete Line", LANG_DARI: "حذف سطر"},
+    "si.lines": {LANG_ENGLISH: "Invoice Lines", LANG_DARI: "اقلام بل"},
+    "si.default_price": {LANG_ENGLISH: "Default Sale Price", LANG_DARI: "قیمت فروش پیش‌فرض"},
+    "si.cost_hidden": {
+        LANG_ENGLISH: "Average cost & profit are hidden (permission-gated).",
+        LANG_DARI: "قیمت تمام‌شد و مفاد پنهان است (وابسته به اجازه دسترسی).",
+    },
     # actions
     "si.act_new": {LANG_ENGLISH: "New", LANG_DARI: "جدید"},
     "si.act_save": {LANG_ENGLISH: "Save", LANG_DARI: "ذخیره"},
