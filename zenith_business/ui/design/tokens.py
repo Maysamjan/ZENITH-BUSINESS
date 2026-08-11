@@ -30,11 +30,14 @@ class Spacing(IntEnum):
     XXL = 32
     XXXL = 48
 
-    # Semantic layout spacing
-    PAGE_MARGIN = 24
-    SECTION_GAP = 20
-    FIELD_VGAP = 10
-    FIELD_HGAP = 12
+    # Semantic layout spacing — tuned for professional information density
+    # (Prompt 01C §5): tight, rhythmic, never cramped.
+    PAGE_MARGIN = 14
+    SECTION_GAP = 12
+    CARD_PAD_H = 14
+    CARD_PAD_V = 12
+    FIELD_VGAP = 7
+    FIELD_HGAP = 10
 
 
 class Radius(IntEnum):
@@ -52,21 +55,24 @@ class ControlSize(IntEnum):
     """Heights / hit-targets for chrome and controls (logical px)."""
 
     # Shell chrome
-    HEADER_HEIGHT = 56
-    NAV_HEIGHT = 46
-    CONTEXT_HEIGHT = 44
-    STATUSBAR_HEIGHT = 28
+    HEADER_HEIGHT = 54
+    NAV_HEIGHT = 42
+    CONTEXT_HEIGHT = 40
+    STATUSBAR_HEIGHT = 26
 
-    # Controls
-    INPUT_HEIGHT = 34
-    INPUT_COMPACT_HEIGHT = 28
-    BUTTON_HEIGHT = 34
-    TOOLBAR_BUTTON_HEIGHT = 30
-    NAV_BUTTON_HEIGHT = 34
+    # Controls (denser for fast daily data entry — Prompt 01C §5)
+    INPUT_HEIGHT = 30
+    INPUT_COMPACT_HEIGHT = 26
+    BUTTON_HEIGHT = 32
+    TOOLBAR_BUTTON_HEIGHT = 28
+    NAV_BUTTON_HEIGHT = 32
 
     # Tables
-    TABLE_ROW_HEIGHT = 32
-    TABLE_HEADER_HEIGHT = 34
+    TABLE_ROW_HEIGHT = 28
+    TABLE_HEADER_HEIGHT = 30
+
+    # Stat / KPI tiles
+    STAT_TILE_HEIGHT = 56
 
     # Iconography
     ICON_SM = 16
@@ -126,6 +132,9 @@ class Typography:
     SIZE_CAPTION = 9          # captions / hints
     SIZE_NAV = 10             # primary navigation
     SIZE_TAGLINE = 12         # home tagline
+    SIZE_STAT_VALUE = 13      # stat/KPI tile value
+    SIZE_STAT_LABEL = 9       # stat/KPI tile label
+    SIZE_TOTAL = 15           # emphasized grand total
 
     WEIGHT_NORMAL = 400
     WEIGHT_MEDIUM = 500

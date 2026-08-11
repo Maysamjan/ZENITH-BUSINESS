@@ -70,6 +70,8 @@ def test_tools_commands_reach_design_previews(window: MainWindow) -> None:
     assert window.content.currentWidget() is window.form_page
     window.show_table_demo()
     assert window.content.currentWidget() is window.table_page
+    window.show_sales_invoice()
+    assert window.content.currentWidget() is window.sales_invoice_page
 
 
 def test_status_bar_shows_real_state_only(window: MainWindow) -> None:

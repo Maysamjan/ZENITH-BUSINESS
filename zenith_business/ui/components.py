@@ -8,8 +8,10 @@ locally. Nothing here contains business logic or touches the database.
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QFrame,
+    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -18,7 +20,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from zenith_business.ui.design.tokens import FieldWidth, Spacing
+from zenith_business.ui.design.tokens import Color, ControlSize, FieldWidth, Spacing, Typography
 
 
 # ---- primitives ---------------------------------------------------------
@@ -77,21 +79,31 @@ def chip(text: str, kind: str = "neutral") -> QLabel:
     return label
 
 
+def escape_amp(text: str) -> str:
+    """Escape ``&`` for Qt button/menu labels so it renders literally.
+
+    Qt treats a single ``&`` as a mnemonic marker; escape it (e.g. 'Save & Print')
+    until deliberate Alt-mnemonics are assigned per module. Use this whenever a
+    label is set on a QPushButton, including in ``retranslate``.
+    """
+    return text.replace("&", "&&")
+
+
 def primary_button(text: str) -> QPushButton:
-    btn = QPushButton(text)
+    btn = QPushButton(escape_amp(text))
     btn.setProperty("variant", "primary")
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
     return btn
 
 
 def secondary_button(text: str) -> QPushButton:
-    btn = QPushButton(text)
+    btn = QPushButton(escape_amp(text))
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
     return btn
 
 
 def ghost_button(text: str) -> QPushButton:
-    btn = QPushButton(text)
+    btn = QPushButton(escape_amp(text))
     btn.setProperty("variant", "ghost")
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
     return btn
@@ -119,6 +131,22 @@ def apply_field_width(widget: QWidget, width: FieldWidth) -> QWidget:
     return widget
 
 
+def apply_shadow(
+    widget: QWidget, *, blur: int = 24, y: int = 4, alpha: int = 38
+) -> QWidget:
+    """Attach a soft drop shadow to a card/panel for subtle depth (§6).
+
+    Kept restrained (low alpha, tight offset) so the UI reads premium, not noisy.
+    """
+    effect = QGraphicsDropShadowEffect(widget)
+    effect.setBlurRadius(blur)
+    effect.setXOffset(0)
+    effect.setYOffset(y)
+    effect.setColor(QColor(20, 38, 61, alpha))
+    widget.setGraphicsEffect(effect)
+    return widget
+
+
 # ---- composite widgets --------------------------------------------------
 
 
@@ -130,9 +158,78 @@ class Card(QFrame):
         self.setProperty("role", role)
         self.body = QVBoxLayout(self)
         self.body.setContentsMargins(
-            Spacing.XL, Spacing.LG, Spacing.XL, Spacing.LG
+            Spacing.CARD_PAD_H, Spacing.CARD_PAD_V,
+            Spacing.CARD_PAD_H, Spacing.CARD_PAD_V,
         )
-        self.body.setSpacing(Spacing.MD)
+        self.body.setSpacing(Spacing.SM)
+
+
+class StatTile(QFrame):
+    """Compact labelled metric tile (label + value) for operational info (§3).
+
+    Values shown in prototypes are clearly demonstration data, not live figures.
+    """
+
+    def __init__(
+        self,
+        label: str,
+        value: str = "—",
+        *,
+        accent: str = "neutral",
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setProperty("role", "stat")
+        self.setMinimumHeight(ControlSize.STAT_TILE_HEIGHT)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(Spacing.MD, Spacing.SM, Spacing.MD, Spacing.SM)
+        layout.setSpacing(Spacing.XXS)
+
+        self._label = QLabel(label)
+        self._label.setProperty("role", "stat-label")
+        self._value = QLabel(value)
+        self._value.setProperty("role", "stat-value")
+        self._value.setProperty("accent", accent)
+        layout.addWidget(self._label)
+        layout.addWidget(self._value)
+
+    def set_value(self, value: str) -> None:
+        self._value.setText(value)
+
+    def set_label(self, label: str) -> None:
+        self._label.setText(label)
+
+
+class LabeledField(QWidget):
+    """A field label stacked above its control — compact and grid-friendly (§9).
+
+    Ideal for dense multi-column business headers where label-beside-field would
+    waste width. The control keeps its semantic width; the label never squeezes
+    the input.
+    """
+
+    def __init__(
+        self,
+        label: str,
+        control: QWidget,
+        *,
+        width: FieldWidth | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setStyleSheet("background: transparent;")
+        col = QVBoxLayout(self)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(Spacing.XXS)
+        self._label = field_label(label)
+        col.addWidget(self._label)
+        if width is not None:
+            apply_field_width(control, width)
+        col.addWidget(control)
+        self.control = control
+
+    def set_label(self, label: str) -> None:
+        self._label.setText(label)
 
 
 class PageHeader(QWidget):

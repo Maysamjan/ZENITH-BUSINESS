@@ -44,7 +44,8 @@ def test_typography_hierarchy_is_distinct() -> None:
 def test_control_dimensions_present() -> None:
     assert ControlSize.INPUT_HEIGHT > 0
     assert ControlSize.HEADER_HEIGHT > ControlSize.STATUSBAR_HEIGHT
-    assert Spacing.PAGE_MARGIN >= Spacing.LG
+    # Denser professional layout (§5): page margin is compact but not zero.
+    assert Spacing.MD <= Spacing.PAGE_MARGIN <= Spacing.XL
 
 
 # ---- widgets (need a QApplication) --------------------------------------
@@ -82,3 +83,28 @@ def test_form_and_table_pages_construct() -> None:
     table = TableDemoPage(t)
     assert table.table.rowCount() > 0
     assert table.table.columnCount() == 7
+
+
+def test_sales_invoice_prototype_constructs_both_directions() -> None:
+    from zenith_business.core.i18n import Translator
+    from zenith_business.ui.pages.sales_invoice_demo import SalesInvoiceDemoPage
+
+    for lang in ("en", "fa_AF"):
+        page = SalesInvoiceDemoPage(Translator(lang))
+        # Dominant line-item grid with the full column set + a trailing entry row.
+        assert page._table.columnCount() == 9
+        assert page._table.rowCount() >= 6
+        # Retranslate must not raise.
+        page.retranslate(Translator("fa_AF" if lang == "en" else "en"))
+
+
+def test_stat_tile_and_labeled_field() -> None:
+    from PyQt6.QtWidgets import QLineEdit
+
+    from zenith_business.ui.components import LabeledField, StatTile
+    from zenith_business.ui.design.tokens import FieldWidth
+
+    tile = StatTile("Stock", "10")
+    tile.set_value("20")
+    lf = LabeledField("Name", QLineEdit(), width=FieldWidth.LG)
+    assert lf.control.minimumWidth() == int(FieldWidth.LG)

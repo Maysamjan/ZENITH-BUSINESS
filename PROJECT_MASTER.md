@@ -15,8 +15,8 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 0.3 |
-| Current Stage | **01 — PROJECT FOUNDATION + 01B UI REFINEMENT (implemented; READY FOR OWNER REVIEW)** |
+| PROJECT_MASTER.md Version | 0.4 |
+| Current Stage | **01 — FOUNDATION + 01B/01C PREMIUM UI (implemented; READY FOR OWNER REVIEW)** |
 | Database Schema Version | none (infrastructure only; **no tables created**) |
 | Last Updated | 2026-08-11 |
 
@@ -172,7 +172,7 @@ requested module is implemented.
 | # | Module | Status |
 |---|--------|--------|
 | 00 | MASTER (constitution) | ✅ Ratified (on `main`) |
-| 01 | Project Foundation (+01B UI refinement) | 🔶 Implemented — **ready for owner review** (not LOCKED) |
+| 01 | Project Foundation (+01B/01C premium UI) | 🔶 Implemented — **ready for owner review** (not LOCKED) |
 | 02 | Database | ⛔ Not started |
 | 03 | Company & Financial Year | ⛔ Not started |
 | 04 | Chart of Accounts | ⛔ Not started |
@@ -542,6 +542,77 @@ be added later without layout changes. No third-party/Chortkeh icons.
 
 ---
 
+## 13C. Stage 01C — Premium UI Redesign + Sales Invoice reference (pending review)
+
+A further UI/UX-only redesign (Prompt 01C) raising the shell to a premium
+commercial standard and establishing the **Sales Invoice** screen as the visual
+reference for all future business forms. Backend untouched; all infra tests pass.
+No business tables, no accounting/inventory logic, no persistence.
+
+### 13C.1 Information density (§5)
+
+Spacing/control tokens re-tuned denser for fast daily entry (page margin 14,
+section gap 12, input 30 / compact 26, table row 28, header 54 / nav 42 /
+context 40) — compact but not cramped. Card padding reduced via `CARD_PAD_*`.
+
+### 13C.2 Grid-based business-form architecture (§2, §4)
+
+Business screens follow **Top** (compact transaction header) → **Center**
+(dominant line-item grid) → **Bottom** (totals + operational info + actions),
+using the **full workspace width/height**. New building blocks:
+`components.StatTile`, `components.LabeledField` (label-above-control for dense
+multi-column headers), `apply_shadow` (subtle depth), `escape_amp` (centralized
+ampersand escaping for all button factories).
+
+### 13C.3 Sales Invoice prototype — REFERENCE DESIGN (§3)
+
+`ui/pages/sales_invoice_demo.py` — the standard every future transaction screen
+(Sales/Purchase invoices & returns, receipts, payments, journal voucher) must
+follow. Sections: invoice header (number, date, currency, rate, warehouse,
+salesperson, reference, description); customer panel (code, searchable name,
+phone, address, previous-balance + credit-limit indicators); **dominant** line
+grid (#, item code, item name [stretch], unit, qty, unit price, discount, total,
+warehouse, numeric right-aligned, trailing entry row); summary (subtotal,
+discount, additional expense, tax, emphasized **Grand Total**, cash received,
+credit/remaining); operational stat tiles (current stock, last purchase, last
+sale, average cost); bottom action bar (New/Save/Save & Print/Print/Receive
+Cash/Close) with **shortcut hints** (F2/Ctrl+S/…). Wrapped in a resizable scroll
+area: grid dominates at 1600×900 / 1920×1080, keeps a healthy minimum and
+scrolls gracefully at 1366×768. **All figures are labelled demonstration data.**
+
+### 13C.4 Field-width rules (§9)
+
+Central `FieldWidth.XS/SM/MD/LG/XL` applied by meaning — code/date/qty/currency
+compact; name/address/description wide; amounts medium + right-aligned;
+searchable selectors wide (LG). Long labels never sit beside tiny inputs.
+
+### 13C.5 List/management screen (§12 required screenshot #7)
+
+`TableDemoPage` upgraded with a toolbar (search field, record count, New +
+disabled Edit/Delete placeholders) above the styled table — the reference for
+future master-data/list screens.
+
+### 13C.6 RTL first-class (§10)
+
+The complete Sales Invoice was verified in Dari RTL: header, customer panel,
+line grid (columns mirror, numerics stay right-aligned), totals, operational
+tiles, and action bar (button order mirrored, shortcut hints retained). Latin
+brand/wordmark stays LTR.
+
+### 13C.7 Screenshots delivered (§12)
+
+Home (Dari, English), Sales Invoice (Dari 1600×900, English 1600×900, 1366×768,
+1920×1080), and the list screen — all actual application renders.
+
+### 13C.8 Tests & known issues
+
+**72 tests pass** (added Sales Invoice construction in both directions + StatTile/
+LabeledField; adjusted a density assertion). Known issues: real logo still
+pending; at 1366×768 the invoice action bar sits just below the fold (small
+scroll by design); demo figures are illustrative; icon set still deferred.
+
+---
+
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
@@ -549,6 +620,7 @@ be added later without layout changes. No third-party/Chortkeh icons.
 | 2026-08-11 | 0.1 | Initial constitution captured from Master Spec v1.0 at Stage 00. No production code or schema created. Awaiting Prompt 01 — Project Foundation. |
 | 2026-08-11 | 0.2 | Stage 01 (Project Foundation) implemented on feature branch: project structure, config, identity, logging, exceptions/global handler, SQLite infrastructure (connection + transactions + health, FK on, WAL), i18n/RTL-LTR, centralized UI design system, top-nav shell + branded home + status bar, security readiness (PBKDF2 passwords, licensing boundary), 60 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 | 2026-08-11 | 0.3 | Stage 01B (UI/UX refinement) on the same feature branch: three-tier top chrome (navy HeaderBar + white PrimaryNav + contextual ContextBar), redesigned composed home (hero + readiness + reserved quick-access), expanded semantic design system (colors, typography hierarchy, control dims, FieldWidth XS–XL, reusable components), form + table + dialog + empty-state standards, RTL/LTR visual pass. Backend foundation unchanged. 70 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
+| 2026-08-11 | 0.4 | Stage 01C (premium UI redesign) on the same feature branch: denser professional layout tokens, grid-based business-form architecture, full **Sales Invoice visual prototype** as the reference design (header + dominant line grid + summary/operational + action bar with shortcut hints), StatTile/LabeledField/apply_shadow/escape_amp components, upgraded list/management screen, home depth refinement, multi-resolution (1366/1600/1920) + Dari-RTL verification. Backend unchanged. 72 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 
 ---
 

@@ -209,6 +209,69 @@ _CATALOG: dict[str, dict[str, str]] = {
         LANG_ENGLISH: "Sample rows for design illustration only.",
         LANG_DARI: "سطرهای نمونه فقط برای نمایش دیزاین.",
     },
+    "list.search": {LANG_ENGLISH: "Search…", LANG_DARI: "جستجو…"},
+    "list.rows_count": {LANG_ENGLISH: "6 sample records", LANG_DARI: "۶ رکورد نمونه"},
+    # ---- Tools command: Sales Invoice prototype -----------------------
+    "cmd.tools.sales_invoice": {
+        LANG_ENGLISH: "Sales Invoice (Prototype)",
+        LANG_DARI: "بل فروش (پیش‌نمونه)",
+    },
+    # ---- Sales Invoice prototype --------------------------------------
+    "si.title": {LANG_ENGLISH: "Sales Invoice", LANG_DARI: "بل فروش"},
+    "si.prototype_badge": {
+        LANG_ENGLISH: "PROTOTYPE — visual only, no data is saved",
+        LANG_DARI: "پیش‌نمونه — فقط نمایشی، داده‌ای ذخیره نمی‌شود",
+    },
+    "si.demo_data": {LANG_ENGLISH: "Demonstration data", LANG_DARI: "داده‌های نمایشی"},
+    "si.operational": {LANG_ENGLISH: "Operational Info", LANG_DARI: "معلومات عملیاتی"},
+    # header
+    "si.invoice_no": {LANG_ENGLISH: "Invoice No.", LANG_DARI: "شماره بل"},
+    "si.date": {LANG_ENGLISH: "Date", LANG_DARI: "تاریخ"},
+    "si.reference": {LANG_ENGLISH: "Reference", LANG_DARI: "مرجع"},
+    "si.warehouse": {LANG_ENGLISH: "Warehouse", LANG_DARI: "انبار"},
+    "si.salesperson": {LANG_ENGLISH: "Salesperson", LANG_DARI: "فروشنده"},
+    "si.currency": {LANG_ENGLISH: "Currency", LANG_DARI: "اسعار"},
+    "si.rate": {LANG_ENGLISH: "Exchange Rate", LANG_DARI: "نرخ تبادله"},
+    "si.description": {LANG_ENGLISH: "Description", LANG_DARI: "تفصیلات"},
+    # customer
+    "si.customer": {LANG_ENGLISH: "Customer", LANG_DARI: "مشتری"},
+    "si.customer_code": {LANG_ENGLISH: "Customer Code", LANG_DARI: "کود مشتری"},
+    "si.customer_name": {LANG_ENGLISH: "Customer Name", LANG_DARI: "نام مشتری"},
+    "si.phone": {LANG_ENGLISH: "Phone", LANG_DARI: "تیلیفون"},
+    "si.address": {LANG_ENGLISH: "Address", LANG_DARI: "آدرس"},
+    "si.prev_balance": {LANG_ENGLISH: "Previous Balance", LANG_DARI: "بیلانس قبلی"},
+    "si.credit_limit": {LANG_ENGLISH: "Credit Limit", LANG_DARI: "حد اعتبار"},
+    # grid columns
+    "si.col_row": {LANG_ENGLISH: "#", LANG_DARI: "#"},
+    "si.col_item_code": {LANG_ENGLISH: "Item Code", LANG_DARI: "کود جنس"},
+    "si.col_item_name": {LANG_ENGLISH: "Item Name", LANG_DARI: "نام جنس"},
+    "si.col_unit": {LANG_ENGLISH: "Unit", LANG_DARI: "واحد"},
+    "si.col_qty": {LANG_ENGLISH: "Qty", LANG_DARI: "مقدار"},
+    "si.col_price": {LANG_ENGLISH: "Unit Price", LANG_DARI: "قیمت فی واحد"},
+    "si.col_discount": {LANG_ENGLISH: "Discount", LANG_DARI: "تخفیف"},
+    "si.col_tax": {LANG_ENGLISH: "Tax", LANG_DARI: "مالیه"},
+    "si.col_total": {LANG_ENGLISH: "Total", LANG_DARI: "مجموع"},
+    "si.col_warehouse": {LANG_ENGLISH: "Warehouse", LANG_DARI: "انبار"},
+    # summary
+    "si.subtotal": {LANG_ENGLISH: "Subtotal", LANG_DARI: "مجموع فرعی"},
+    "si.discount": {LANG_ENGLISH: "Discount", LANG_DARI: "تخفیف"},
+    "si.additional": {LANG_ENGLISH: "Additional Expense", LANG_DARI: "مصارف اضافی"},
+    "si.tax": {LANG_ENGLISH: "Tax", LANG_DARI: "مالیه"},
+    "si.grand_total": {LANG_ENGLISH: "Grand Total", LANG_DARI: "مجموع کل"},
+    "si.cash_received": {LANG_ENGLISH: "Cash Received", LANG_DARI: "نقد دریافت‌شده"},
+    "si.remaining": {LANG_ENGLISH: "Credit / Remaining", LANG_DARI: "باقی / نسیه"},
+    # operational info
+    "si.op_stock": {LANG_ENGLISH: "Current Stock", LANG_DARI: "موجودی فعلی"},
+    "si.op_last_purchase": {LANG_ENGLISH: "Last Purchase", LANG_DARI: "آخرین خرید"},
+    "si.op_last_sale": {LANG_ENGLISH: "Last Sale", LANG_DARI: "آخرین فروش"},
+    "si.op_avg_cost": {LANG_ENGLISH: "Average Cost", LANG_DARI: "اوسط قیمت"},
+    # actions
+    "si.act_new": {LANG_ENGLISH: "New", LANG_DARI: "جدید"},
+    "si.act_save": {LANG_ENGLISH: "Save", LANG_DARI: "ذخیره"},
+    "si.act_save_print": {LANG_ENGLISH: "Save & Print", LANG_DARI: "ذخیره و چاپ"},
+    "si.act_print": {LANG_ENGLISH: "Print", LANG_DARI: "چاپ"},
+    "si.act_receive": {LANG_ENGLISH: "Receive Cash", LANG_DARI: "دریافت نقد"},
+    "si.act_close": {LANG_ENGLISH: "Close", LANG_DARI: "بستن"},
 }
 
 

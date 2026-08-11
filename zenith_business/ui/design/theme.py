@@ -346,6 +346,61 @@ def build_stylesheet() -> str:
     }}
     QLabel[role="empty-subtitle"] {{ color: {c.TEXT_MUTED}; font-size: {t.SIZE_BODY}pt; }}
 
+    /* ==== stat / KPI tiles ============================================== */
+    QFrame[role="stat"] {{
+        background-color: {c.SURFACE};
+        border: 1px solid {c.BORDER};
+        border-radius: {Radius.MD}px;
+    }}
+    QLabel[role="stat-label"] {{
+        color: {c.TEXT_MUTED}; font-size: {t.SIZE_STAT_LABEL}pt;
+    }}
+    QLabel[role="stat-value"] {{
+        color: {c.TEXT_PRIMARY}; font-size: {t.SIZE_STAT_VALUE}pt;
+        font-weight: {t.WEIGHT_SEMIBOLD};
+    }}
+    QLabel[role="stat-value"][accent="success"] {{ color: {c.SUCCESS}; }}
+    QLabel[role="stat-value"][accent="danger"] {{ color: {c.DANGER}; }}
+    QLabel[role="stat-value"][accent="warning"] {{ color: {c.WARNING}; }}
+    QLabel[role="stat-value"][accent="info"] {{ color: {c.PRIMARY}; }}
+
+    /* ==== totals / summary ============================================== */
+    QLabel[role="total-label"] {{ color: {c.TEXT_SECONDARY}; font-size: {t.SIZE_BODY}pt; }}
+    QLabel[role="total-value"] {{
+        color: {c.TEXT_PRIMARY}; font-size: {t.SIZE_BODY}pt;
+        font-weight: {t.WEIGHT_MEDIUM};
+    }}
+    QFrame[role="grand-total"] {{
+        background-color: {c.PRIMARY_SOFT};
+        border: 1px solid {c.PRIMARY};
+        border-radius: {Radius.MD}px;
+    }}
+    QLabel[role="grand-total-label"] {{
+        color: {c.PRIMARY_PRESSED}; font-size: {t.SIZE_SECTION_TITLE}pt;
+        font-weight: {t.WEIGHT_SEMIBOLD};
+    }}
+    QLabel[role="grand-total-value"] {{
+        color: {c.PRIMARY_PRESSED}; font-size: {t.SIZE_TOTAL}pt;
+        font-weight: {t.WEIGHT_BOLD};
+    }}
+
+    /* ==== bottom action bar ============================================= */
+    QFrame[role="actionbar"] {{
+        background-color: {c.SURFACE};
+        border: 1px solid {c.BORDER};
+        border-radius: {Radius.MD}px;
+    }}
+    QLabel[role="shortcut"] {{
+        color: {c.TEXT_MUTED}; font-size: {t.SIZE_CAPTION}pt;
+    }}
+
+    /* ==== section header strip (card titles with underline) ============= */
+    QLabel[role="card-title"] {{
+        color: {c.TEXT_PRIMARY}; font-size: {t.SIZE_SECTION_TITLE}pt;
+        font-weight: {t.WEIGHT_SEMIBOLD};
+        padding-bottom: {Spacing.XS}px;
+    }}
+
     /* ==== menus (used by combo popups / context menus) ================== */
     QMenu {{
         background-color: {c.SURFACE}; border: 1px solid {c.BORDER};

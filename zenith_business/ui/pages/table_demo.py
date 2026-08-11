@@ -12,7 +12,9 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QFrame,
+    QHBoxLayout,
     QHeaderView,
+    QLineEdit,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -20,8 +22,14 @@ from PyQt6.QtWidgets import (
 )
 
 from zenith_business.core.i18n import Translator
-from zenith_business.ui.components import PageHeader, muted
-from zenith_business.ui.design.tokens import ControlSize, Spacing
+from zenith_business.ui.components import (
+    PageHeader,
+    apply_field_width,
+    muted,
+    primary_button,
+    secondary_button,
+)
+from zenith_business.ui.design.tokens import ControlSize, FieldWidth, Spacing
 
 # Generic, obviously-fake illustration rows (not business data).
 _SAMPLE = [
@@ -56,11 +64,37 @@ class TableDemoPage(QWidget):
         )
         layout.addWidget(self._header)
 
+        layout.addLayout(self._build_toolbar())
+
         self._table = self._build_table()
         layout.addWidget(self._table, stretch=1)
 
         self._footer = muted(self._t.gettext("table.footer"))
         layout.addWidget(self._footer)
+
+    def _build_toolbar(self) -> QHBoxLayout:
+        """List-screen toolbar: search + record actions (placeholder)."""
+        row = QHBoxLayout()
+        row.setSpacing(Spacing.SM)
+        self._search = QLineEdit()
+        self._search.setPlaceholderText(self._t.gettext("list.search"))
+        apply_field_width(self._search, FieldWidth.LG)
+        row.addWidget(self._search)
+        self._rows_note = muted(self._t.gettext("list.rows_count"))
+        row.addWidget(self._rows_note)
+        row.addStretch(1)
+        # Record actions — placeholders (no persistence in this stage).
+        self._btn_new = primary_button(self._t.gettext("si.act_new"))
+        self._btn_edit = secondary_button(self._t.gettext("action.save"))
+        self._btn_delete = secondary_button(self._t.gettext("si.act_close"))
+        self._btn_edit.setText("Edit")
+        self._btn_delete.setText("Delete")
+        for b in (self._btn_edit, self._btn_delete):
+            b.setEnabled(False)
+        row.addWidget(self._btn_new)
+        row.addWidget(self._btn_edit)
+        row.addWidget(self._btn_delete)
+        return row
 
     def _column_keys(self) -> list[str]:
         return [

@@ -45,6 +45,7 @@ from zenith_business.ui.components import EmptyState, vertical_line
 from zenith_business.ui.design.tokens import ControlSize
 from zenith_business.ui.home_screen import HomeScreen
 from zenith_business.ui.pages.form_demo import FormDemoPage
+from zenith_business.ui.pages.sales_invoice_demo import SalesInvoiceDemoPage
 from zenith_business.ui.pages.table_demo import TableDemoPage
 from zenith_business.ui.shell import ContextBar, HeaderBar, PrimaryNav
 
@@ -98,6 +99,7 @@ _COMMANDS: dict[str, list[tuple[str, bool, str | None]]] = {
         ("cmd.item.movement", False, None),
     ],
     "menu.tools": [
+        ("cmd.tools.sales_invoice", True, "sales_invoice"),
         ("cmd.tools.form_demo", True, "form"),
         ("cmd.tools.table_demo", True, "table"),
         ("cmd.tools.settings", False, None),
@@ -166,8 +168,9 @@ class MainWindow(QMainWindow):
         )
         self.form_page = FormDemoPage(self._translator)
         self.table_page = TableDemoPage(self._translator)
-        for page in (self.home_page, self.unavailable_page,
-                     self.form_page, self.table_page):
+        self.sales_invoice_page = SalesInvoiceDemoPage(self._translator)
+        for page in (self.home_page, self.unavailable_page, self.form_page,
+                     self.table_page, self.sales_invoice_page):
             self.content.addWidget(page)
         layout.addWidget(self.content, stretch=1)
 
@@ -205,6 +208,7 @@ class MainWindow(QMainWindow):
         actions: dict[str, Callable[[], None]] = {
             "form": self.show_form_demo,
             "table": self.show_table_demo,
+            "sales_invoice": self.show_sales_invoice,
         }
         commands = [
             (
@@ -233,6 +237,9 @@ class MainWindow(QMainWindow):
 
     def show_table_demo(self) -> None:
         self.content.setCurrentWidget(self.table_page)
+
+    def show_sales_invoice(self) -> None:
+        self.content.setCurrentWidget(self.sales_invoice_page)
 
     # ---- status ----------------------------------------------------------
 
@@ -268,6 +275,7 @@ class MainWindow(QMainWindow):
         self.home_page.retranslate(self._translator)
         self.form_page.retranslate(self._translator)
         self.table_page.retranslate(self._translator)
+        self.sales_invoice_page.retranslate(self._translator)
         self.unavailable_page.set_text(
             self._translator.gettext("empty.unavailable_title"),
             self._translator.gettext("empty.unavailable_sub"),

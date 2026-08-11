@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
 
 from zenith_business.core.i18n import Translator
 from zenith_business.core.identity import IDENTITY
-from zenith_business.ui.components import Card, chip, muted, section_title
+from zenith_business.ui.components import Card, apply_shadow, chip, muted, section_title
 from zenith_business.ui.design.tokens import ControlSize, FieldWidth, Spacing
 
 
@@ -54,9 +54,9 @@ class HomeScreen(QScrollArea):
         self.setWidget(outer)
         outer_layout = QVBoxLayout(outer)
         outer_layout.setContentsMargins(
-            Spacing.XXL, Spacing.XXL, Spacing.XXL, Spacing.XXL
+            Spacing.XXL, Spacing.XL, Spacing.XXL, Spacing.XL
         )
-        outer_layout.addStretch(1)
+        outer_layout.addStretch(2)
 
         # Centered, max-width content column.
         center_row = QHBoxLayout()
@@ -66,11 +66,11 @@ class HomeScreen(QScrollArea):
         center_row.addWidget(self._column, stretch=0)
         center_row.addStretch(1)
         outer_layout.addLayout(center_row)
-        outer_layout.addStretch(2)
+        outer_layout.addStretch(3)
 
         col = QVBoxLayout(self._column)
         col.setContentsMargins(0, 0, 0, 0)
-        col.setSpacing(Spacing.XL)
+        col.setSpacing(Spacing.LG)
 
         col.addWidget(self._build_hero())
 
@@ -88,8 +88,9 @@ class HomeScreen(QScrollArea):
 
     def _build_hero(self) -> QWidget:
         hero = Card()
-        hero.body.setContentsMargins(Spacing.XXL, Spacing.XXL, Spacing.XXL, Spacing.XXL)
-        hero.body.setSpacing(Spacing.MD)
+        apply_shadow(hero, blur=32, y=6, alpha=34)
+        hero.body.setContentsMargins(Spacing.XXL, Spacing.XL, Spacing.XXL, Spacing.XL)
+        hero.body.setSpacing(Spacing.SM)
 
         self._logo = QLabel()
         self._logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -149,6 +150,7 @@ class HomeScreen(QScrollArea):
 
     def _build_readiness_card(self) -> QWidget:
         card = Card()
+        apply_shadow(card)
         card.body.addWidget(section_title(self._t.gettext("home.readiness")))
 
         self._readiness_grid = QGridLayout()
@@ -207,6 +209,7 @@ class HomeScreen(QScrollArea):
 
     def _build_quick_access_card(self) -> QWidget:
         card = Card()
+        apply_shadow(card)
         card.body.addWidget(section_title(self._t.gettext("home.quick_access")))
 
         grid = QGridLayout()
