@@ -1,20 +1,39 @@
-"""Application shell: top navigation, central workspace, status bar.
+"""Application main window — shell assembly (Prompt 01B §3-§8, §22).
 
-Prompt 01 §12-§14, §24, §33. The primary navigation is a **top** menu bar (no
-permanent left sidebar). Business modules are NOT implemented — top menus exist
-as clearly-disabled placeholders to demonstrate the navigation architecture
-without appearing functional (§33).
+Composition (Chortkeh-style concept, original Zenith identity):
 
-The shell wires only real, existing information into the status bar (§24): the
-database health, the license state (development), and the active language. No
-business values are faked.
+    +---------------------------------------------------------------+
+    | HeaderBar      ZENITH BUSINESS            Guest · EN | دری     |
+    +---------------------------------------------------------------+
+    | PrimaryNav     Home | Base | Sales | Payments | ... | Tools   |
+    +---------------------------------------------------------------+
+    | ContextBar     COMMANDS | <contextual command buttons>        |
+    +---------------------------------------------------------------+
+    |                                                               |
+    |   Content stack: Home / Unavailable / Form demo / Table demo  |
+    |                                                               |
+    +---------------------------------------------------------------+
+    | StatusBar   company · database · license                      |
+    +---------------------------------------------------------------+
+
+Business functionality is NOT implemented. Business categories expose disabled
+placeholder commands and a truthful "unavailable" state; the enabled commands
+(Tools → Form/Table preview) exist only to validate the design system.
 """
 
 from __future__ import annotations
 
+from typing import Callable
+
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QAction, QActionGroup
-from PyQt6.QtWidgets import QLabel, QMainWindow, QMenu, QStatusBar, QWidget
+from PyQt6.QtWidgets import (
+    QLabel,
+    QMainWindow,
+    QStackedWidget,
+    QStatusBar,
+    QVBoxLayout,
+    QWidget,
+)
 
 from zenith_business.core.config import AppConfig, LANG_DARI, LANG_ENGLISH
 from zenith_business.core.i18n import Direction, Translator, resolve_direction
@@ -22,14 +41,17 @@ from zenith_business.core.identity import IDENTITY
 from zenith_business.core.logging_setup import get_logger
 from zenith_business.database import Database, check_health
 from zenith_business.security.licensing import DevelopmentLicenseProvider, LicenseProvider
+from zenith_business.ui.components import EmptyState, vertical_line
 from zenith_business.ui.design.tokens import ControlSize
 from zenith_business.ui.home_screen import HomeScreen
+from zenith_business.ui.pages.form_demo import FormDemoPage
+from zenith_business.ui.pages.table_demo import TableDemoPage
+from zenith_business.ui.shell import ContextBar, HeaderBar, PrimaryNav
 
 _logger = get_logger("ui.main_window")
 
-# Placeholder top-level menu keys (order matters; RTL flips visually via layout
-# direction, not by reordering). Business commands are intentionally absent.
-_PLACEHOLDER_MENUS = (
+# Primary categories (top navigation). Business commands are placeholders.
+_CATEGORIES = (
     "menu.base_data",
     "menu.buy_sell",
     "menu.receipts_payments",
@@ -38,6 +60,49 @@ _PLACEHOLDER_MENUS = (
     "menu.item_reports",
     "menu.tools",
 )
+
+# Contextual commands per category. Tuple: (text_key, enabled, action_name).
+# action_name is only used for enabled Tools commands.
+_COMMANDS: dict[str, list[tuple[str, bool, str | None]]] = {
+    "menu.base_data": [
+        ("cmd.base.persons", False, None),
+        ("cmd.base.products", False, None),
+        ("cmd.base.warehouses", False, None),
+        ("cmd.base.currencies", False, None),
+    ],
+    "menu.buy_sell": [
+        ("cmd.sales.sale_invoice", False, None),
+        ("cmd.sales.sale_return", False, None),
+        ("cmd.sales.purchase_invoice", False, None),
+        ("cmd.sales.purchase_return", False, None),
+        ("cmd.sales.quotation", False, None),
+    ],
+    "menu.receipts_payments": [
+        ("cmd.pay.receipt", False, None),
+        ("cmd.pay.payment", False, None),
+        ("cmd.pay.transfer", False, None),
+    ],
+    "menu.funds": [
+        ("cmd.funds.cash", False, None),
+        ("cmd.funds.bank", False, None),
+        ("cmd.funds.exchange", False, None),
+    ],
+    "menu.account_reports": [
+        ("cmd.acct.ledger", False, None),
+        ("cmd.acct.trial", False, None),
+        ("cmd.acct.statement", False, None),
+    ],
+    "menu.item_reports": [
+        ("cmd.item.kardex", False, None),
+        ("cmd.item.stock", False, None),
+        ("cmd.item.movement", False, None),
+    ],
+    "menu.tools": [
+        ("cmd.tools.form_demo", True, "form"),
+        ("cmd.tools.table_demo", True, "table"),
+        ("cmd.tools.settings", False, None),
+    ],
+}
 
 
 class MainWindow(QMainWindow):
@@ -55,61 +120,58 @@ class MainWindow(QMainWindow):
         self._database = database
         self._license = license_provider or DevelopmentLicenseProvider()
         self._translator = Translator(config.ui.language)
+        self._current_category: str | None = None
 
         self.setWindowTitle(IDENTITY.title)
-        self.setMinimumSize(900, 600)  # usable on smaller supported screens (§17)
+        self.setMinimumSize(1024, 640)  # usable on 1366×768 and up (§16)
 
-        self._home = HomeScreen(self._translator)
-        self.setCentralWidget(self._home)
-
-        self._build_menus()
+        self._build_shell()
         self._build_status_bar()
         self._apply_direction()
+        self.show_home()
         self._refresh_status()
+        self._refresh_home_readiness()
 
-    # ---- menus (TOP navigation) ------------------------------------------
+    # ---- shell assembly --------------------------------------------------
 
-    def _build_menus(self) -> None:
-        menubar = self.menuBar()
-        menubar.setNativeMenuBar(False)  # keep menus in-window on all platforms
-        menubar.clear()
-        self._menu_actions: dict[str, QMenu] = {}
+    def _build_shell(self) -> None:
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        note = self._translator.gettext("menu.placeholder_note")
-        for key in _PLACEHOLDER_MENUS:
-            menu = menubar.addMenu(_display(self._translator.gettext(key)))
-            # A single disabled item makes clear the module is not yet available.
-            placeholder = QAction(note, self)
-            placeholder.setEnabled(False)
-            menu.addAction(placeholder)
-            self._menu_actions[key] = menu
+        self.header = HeaderBar(
+            self._translator,
+            on_language=self._switch_language,
+            on_home=self.show_home,
+        )
+        self.primary_nav = PrimaryNav(
+            self._translator,
+            list(_CATEGORIES),
+            on_home=self.show_home,
+            on_select=self.select_category,
+        )
+        self.context_bar = ContextBar(self._translator)
 
-        # Tools menu carries the only *real* shell commands: language + exit.
-        tools_menu = self._menu_actions["menu.tools"]
-        tools_menu.addSeparator()
-        self._add_language_menu(tools_menu)
-        tools_menu.addSeparator()
-        exit_action = QAction(_display(self._translator.gettext("menu.exit")), self)
-        exit_action.setShortcut("Ctrl+Q")
-        exit_action.triggered.connect(self.close)
-        tools_menu.addAction(exit_action)
+        layout.addWidget(self.header)
+        layout.addWidget(self.primary_nav)
+        layout.addWidget(self.context_bar)
 
-    def _add_language_menu(self, parent: QMenu) -> None:
-        lang_menu = parent.addMenu(_display(self._translator.gettext("menu.language")))
-        group = QActionGroup(self)
-        group.setExclusive(True)
+        # Central content stack.
+        self.content = QStackedWidget()
+        self.home_page = HomeScreen(self._translator)
+        self.unavailable_page = EmptyState(
+            self._translator.gettext("empty.unavailable_title"),
+            self._translator.gettext("empty.unavailable_sub"),
+        )
+        self.form_page = FormDemoPage(self._translator)
+        self.table_page = TableDemoPage(self._translator)
+        for page in (self.home_page, self.unavailable_page,
+                     self.form_page, self.table_page):
+            self.content.addWidget(page)
+        layout.addWidget(self.content, stretch=1)
 
-        for key, code in (
-            ("menu.language.english", LANG_ENGLISH),
-            ("menu.language.dari", LANG_DARI),
-        ):
-            action = QAction(_display(self._translator.gettext(key)), self, checkable=True)
-            action.setChecked(self._translator.language == code)
-            action.triggered.connect(lambda _checked, c=code: self._switch_language(c))
-            group.addAction(action)
-            lang_menu.addAction(action)
-
-    # ---- status bar ------------------------------------------------------
+        self.setCentralWidget(container)
 
     def _build_status_bar(self) -> None:
         bar = QStatusBar()
@@ -120,42 +182,103 @@ class MainWindow(QMainWindow):
         self._status_company = QLabel()
         self._status_db = QLabel()
         self._status_license = QLabel()
+        self._status_license.setProperty("role", "status-strong")
 
-        # Permanent widgets sit on the trailing edge; direction-aware by Qt.
         bar.addWidget(self._status_company, 1)
         bar.addPermanentWidget(self._status_db)
-        bar.addPermanentWidget(_separator())
+        bar.addPermanentWidget(vertical_line())
         bar.addPermanentWidget(self._status_license)
+
+    # ---- navigation ------------------------------------------------------
+
+    def show_home(self) -> None:
+        self._current_category = None
+        self.primary_nav.set_selected(None)
+        self.context_bar.show_hint()
+        self.content.setCurrentWidget(self.home_page)
+
+    def select_category(self, key: str) -> None:
+        self._current_category = key
+        self.primary_nav.set_selected(key)
+
+        specs = _COMMANDS.get(key, [])
+        actions: dict[str, Callable[[], None]] = {
+            "form": self.show_form_demo,
+            "table": self.show_table_demo,
+        }
+        commands = [
+            (
+                self._translator.gettext(text_key),
+                enabled,
+                actions.get(action) if action else None,
+            )
+            for text_key, enabled, action in specs
+        ]
+        self.context_bar.set_commands(commands)
+
+        if key == "menu.tools":
+            # Tools keeps the current content; user picks a preview command.
+            return
+
+        # Business category → truthful "unavailable" state naming the section.
+        category_name = self._translator.gettext(key)
+        self.unavailable_page.set_text(
+            self._translator.gettext("empty.unavailable_title"),
+            f"{category_name} — {self._translator.gettext('empty.unavailable_sub')}",
+        )
+        self.content.setCurrentWidget(self.unavailable_page)
+
+    def show_form_demo(self) -> None:
+        self.content.setCurrentWidget(self.form_page)
+
+    def show_table_demo(self) -> None:
+        self.content.setCurrentWidget(self.table_page)
+
+    # ---- status ----------------------------------------------------------
 
     def _refresh_status(self) -> None:
         t = self._translator
         self._status_company.setText(t.gettext("status.no_company"))
-
-        if self._database is not None:
-            health = check_health(self._database)
-            self._status_db.setText(
-                t.gettext("status.db_ok") if health.ok
-                else t.gettext("status.db_unavailable")
-            )
+        if self._database is not None and check_health(self._database).ok:
+            self._status_db.setText(t.gettext("status.db_ok"))
         else:
             self._status_db.setText(t.gettext("status.db_unavailable"))
-
         state = self._license.current_state()
-        # Show truthful development/unlicensed state (never fake "activated").
-        self._status_license.setText(
-            state.summary if state.summary else t.gettext("status.unlicensed")
+        self._status_license.setText(state.summary or t.gettext("status.unlicensed"))
+
+    def _refresh_home_readiness(self) -> None:
+        db_ok = self._database is not None and check_health(self._database).ok
+        self.home_page.set_readiness(
+            db_ok=db_ok, license_summary=self._license.current_state().summary
         )
 
     # ---- language / direction --------------------------------------------
 
     def _switch_language(self, code: str) -> None:
+        if code not in (LANG_DARI, LANG_ENGLISH):
+            return
         self._translator.set_language(code)
         self._config.ui.language = code
         _logger.info("Language switched to %s", code)
+
         self._apply_direction()
-        self._build_menus()          # rebuild localized menus
-        self._home.retranslate(self._translator)
+        # Retranslate every component (no rebuild of the whole window).
+        self.header.retranslate(self._translator)
+        self.primary_nav.retranslate(self._translator)
+        self.home_page.retranslate(self._translator)
+        self.form_page.retranslate(self._translator)
+        self.table_page.retranslate(self._translator)
+        self.unavailable_page.set_text(
+            self._translator.gettext("empty.unavailable_title"),
+            self._translator.gettext("empty.unavailable_sub"),
+        )
         self._refresh_status()
+        self._refresh_home_readiness()
+        # Restore the contextual command state for the active view.
+        if self._current_category is None:
+            self.context_bar.show_hint()
+        else:
+            self.select_category(self._current_category)
 
     def _apply_direction(self) -> None:
         direction = resolve_direction(
@@ -168,7 +291,7 @@ class MainWindow(QMainWindow):
         )
         self.setLayoutDirection(qt_dir)
 
-    # ---- public helpers (used by tests / bootstrap) ----------------------
+    # ---- public helpers (tests / bootstrap) ------------------------------
 
     @property
     def translator(self) -> Translator:
@@ -176,19 +299,3 @@ class MainWindow(QMainWindow):
 
     def current_direction(self) -> Direction:
         return resolve_direction(self._translator.language, self._config.ui.direction)
-
-
-def _display(text: str) -> str:
-    """Escape ``&`` for Qt menu/action labels so it renders literally.
-
-    Qt treats a single ``&`` as a keyboard-mnemonic marker. Until deliberate
-    mnemonics are assigned per module, escape ampersands (e.g. 'Buy & Sell')
-    so labels display correctly instead of underlining the next character.
-    """
-    return text.replace("&", "&&")
-
-
-def _separator() -> QWidget:
-    sep = QLabel("·")
-    sep.setProperty("class", "muted")
-    return sep

@@ -1,4 +1,4 @@
-"""UI shell foundation (Prompt 01 §12-§14, §33, §32).
+"""UI shell foundation — redesigned shell (Prompt 01B §3-§8, §26).
 
 Runs headlessly via the offscreen Qt platform (see conftest).
 """
@@ -19,7 +19,7 @@ from zenith_business.core.paths import resolve_paths  # noqa: E402
 from zenith_business.database import Database  # noqa: E402
 from zenith_business.database.connection import MEMORY  # noqa: E402
 from zenith_business.ui.design.theme import build_stylesheet  # noqa: E402
-from zenith_business.ui.main_window import MainWindow  # noqa: E402
+from zenith_business.ui.main_window import MainWindow, _CATEGORIES  # noqa: E402
 
 
 @pytest.fixture
@@ -33,48 +33,71 @@ def window(qapp, data_home: Path) -> MainWindow:
 
 def test_stylesheet_builds() -> None:
     css = build_stylesheet()
-    assert "QMenuBar" in css
+    assert "#HeaderBar" in css
+    assert "#PrimaryNav" in css
     assert "QStatusBar" in css
 
 
-def test_window_has_title_and_menus(window: MainWindow) -> None:
+def test_window_title(window: MainWindow) -> None:
     assert "Zenith Business" in window.windowTitle()
-    # Top navigation exists as a menu bar (not a left sidebar).
-    menus = window.menuBar().findChildren(type(window.menuBar().addMenu("x")))
-    assert window.menuBar().actions()  # has top-level menus
 
 
-def test_top_menu_business_items_are_placeholders(window: MainWindow) -> None:
-    # Every business menu should contain only disabled placeholder actions,
-    # i.e. no functional business commands (§33).
-    menubar = window.menuBar()
-    base_data_action = menubar.actions()[0]
-    submenu = base_data_action.menu()
-    assert submenu is not None
-    assert all(not a.isEnabled() for a in submenu.actions())
+def test_primary_nav_has_all_categories(window: MainWindow) -> None:
+    for key in _CATEGORIES:
+        btn = window.primary_nav.button(key)
+        assert btn.text()  # localized, non-empty
+
+
+def test_home_is_default_view(window: MainWindow) -> None:
+    assert window.content.currentWidget() is window.home_page
+
+
+def test_business_category_commands_are_disabled(window: MainWindow) -> None:
+    window.select_category("menu.buy_sell")
+    buttons = window.context_bar.command_buttons()
+    assert buttons  # commands are shown
+    assert all(not b.isEnabled() for b in buttons)  # but none functional
+    # Selecting a not-yet-built category shows the truthful unavailable state.
+    assert window.content.currentWidget() is window.unavailable_page
+
+
+def test_tools_commands_reach_design_previews(window: MainWindow) -> None:
+    window.select_category("menu.tools")
+    buttons = window.context_bar.command_buttons()
+    enabled = [b for b in buttons if b.isEnabled()]
+    assert len(enabled) >= 2  # Form + Table previews are enabled
+    window.show_form_demo()
+    assert window.content.currentWidget() is window.form_page
+    window.show_table_demo()
+    assert window.content.currentWidget() is window.table_page
 
 
 def test_status_bar_shows_real_state_only(window: MainWindow) -> None:
+    from PyQt6.QtWidgets import QLabel
+
     bar = window.statusBar()
-    assert bar is not None
-    # Development/unlicensed truth is displayed, never a faked activation.
-    texts = [lbl.text() for lbl in bar.findChildren(type(_first_label(window)))]
+    texts = [lbl.text() for lbl in bar.findChildren(QLabel)]
+    # Truthful development/unlicensed state — never a faked activation.
     assert any("Development" in t or "توسعه" in t for t in texts)
 
 
 def test_default_direction_is_rtl_for_dari(window: MainWindow) -> None:
-    # Default language is Dari → RTL layout.
     assert window.current_direction() == Direction.RTL
     assert window.layoutDirection() == Qt.LayoutDirection.RightToLeft
 
 
-def test_language_switch_flips_direction(window: MainWindow) -> None:
-    window._switch_language("en")  # exercised via the same path the menu uses
+def test_language_switch_flips_direction_and_retranslates(window: MainWindow) -> None:
+    window._switch_language("en")
     assert window.current_direction() == Direction.LTR
     assert window.layoutDirection() == Qt.LayoutDirection.LeftToRight
+    # Button text is ampersand-escaped for display; it renders as "Buy & Sell".
+    assert window.primary_nav.button("menu.buy_sell").text().replace("&&", "&") == "Buy & Sell"
+    window._switch_language("fa_AF")
+    assert window.layoutDirection() == Qt.LayoutDirection.RightToLeft
 
 
-def _first_label(window: MainWindow):
-    from PyQt6.QtWidgets import QLabel
-
-    return window.statusBar().findChild(QLabel)
+def test_home_button_returns_home(window: MainWindow) -> None:
+    window.select_category("menu.funds")
+    assert window.content.currentWidget() is window.unavailable_page
+    window.show_home()
+    assert window.content.currentWidget() is window.home_page

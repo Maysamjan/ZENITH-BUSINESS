@@ -1,17 +1,15 @@
-"""Design tokens — the numeric/vocabulary vocabulary of the UI.
+"""Design tokens — the single source of truth for the visual system.
 
-These constants are the ONLY approved source for sizing, spacing, typography,
-colors, and standard field widths (Prompt 01 §15-§18, §22). Screens must never
-hard-code raw pixel values; they reference these tokens so the whole application
-stays visually consistent and adapts predictably under Windows DPI scaling.
+These constants are the ONLY approved source for color, spacing, sizing,
+typography, radii, and semantic field widths (Prompt 01/01B §10-§14). Screens
+must never hard-code raw pixel/hex values; they reference these tokens so the
+whole application stays visually consistent and themable, and adapts predictably
+under Windows DPI scaling.
 
-Sizing philosophy
------------------
-Values are chosen for readable, business-oriented density and comfortable touch
-targets at 100% scaling; because Qt scales logical pixels, they also hold up at
-125%/150%. Field widths are expressed as *semantic* sizes (name, amount, date,
-...) so a label like "موجودی اول دوره" always gets a field wide enough to show
-realistic values comfortably (§16) — no arbitrary fixed widths per screen.
+Visual language (Prompt 01B): a deep-navy brand **header** for a serious
+financial-application feel, a clean white **primary navigation** strip with clear
+selected states, a light **contextual command** bar, and a calm light **content**
+surface. Colors are semantic so a future theme can re-point them centrally.
 """
 
 from __future__ import annotations
@@ -20,109 +18,178 @@ from enum import IntEnum
 
 
 class Spacing(IntEnum):
-    """Standard spacing/margins (logical px). Use these, not raw numbers."""
+    """Spacing / margin scale (logical px). Use these, never raw numbers."""
 
     NONE = 0
+    XXS = 2
     XS = 4
     SM = 8
     MD = 12
     LG = 16
     XL = 24
     XXL = 32
+    XXXL = 48
+
+    # Semantic layout spacing
+    PAGE_MARGIN = 24
+    SECTION_GAP = 20
+    FIELD_VGAP = 10
+    FIELD_HGAP = 12
 
 
 class Radius(IntEnum):
-    """Border-radius scale for panels, cards, buttons, inputs."""
+    """Border-radius scale."""
 
     NONE = 0
-    SM = 4
-    MD = 6
-    LG = 10
+    SM = 5
+    MD = 8
+    LG = 12
+    XL = 16
     PILL = 999
 
 
 class ControlSize(IntEnum):
-    """Heights and hit-targets for interactive controls (logical px)."""
+    """Heights / hit-targets for chrome and controls (logical px)."""
 
-    INPUT_HEIGHT = 32
+    # Shell chrome
+    HEADER_HEIGHT = 56
+    NAV_HEIGHT = 46
+    CONTEXT_HEIGHT = 44
+    STATUSBAR_HEIGHT = 28
+
+    # Controls
+    INPUT_HEIGHT = 34
+    INPUT_COMPACT_HEIGHT = 28
     BUTTON_HEIGHT = 34
-    TABLE_ROW_HEIGHT = 30
+    TOOLBAR_BUTTON_HEIGHT = 30
+    NAV_BUTTON_HEIGHT = 34
+
+    # Tables
+    TABLE_ROW_HEIGHT = 32
     TABLE_HEADER_HEIGHT = 34
-    MENUBAR_HEIGHT = 38
-    STATUSBAR_HEIGHT = 26
-    ICON = 18
+
+    # Iconography
+    ICON_SM = 16
+    ICON_MD = 18
+    ICON_LG = 22
+
+    # Dialogs
+    DIALOG_MIN_WIDTH = 420
+    DIALOG_MIN_HEIGHT = 180
 
 
 class FieldWidth(IntEnum):
-    """Semantic minimum field widths (logical px) — Prompt 01 §16.
+    """Semantic minimum field widths (logical px) — Prompt 01B §13.
 
-    Business forms pick the width that matches the *meaning* of a field so
-    content is never clipped and related fields align consistently.
+    Rule: FIELD WIDTH MUST MATCH INFORMATION PURPOSE. Forms pick the category
+    that matches a field's meaning so content is never clipped and related fields
+    align consistently.
+
+    ==========  =====  ============================================
+    Category    px     Typical use
+    ==========  =====  ============================================
+    XS          70     small numeric / codes
+    SM          120    dates / short numbers
+    MD          200    standard inputs
+    LG          300    person / product names
+    XL          460    descriptions / addresses / long values
+    ==========  =====  ============================================
     """
 
-    TINY = 64       # short codes, small integers
-    QUANTITY = 110  # quantities with decimals
-    DATE = 130      # dates (consistent width across the app)
-    AMOUNT = 160    # currency amounts incl. realistic large values
-    CODE = 160      # document/reference numbers
-    NAME = 260      # person/product names
-    DESCRIPTION = 420  # descriptions/notes (wide)
-    DROPDOWN = 220  # combo boxes; must show selected text clearly
+    XS = 70
+    SM = 120
+    MD = 200
+    LG = 300
+    XL = 460
 
 
 class Typography:
-    """Font families and sizes (points). Persian/Dari + English friendly (§21)."""
+    """Font families and a clear type hierarchy (points) — Prompt 01B §11.
 
-    # System/fallback stack that renders Persian and Latin cleanly on Windows
-    # without redistributing unlicensed fonts. Segoe UI is the Windows default;
-    # Tahoma/Nazanin render Persian well; sans-serif is the final fallback.
+    Persian/Dari + English friendly using a system/fallback stack; no unlicensed
+    fonts are bundled (§21).
+    """
+
     FAMILY = '"Segoe UI", "Tahoma", "Noto Naskh Arabic", "B Nazanin", sans-serif'
+    # A slightly heavier stack option for numerals/branding could go here later.
 
-    SIZE_CAPTION = 9
-    SIZE_BODY = 10
-    SIZE_CONTROL = 10
-    SIZE_SECTION = 12   # section headings within a form
-    SIZE_PAGE = 16      # page/form title
-    SIZE_BRAND = 30     # home-screen product name
-    SIZE_BRAND_TAGLINE = 12
+    # Hierarchy (Prompt 01B §11)
+    SIZE_BRAND_HOME = 30      # home-screen product wordmark
+    SIZE_BRAND_HEADER = 15    # header wordmark
+    SIZE_PAGE_TITLE = 18      # page/form title
+    SIZE_SECTION_TITLE = 12   # section heading within a form
+    SIZE_BODY = 10            # normal text / inputs
+    SIZE_LABEL = 10           # field labels
+    SIZE_SECONDARY = 9        # secondary/muted text
+    SIZE_TABLE_HEADER = 9     # table headers
+    SIZE_STATUS = 9           # status bar
+    SIZE_CAPTION = 9          # captions / hints
+    SIZE_NAV = 10             # primary navigation
+    SIZE_TAGLINE = 12         # home tagline
 
     WEIGHT_NORMAL = 400
     WEIGHT_MEDIUM = 500
+    WEIGHT_SEMIBOLD = 600
     WEIGHT_BOLD = 700
 
 
 class Color:
-    """Application color palette (calm, professional, business-oriented — §34).
+    """Semantic color tokens (Prompt 01B §10).
 
-    A single light theme is defined for Stage 01. A dark theme, if introduced,
-    will extend this same token set so screens never reference raw hex values.
+    A single restrained, professional business palette. Screens reference these
+    names, never raw hex, so a future theme can re-point them centrally.
     """
 
-    # Brand
-    PRIMARY = "#1F6FEB"       # Zenith blue — primary actions, accents
-    PRIMARY_HOVER = "#1A5FCC"
-    PRIMARY_PRESSED = "#164FA8"
+    # ---- surfaces / neutrals ----
+    BACKGROUND = "#F4F6F9"       # app content background
+    SURFACE = "#FFFFFF"          # cards, inputs, tables, nav strip
+    SURFACE_ALT = "#EEF2F7"      # alternating rows, subtle panels
+    SURFACE_SUNKEN = "#E7ECF3"   # sunken wells, contextual bar
+    BORDER = "#D7DEE7"
+    BORDER_STRONG = "#B9C3D0"
 
-    # Neutrals / surfaces
-    BACKGROUND = "#F5F7FA"    # window background
-    SURFACE = "#FFFFFF"       # cards, inputs, tables
-    SURFACE_ALT = "#EEF1F6"   # alternating rows, subtle panels
-    BORDER = "#D5DBE3"
-    BORDER_STRONG = "#B7C0CD"
-
-    # Text
-    TEXT = "#1B2430"
-    TEXT_MUTED = "#5B6673"
+    # ---- text ----
+    TEXT_PRIMARY = "#16202C"
+    TEXT_SECONDARY = "#5A6675"
+    TEXT_MUTED = "#8A96A5"
     TEXT_ON_PRIMARY = "#FFFFFF"
     TEXT_DISABLED = "#9AA4B1"
 
-    # Status
-    SUCCESS = "#2E7D46"
-    WARNING = "#B7791F"
-    ERROR = "#C0392B"
-    INFO = "#1F6FEB"
+    # ---- brand / primary ----
+    PRIMARY = "#1F6FEB"
+    PRIMARY_HOVER = "#1A5FCC"
+    PRIMARY_PRESSED = "#164FA8"
+    PRIMARY_SOFT = "#E7F0FE"     # tinted selected/hover background
 
-    # Shell chrome
-    MENUBAR_BG = "#FFFFFF"
-    HEADER_BG = "#FFFFFF"
-    STATUSBAR_BG = "#EEF1F6"
+    # ---- selection ----
+    SELECTED = "#1F6FEB"
+    SELECTED_BG = "#E7F0FE"
+
+    # ---- status (with soft backgrounds for chips/states) ----
+    SUCCESS = "#1E874B"
+    SUCCESS_SOFT = "#E4F3EA"
+    WARNING = "#B7791F"
+    WARNING_SOFT = "#FBF1DD"
+    DANGER = "#C0392B"
+    DANGER_SOFT = "#FBE7E4"
+    INFO = "#1F6FEB"
+    INFO_SOFT = "#E7F0FE"
+
+    DISABLED = "#9AA4B1"
+
+    # ---- shell chrome ----
+    HEADER_BG = "#14263D"        # deep navy brand header
+    HEADER_BG_ALT = "#1B3554"
+    HEADER_TEXT = "#FFFFFF"
+    HEADER_TEXT_MUTED = "#A9B6C7"
+    HEADER_BORDER = "#0E1B2C"
+
+    NAV_BG = "#FFFFFF"
+    NAV_BORDER = "#D7DEE7"
+
+    CONTEXT_BG = "#EEF2F7"
+    CONTEXT_BORDER = "#D7DEE7"
+
+    STATUSBAR_BG = "#14263D"
+    STATUSBAR_TEXT = "#C4D0DE"
+    STATUSBAR_BORDER = "#0E1B2C"

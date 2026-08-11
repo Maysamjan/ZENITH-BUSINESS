@@ -20,10 +20,16 @@ def test_install_sets_excepthook() -> None:
         sys.excepthook = original
 
 
-def test_handler_logs_unhandled(data_home, caplog) -> None:
+def test_handler_logs_unhandled(data_home, caplog, monkeypatch) -> None:
     import logging
 
+    from zenith_business.core import error_handler
     from zenith_business.core.logging_setup import ROOT_LOGGER_NAME, get_logger
+
+    # Never open the real (blocking) modal dialog during tests; production still
+    # shows it. We only assert the logging behavior here.
+    shown: list[str] = []
+    monkeypatch.setattr(error_handler, "_try_show_dialog", shown.append)
 
     get_logger()  # ensure the logger exists
     with caplog.at_level(logging.CRITICAL, logger=ROOT_LOGGER_NAME):
@@ -32,6 +38,7 @@ def test_handler_logs_unhandled(data_home, caplog) -> None:
         except ZenithError:
             handle_exception(*sys.exc_info())  # type: ignore[arg-type]
     assert any("Unhandled exception" in r.message for r in caplog.records)
+    assert shown == ["Friendly message"]  # user-facing message routed to dialog
 
 
 def test_zenith_error_carries_user_message() -> None:

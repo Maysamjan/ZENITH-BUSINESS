@@ -1,11 +1,17 @@
-"""Application stylesheet (QSS) generated from design tokens.
+"""Application stylesheet (QSS), generated from design tokens.
 
-Centralizing the stylesheet here (Prompt 01 §15, §34) means every future module
-inherits consistent control heights, spacing, borders, and colors without
-restyling widgets locally. Apply once to the QApplication; all widgets follow.
+Centralizing the stylesheet here (Prompt 01B §9-§12) means every module inherits
+consistent chrome, controls, borders, and colors without restyling widgets
+locally. Apply once to the QApplication; all widgets follow.
 
-The QSS is built from :mod:`.tokens` so there is a single source of truth — no
-hard-coded colors or sizes are duplicated in string form.
+Selector conventions (so screens stay declarative):
+    * object names:   #HeaderBar #PrimaryNav #ContextBar #BrandWordmark ...
+    * properties:     QPushButton[variant="primary"] , QPushButton[nav="true"]
+                      QLabel[role="page-title"] , QLabel[chip="success"] , ...
+    * state property: setProperty("selected", True) on nav buttons
+
+Everything derives from :mod:`.tokens` — no hard-coded colors or sizes are
+duplicated here in literal form.
 """
 
 from __future__ import annotations
@@ -22,49 +28,123 @@ from zenith_business.ui.design.tokens import (
 def build_stylesheet() -> str:
     """Return the global application stylesheet."""
     c = Color
+    t = Typography
     return f"""
-    /* ---- base ---------------------------------------------------------- */
+    /* ==== base ========================================================== */
     QWidget {{
         background-color: {c.BACKGROUND};
-        color: {c.TEXT};
-        font-family: {Typography.FAMILY};
-        font-size: {Typography.SIZE_BODY}pt;
+        color: {c.TEXT_PRIMARY};
+        font-family: {t.FAMILY};
+        font-size: {t.SIZE_BODY}pt;
+    }}
+    /* Labels are transparent by default so text sits cleanly on any surface;
+       chips/marks re-declare their own background where needed. */
+    QLabel {{ background: transparent; }}
+    QToolTip {{
+        background-color: {c.HEADER_BG};
+        color: {c.HEADER_TEXT};
+        border: 1px solid {c.HEADER_BORDER};
+        padding: {Spacing.XS}px {Spacing.SM}px;
+        border-radius: {Radius.SM}px;
     }}
 
-    /* ---- menu bar (TOP navigation) ------------------------------------- */
-    QMenuBar {{
-        background-color: {c.MENUBAR_BG};
-        border-bottom: 1px solid {c.BORDER};
-        padding: {Spacing.XS}px {Spacing.SM}px;
-        min-height: {ControlSize.MENUBAR_HEIGHT}px;
+    /* ==== brand header ================================================== */
+    QFrame#HeaderBar {{
+        background-color: {c.HEADER_BG};
+        border: none;
+        border-bottom: 1px solid {c.HEADER_BORDER};
     }}
-    QMenuBar::item {{
-        background: transparent;
+    QFrame#HeaderBar QLabel {{ background: transparent; color: {c.HEADER_TEXT}; }}
+    QLabel#BrandWordmark {{
+        color: {c.HEADER_TEXT};
+        font-size: {t.SIZE_BRAND_HEADER}pt;
+        font-weight: {t.WEIGHT_BOLD};
+        letter-spacing: 1px;
+    }}
+    QLabel#BrandSub {{
+        color: {c.HEADER_TEXT_MUTED};
+        font-size: {t.SIZE_SECONDARY}pt;
+    }}
+    QLabel#BrandMark {{
+        background-color: {c.PRIMARY};
+        color: {c.TEXT_ON_PRIMARY};
+        font-size: {t.SIZE_BRAND_HEADER}pt;
+        font-weight: {t.WEIGHT_BOLD};
+        border-radius: {Radius.MD}px;
+    }}
+    QFrame#HeaderBar QLabel[role="header-muted"] {{ color: {c.HEADER_TEXT_MUTED}; }}
+
+    /* header segmented language control */
+    QPushButton[segment="true"] {{
+        background-color: transparent;
+        color: {c.HEADER_TEXT_MUTED};
+        border: 1px solid {c.HEADER_BG_ALT};
+        padding: {Spacing.XXS}px {Spacing.MD}px;
+        min-height: {ControlSize.TOOLBAR_BUTTON_HEIGHT}px;
+    }}
+    QPushButton[segment="true"]:hover {{ color: {c.HEADER_TEXT}; }}
+    QPushButton[segment="true"][selected="true"] {{
+        background-color: {c.PRIMARY};
+        color: {c.TEXT_ON_PRIMARY};
+        border: 1px solid {c.PRIMARY};
+    }}
+
+    /* ==== primary navigation ============================================ */
+    QFrame#PrimaryNav {{
+        background-color: {c.NAV_BG};
+        border: none;
+        border-bottom: 1px solid {c.NAV_BORDER};
+    }}
+    QPushButton[nav="true"] {{
+        background-color: transparent;
+        color: {c.TEXT_SECONDARY};
+        border: none;
+        border-bottom: 2px solid transparent;
         padding: {Spacing.SM}px {Spacing.LG}px;
-        margin: 0px {Spacing.XS}px;
-        border-radius: {Radius.SM}px;
-        font-size: {Typography.SIZE_CONTROL}pt;
+        min-height: {ControlSize.NAV_BUTTON_HEIGHT}px;
+        font-size: {t.SIZE_NAV}pt;
+        font-weight: {t.WEIGHT_MEDIUM};
     }}
-    QMenuBar::item:selected {{
-        background-color: {c.SURFACE_ALT};
+    QPushButton[nav="true"]:hover {{
+        color: {c.PRIMARY};
+        background-color: {c.PRIMARY_SOFT};
+    }}
+    QPushButton[nav="true"][selected="true"] {{
+        color: {c.PRIMARY};
+        border-bottom: 2px solid {c.PRIMARY};
+        font-weight: {t.WEIGHT_SEMIBOLD};
+    }}
+
+    /* ==== contextual command bar ======================================== */
+    QFrame#ContextBar {{
+        background-color: {c.CONTEXT_BG};
+        border: none;
+        border-bottom: 1px solid {c.CONTEXT_BORDER};
+    }}
+    QLabel#ContextTitle {{
+        color: {c.TEXT_MUTED};
+        font-size: {t.SIZE_SECONDARY}pt;
+        font-weight: {t.WEIGHT_SEMIBOLD};
+    }}
+    QPushButton[toolbar="true"] {{
+        background-color: {c.SURFACE};
+        color: {c.TEXT_PRIMARY};
+        border: 1px solid {c.BORDER};
+        border-radius: {Radius.SM}px;
+        padding: {Spacing.XS}px {Spacing.MD}px;
+        min-height: {ControlSize.TOOLBAR_BUTTON_HEIGHT}px;
+    }}
+    QPushButton[toolbar="true"]:hover {{
+        border-color: {c.PRIMARY};
         color: {c.PRIMARY};
     }}
-    QMenuBar::item:disabled {{ color: {c.TEXT_DISABLED}; }}
-
-    QMenu {{
-        background-color: {c.SURFACE};
-        border: 1px solid {c.BORDER};
-        padding: {Spacing.XS}px;
+    QPushButton[toolbar="true"]:disabled {{
+        color: {c.TEXT_DISABLED};
+        background-color: {c.SURFACE_ALT};
+        border-color: {c.BORDER};
     }}
-    QMenu::item {{
-        padding: {Spacing.SM}px {Spacing.XL}px;
-        border-radius: {Radius.SM}px;
-    }}
-    QMenu::item:selected {{ background-color: {c.SURFACE_ALT}; color: {c.PRIMARY}; }}
-    QMenu::item:disabled {{ color: {c.TEXT_DISABLED}; }}
-    QMenu::separator {{ height: 1px; background: {c.BORDER}; margin: {Spacing.XS}px 0; }}
 
-    /* ---- inputs -------------------------------------------------------- */
+    /* ==== inputs ======================================================== */
     QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit, QPlainTextEdit,
     QTextEdit {{
         background-color: {c.SURFACE};
@@ -83,92 +163,200 @@ def build_stylesheet() -> str:
         background-color: {c.SURFACE_ALT};
         color: {c.TEXT_DISABLED};
     }}
-    /* Validation state hook: set property state='error' on a widget. */
-    QLineEdit[state="error"], QComboBox[state="error"] {{
-        border: 1px solid {c.ERROR};
+    QLineEdit[state="error"], QComboBox[state="error"],
+    QDoubleSpinBox[state="error"], QDateEdit[state="error"] {{
+        border: 1px solid {c.DANGER};
+        background-color: {c.DANGER_SOFT};
+    }}
+    QComboBox::drop-down {{ border: none; width: 22px; }}
+    QComboBox QAbstractItemView {{
+        background-color: {c.SURFACE};
+        border: 1px solid {c.BORDER};
+        selection-background-color: {c.PRIMARY_SOFT};
+        selection-color: {c.TEXT_PRIMARY};
+        outline: none;
     }}
 
-    /* ---- buttons ------------------------------------------------------- */
+    /* ==== buttons ======================================================= */
     QPushButton {{
         background-color: {c.SURFACE};
-        color: {c.TEXT};
+        color: {c.TEXT_PRIMARY};
         border: 1px solid {c.BORDER_STRONG};
         border-radius: {Radius.SM}px;
         padding: {Spacing.XS}px {Spacing.LG}px;
         min-height: {ControlSize.BUTTON_HEIGHT}px;
     }}
-    QPushButton:hover {{ border-color: {c.PRIMARY}; }}
+    QPushButton:hover {{ border-color: {c.PRIMARY}; color: {c.PRIMARY}; }}
     QPushButton:disabled {{ color: {c.TEXT_DISABLED}; border-color: {c.BORDER}; }}
-    /* Primary action: set property variant='primary'. */
     QPushButton[variant="primary"] {{
         background-color: {c.PRIMARY};
         color: {c.TEXT_ON_PRIMARY};
         border: 1px solid {c.PRIMARY};
-        font-weight: {Typography.WEIGHT_MEDIUM};
+        font-weight: {t.WEIGHT_MEDIUM};
     }}
-    QPushButton[variant="primary"]:hover {{ background-color: {c.PRIMARY_HOVER}; }}
+    QPushButton[variant="primary"]:hover {{
+        background-color: {c.PRIMARY_HOVER}; color: {c.TEXT_ON_PRIMARY};
+    }}
     QPushButton[variant="primary"]:pressed {{ background-color: {c.PRIMARY_PRESSED}; }}
+    QPushButton[variant="ghost"] {{
+        background-color: transparent; border: 1px solid transparent;
+        color: {c.TEXT_SECONDARY};
+    }}
+    QPushButton[variant="ghost"]:hover {{ color: {c.PRIMARY}; background-color: {c.PRIMARY_SOFT}; }}
 
-    /* ---- tables -------------------------------------------------------- */
+    /* ==== tables ======================================================== */
     QTableView, QTableWidget {{
         background-color: {c.SURFACE};
         alternate-background-color: {c.SURFACE_ALT};
         gridline-color: {c.BORDER};
         border: 1px solid {c.BORDER};
         border-radius: {Radius.SM}px;
-        selection-background-color: {c.PRIMARY};
-        selection-color: {c.TEXT_ON_PRIMARY};
+        selection-background-color: {c.SELECTED_BG};
+        selection-color: {c.TEXT_PRIMARY};
+        outline: none;
+    }}
+    QTableView::item, QTableWidget::item {{
+        padding: {Spacing.XS}px {Spacing.SM}px;
+        border: none;
+    }}
+    QTableView::item:selected, QTableWidget::item:selected {{
+        background-color: {c.SELECTED_BG};
+        color: {c.TEXT_PRIMARY};
     }}
     QHeaderView::section {{
-        background-color: {c.SURFACE_ALT};
-        color: {c.TEXT_MUTED};
+        background-color: {c.SURFACE_SUNKEN};
+        color: {c.TEXT_SECONDARY};
         padding: {Spacing.XS}px {Spacing.SM}px;
         border: none;
         border-right: 1px solid {c.BORDER};
-        border-bottom: 1px solid {c.BORDER};
+        border-bottom: 1px solid {c.BORDER_STRONG};
         min-height: {ControlSize.TABLE_HEADER_HEIGHT}px;
-        font-weight: {Typography.WEIGHT_MEDIUM};
+        font-size: {t.SIZE_TABLE_HEADER}pt;
+        font-weight: {t.WEIGHT_SEMIBOLD};
+    }}
+    QTableCornerButton::section {{
+        background-color: {c.SURFACE_SUNKEN};
+        border: none;
+        border-bottom: 1px solid {c.BORDER_STRONG};
     }}
 
-    /* ---- status bar ---------------------------------------------------- */
+    /* ==== scrollbars (subtle, modern) =================================== */
+    QScrollBar:vertical {{ background: transparent; width: 12px; margin: 0; }}
+    QScrollBar::handle:vertical {{
+        background: {c.BORDER_STRONG}; border-radius: 6px; min-height: 30px;
+    }}
+    QScrollBar::handle:vertical:hover {{ background: {c.TEXT_MUTED}; }}
+    QScrollBar:horizontal {{ background: transparent; height: 12px; margin: 0; }}
+    QScrollBar::handle:horizontal {{
+        background: {c.BORDER_STRONG}; border-radius: 6px; min-width: 30px;
+    }}
+    QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
+    QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
+
+    /* ==== status bar ==================================================== */
     QStatusBar {{
         background-color: {c.STATUSBAR_BG};
-        border-top: 1px solid {c.BORDER};
-        color: {c.TEXT_MUTED};
+        border-top: 1px solid {c.STATUSBAR_BORDER};
+        color: {c.STATUSBAR_TEXT};
         min-height: {ControlSize.STATUSBAR_HEIGHT}px;
     }}
-    QStatusBar QLabel {{ background: transparent; color: {c.TEXT_MUTED}; }}
+    QStatusBar::item {{ border: none; }}
+    QStatusBar QLabel {{
+        background: transparent; color: {c.STATUSBAR_TEXT};
+        font-size: {t.SIZE_STATUS}pt;
+    }}
+    QLabel[role="status-strong"] {{ color: {c.HEADER_TEXT}; font-weight: {t.WEIGHT_MEDIUM}; }}
 
-    /* ---- design-system helper classes (set via setProperty('class', ...)) */
-    QLabel[class="page-title"] {{
-        font-size: {Typography.SIZE_PAGE}pt;
-        font-weight: {Typography.WEIGHT_BOLD};
-        color: {c.TEXT};
+    /* ==== design-system helper classes ================================== */
+    QLabel[role="page-title"] {{
+        font-size: {t.SIZE_PAGE_TITLE}pt; font-weight: {t.WEIGHT_BOLD};
+        color: {c.TEXT_PRIMARY};
     }}
-    QLabel[class="section-title"] {{
-        font-size: {Typography.SIZE_SECTION}pt;
-        font-weight: {Typography.WEIGHT_MEDIUM};
-        color: {c.TEXT};
+    QLabel[role="page-subtitle"] {{ color: {c.TEXT_SECONDARY}; font-size: {t.SIZE_BODY}pt; }}
+    QLabel[role="section-title"] {{
+        font-size: {t.SIZE_SECTION_TITLE}pt; font-weight: {t.WEIGHT_SEMIBOLD};
+        color: {c.TEXT_PRIMARY};
     }}
-    QLabel[class="muted"] {{ color: {c.TEXT_MUTED}; }}
-    QLabel[class="brand-title"] {{
-        font-size: {Typography.SIZE_BRAND}pt;
-        font-weight: {Typography.WEIGHT_BOLD};
-        color: {c.TEXT};
+    QLabel[role="field-label"] {{ color: {c.TEXT_SECONDARY}; font-size: {t.SIZE_LABEL}pt; }}
+    QLabel[role="muted"] {{ color: {c.TEXT_MUTED}; }}
+    QLabel[role="secondary"] {{ color: {c.TEXT_SECONDARY}; font-size: {t.SIZE_SECONDARY}pt; }}
+    QLabel[role="error"] {{ color: {c.DANGER}; font-size: {t.SIZE_SECONDARY}pt; }}
+    QLabel[role="brand-title"] {{
+        font-size: {t.SIZE_BRAND_HOME}pt; font-weight: {t.WEIGHT_BOLD};
+        color: {c.TEXT_PRIMARY}; letter-spacing: 1px;
     }}
-    QLabel[class="brand-tagline"] {{
-        font-size: {Typography.SIZE_BRAND_TAGLINE}pt;
-        color: {c.TEXT_MUTED};
-    }}
-    QFrame[class="card"] {{
+    QLabel[role="brand-tagline"] {{ font-size: {t.SIZE_TAGLINE}pt; color: {c.TEXT_SECONDARY}; }}
+
+    QFrame[role="card"] {{
         background-color: {c.SURFACE};
         border: 1px solid {c.BORDER};
         border-radius: {Radius.LG}px;
     }}
-    QFrame[class="logo-placeholder"] {{
-        background-color: {c.SURFACE_ALT};
-        border: 1px dashed {c.BORDER_STRONG};
-        border-radius: {Radius.LG}px;
-        color: {c.TEXT_MUTED};
+    QFrame[role="section"] {{
+        background-color: {c.SURFACE};
+        border: 1px solid {c.BORDER};
+        border-radius: {Radius.MD}px;
     }}
+    QFrame[role="divider"] {{ background-color: {c.BORDER}; max-height: 1px; min-height: 1px; }}
+    QFrame[role="vline"] {{ background-color: {c.HEADER_BG_ALT}; max-width: 1px; min-width: 1px; }}
+    QFrame[role="logo-placeholder"] {{
+        background-color: {c.SURFACE_ALT};
+        border: 2px dashed {c.BORDER_STRONG};
+        border-radius: {Radius.LG}px;
+    }}
+    QLabel[role="logo-mark"] {{
+        color: {c.PRIMARY}; font-size: 34pt; font-weight: {t.WEIGHT_BOLD};
+        background: transparent;
+    }}
+
+    /* status chips */
+    QLabel[chip="info"] {{
+        background-color: {c.INFO_SOFT}; color: {c.INFO};
+        border-radius: {Radius.PILL}px; padding: {Spacing.XXS}px {Spacing.MD}px;
+        font-size: {t.SIZE_SECONDARY}pt; font-weight: {t.WEIGHT_MEDIUM};
+    }}
+    QLabel[chip="success"] {{
+        background-color: {c.SUCCESS_SOFT}; color: {c.SUCCESS};
+        border-radius: {Radius.PILL}px; padding: {Spacing.XXS}px {Spacing.MD}px;
+        font-size: {t.SIZE_SECONDARY}pt; font-weight: {t.WEIGHT_MEDIUM};
+    }}
+    QLabel[chip="warning"] {{
+        background-color: {c.WARNING_SOFT}; color: {c.WARNING};
+        border-radius: {Radius.PILL}px; padding: {Spacing.XXS}px {Spacing.MD}px;
+        font-size: {t.SIZE_SECONDARY}pt; font-weight: {t.WEIGHT_MEDIUM};
+    }}
+    QLabel[chip="danger"] {{
+        background-color: {c.DANGER_SOFT}; color: {c.DANGER};
+        border-radius: {Radius.PILL}px; padding: {Spacing.XXS}px {Spacing.MD}px;
+        font-size: {t.SIZE_SECONDARY}pt; font-weight: {t.WEIGHT_MEDIUM};
+    }}
+    QLabel[chip="neutral"] {{
+        background-color: {c.SURFACE_ALT}; color: {c.TEXT_SECONDARY};
+        border-radius: {Radius.PILL}px; padding: {Spacing.XXS}px {Spacing.MD}px;
+        font-size: {t.SIZE_SECONDARY}pt; font-weight: {t.WEIGHT_MEDIUM};
+    }}
+
+    /* empty / unavailable state */
+    QLabel[role="empty-glyph"] {{
+        color: {c.BORDER_STRONG}; font-size: 40pt; background: transparent;
+    }}
+    QLabel[role="empty-title"] {{
+        color: {c.TEXT_SECONDARY}; font-size: {t.SIZE_SECTION_TITLE}pt;
+        font-weight: {t.WEIGHT_SEMIBOLD};
+    }}
+    QLabel[role="empty-subtitle"] {{ color: {c.TEXT_MUTED}; font-size: {t.SIZE_BODY}pt; }}
+
+    /* ==== menus (used by combo popups / context menus) ================== */
+    QMenu {{
+        background-color: {c.SURFACE}; border: 1px solid {c.BORDER};
+        padding: {Spacing.XS}px;
+    }}
+    QMenu::item {{ padding: {Spacing.SM}px {Spacing.XL}px; border-radius: {Radius.SM}px; }}
+    QMenu::item:selected {{ background-color: {c.PRIMARY_SOFT}; color: {c.PRIMARY}; }}
+    QMenu::item:disabled {{ color: {c.TEXT_DISABLED}; }}
+    QMenu::separator {{ height: 1px; background: {c.BORDER}; margin: {Spacing.XS}px 0; }}
+
+    /* ==== dialogs ======================================================= */
+    QDialog {{ background-color: {c.BACKGROUND}; }}
+    QMessageBox {{ background-color: {c.SURFACE}; }}
     """

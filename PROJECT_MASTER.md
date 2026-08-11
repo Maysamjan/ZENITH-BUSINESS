@@ -15,8 +15,8 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 0.2 |
-| Current Stage | **01 — PROJECT FOUNDATION (implemented; READY FOR OWNER REVIEW)** |
+| PROJECT_MASTER.md Version | 0.3 |
+| Current Stage | **01 — PROJECT FOUNDATION + 01B UI REFINEMENT (implemented; READY FOR OWNER REVIEW)** |
 | Database Schema Version | none (infrastructure only; **no tables created**) |
 | Last Updated | 2026-08-11 |
 
@@ -172,7 +172,7 @@ requested module is implemented.
 | # | Module | Status |
 |---|--------|--------|
 | 00 | MASTER (constitution) | ✅ Ratified (on `main`) |
-| 01 | Project Foundation | 🔶 Implemented — **ready for owner review** (not LOCKED) |
+| 01 | Project Foundation (+01B UI refinement) | 🔶 Implemented — **ready for owner review** (not LOCKED) |
 | 02 | Database | ⛔ Not started |
 | 03 | Company & Financial Year | ⛔ Not started |
 | 04 | Chart of Accounts | ⛔ Not started |
@@ -442,12 +442,113 @@ Application Security Engine** (Prompt 01 §26-§28):
 
 ---
 
+## 13B. Stage 01B — UI/UX Foundation Refinement (pending review)
+
+A UI/UX-only correction of Stage 01 (Prompt 01B). The technical foundation
+(database, transactions, logging, exceptions, config, security, licensing
+interfaces) is **unchanged**; all prior infrastructure tests still pass.
+
+### 13B.1 Professional visual quality requirement (approved direction)
+
+Zenith Business must look like a mature, premium commercial accounting/ERP
+desktop product — not a prototype. "Clean" never means "empty/unfinished".
+**UI approval requires visual review by the owner; automated tests passing is
+not sufficient** to approve or LOCK the UI.
+
+### 13B.2 Chortkeh-style top navigation concept, original Zenith identity
+
+Preserve the concept — **TOP** = navigation, **CENTER** = working area,
+**BOTTOM** = status — with an original Zenith visual identity. No left sidebar
+as primary navigation. No Chortkeh graphics/assets.
+
+### 13B.3 Three-tier top chrome (structural, business-free)
+
+- **HeaderBar** (deep-navy brand header): brand mark + `ZENITH BUSINESS`
+  wordmark + `Zenith Soft`; trailing user placeholder + development marker +
+  EN/دری segmented language control. Clicking the brand returns Home.
+- **PrimaryNav** (white strip): Home + the seven top categories (اطلاعات پایه،
+  خرید و فروش، دریافت و پرداخت، وجوه، گزارش حساب‌ها، گزارش اجناس، امکانات برنامه)
+  with a clear selected (underline) state.
+- **ContextBar** (secondary command area, Prompt 01B §6): shows the selected
+  category's commands. Business commands are **disabled placeholders**; Tools
+  exposes enabled **Form/Table preview** commands (design-system validation
+  only). Real module commands slot in here later with **no main-window
+  redesign**.
+
+### 13B.4 Home screen (redesigned)
+
+Composed brand workspace: hero card (replaceable logo placeholder + product +
+system tagline + version chip), a **System Readiness** card (database/language/
+license/version — truthful state via chips, **no fake financial numbers**), and
+a reserved **Quick Access** area for future modules.
+
+### 13B.5 Design system (expanded, centralized)
+
+- **Semantic color tokens** (§10): background, surface, surface_alt, border,
+  text_primary/secondary/muted, primary(+hover/pressed/soft), selected, success,
+  warning, danger, info, disabled, plus shell-chrome tokens. No per-widget hex.
+- **Typography hierarchy** (§11): brand → page title → section title → body →
+  labels → secondary → table header → status; body never below 9pt.
+- **Control dimensions** (§12): header/nav/context/statusbar heights, input
+  (+compact), button, toolbar-button, table row/header, page margin, section
+  gap, field gaps.
+- **Semantic field widths** (§13): `FieldWidth.XS/SM/MD/LG/XL` — width matches
+  information purpose; labels + controls belong together (§14).
+- **Reusable components** (`ui/components.py`): page/section titles, field label,
+  chips, primary/secondary/ghost buttons, dividers, `Card`, `PageHeader`,
+  `EmptyState`, `apply_field_width`. **Rule: modules compose from these; no
+  local restyling.**
+- **QSS** (`ui/design/theme.py`) is generated entirely from tokens; ampersands
+  in button labels are escaped until deliberate mnemonics are assigned.
+
+### 13B.6 Form / table / dialog / state standards
+
+- **Form template** (`ui/pages/form_demo.py`, §18): page header, grouped
+  sections, semantic widths, aligned labels/controls, right-aligned numerics,
+  validation `state="error"` message — proves Sales/Purchase/Person/Product can
+  share one language. Not a business form; nothing saved.
+- **Table template** (`ui/pages/table_demo.py`, §19): styled header, selected
+  row, alternating rows, numeric right-alignment, stretch column, scrolling.
+  Placeholder rows only; **no business data, no tables**.
+- **Dialog standard** (§20): tokens for min width/height + QSS for QDialog/
+  QMessageBox; shared confirmation/warning/error language later.
+- **Empty/unavailable/loading state** (§23): reusable `EmptyState`; selecting a
+  not-yet-built category shows a truthful "module not available" panel.
+
+### 13B.7 RTL/LTR visual rules & adaptive/DPI
+
+- Dari is first-class: nav, labels, inputs, table headers, numerics, status bar,
+  and dialog button order all mirror correctly; Latin brand/wordmark stays LTR.
+  Verified via screenshots in both directions.
+- Layouts only; min window 1024×640; content max-width column keeps proportions
+  when maximized; logical-pixel tokens scale under Windows 125%/150%.
+
+### 13B.8 Icon strategy (§21)
+
+No icon library bundled yet. Chrome uses text + a typographic brand mark;
+`ControlSize.ICON_*` tokens reserve sizing so an approved, licensed icon set can
+be added later without layout changes. No third-party/Chortkeh icons.
+
+### 13B.9 Tests & known issues
+
+- **70 tests pass** (was 60): added design-system tokens/components + form/table
+  construction, rebuilt shell tests (primary nav, disabled business commands,
+  Tools previews, status truthfulness, RTL default + runtime flip). Fixed a test
+  that could block on the global-error modal by patching the dialog (production
+  behavior unchanged).
+- Known issues: real logo still pending (placeholder by design); form/table
+  retranslation updates key texts rather than full rebuild; icon set not yet
+  chosen; mnemonics deferred.
+
+---
+
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
 | 2026-08-11 | 0.1 | Initial constitution captured from Master Spec v1.0 at Stage 00. No production code or schema created. Awaiting Prompt 01 — Project Foundation. |
 | 2026-08-11 | 0.2 | Stage 01 (Project Foundation) implemented on feature branch: project structure, config, identity, logging, exceptions/global handler, SQLite infrastructure (connection + transactions + health, FK on, WAL), i18n/RTL-LTR, centralized UI design system, top-nav shell + branded home + status bar, security readiness (PBKDF2 passwords, licensing boundary), 60 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
+| 2026-08-11 | 0.3 | Stage 01B (UI/UX refinement) on the same feature branch: three-tier top chrome (navy HeaderBar + white PrimaryNav + contextual ContextBar), redesigned composed home (hero + readiness + reserved quick-access), expanded semantic design system (colors, typography hierarchy, control dims, FieldWidth XS–XL, reusable components), form + table + dialog + empty-state standards, RTL/LTR visual pass. Backend foundation unchanged. 70 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 
 ---
 
