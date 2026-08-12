@@ -278,6 +278,23 @@ def build_stylesheet() -> str:
         color: {c.TEXT_PRIMARY};
     }}
     QLabel[role="field-label"] {{ color: {c.TEXT_SECONDARY}; font-size: {t.SIZE_LABEL}pt; }}
+    /* Quieter, smaller label for secondary/metadata fields (§8 hierarchy). */
+    QLabel[role="field-label-sm"] {{ color: {c.TEXT_MUTED}; font-size: {t.SIZE_SECONDARY}pt; }}
+    QLabel[role="eyebrow"] {{
+        color: {c.PRIMARY}; font-size: {t.SIZE_SECONDARY}pt;
+        font-weight: {t.WEIGHT_SEMIBOLD}; letter-spacing: 1px;
+    }}
+    /* Compact secondary inputs — lighter and shorter than primary controls. */
+    QLineEdit[size="compact"], QComboBox[size="compact"] {{
+        min-height: {ControlSize.INPUT_COMPACT_HEIGHT}px;
+        background-color: {c.READONLY_BG};
+        color: {c.TEXT_SECONDARY};
+        font-size: {t.SIZE_SECONDARY}pt;
+        padding: 1px {Spacing.SM}px;
+    }}
+    QLineEdit[size="compact"]:focus, QComboBox[size="compact"]:focus {{
+        background-color: {c.SURFACE}; color: {c.TEXT_PRIMARY}; border: 1px solid {c.PRIMARY};
+    }}
     QLabel[role="muted"] {{ color: {c.TEXT_MUTED}; }}
     QLabel[role="secondary"] {{ color: {c.TEXT_SECONDARY}; font-size: {t.SIZE_SECONDARY}pt; }}
     QLabel[role="error"] {{ color: {c.DANGER}; font-size: {t.SIZE_SECONDARY}pt; }}

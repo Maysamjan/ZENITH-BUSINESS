@@ -116,8 +116,10 @@ class Typography:
     fonts are bundled (§21).
     """
 
-    FAMILY = '"Segoe UI", "Tahoma", "Noto Naskh Arabic", "B Nazanin", sans-serif'
-    # A slightly heavier stack option for numerals/branding could go here later.
+    # Single source of truth for the app + print font stack. Bundled Vazirmatn
+    # (Persian/Dari + Latin, one consistent baseline for mixed content) leads,
+    # with system faces as fallbacks. See :mod:`zenith_business.core.fonts`.
+    FAMILY = '"Vazirmatn", "Segoe UI", "Tahoma", "Noto Naskh Arabic", sans-serif'
 
     # Hierarchy (Prompt 01B §11)
     SIZE_BRAND_HOME = 30      # home-screen product wordmark

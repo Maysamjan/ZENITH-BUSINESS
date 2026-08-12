@@ -53,6 +53,13 @@ def field_label(text: str) -> QLabel:
     return label
 
 
+def eyebrow(text: str) -> QLabel:
+    """Small accented section marker (e.g. a prominent 'Customer' label)."""
+    label = QLabel(text)
+    label.setProperty("role", "eyebrow")
+    return label
+
+
 def muted(text: str) -> QLabel:
     label = QLabel(text)
     label.setProperty("role", "muted")
@@ -244,6 +251,7 @@ class LabeledField(QWidget):
         control: QWidget,
         *,
         width: FieldWidth | None = None,
+        compact: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -251,8 +259,13 @@ class LabeledField(QWidget):
         col = QVBoxLayout(self)
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(Spacing.XXS)
-        self._label = field_label(label)
+        # Secondary/metadata fields are visually quieter (Prompt 01G §8): a
+        # smaller muted label and a compact, lighter input.
+        self._label = QLabel(label)
+        self._label.setProperty("role", "field-label-sm" if compact else "field-label")
         col.addWidget(self._label)
+        if compact:
+            control.setProperty("size", "compact")
         if width is not None:
             apply_field_width(control, width)
         col.addWidget(control)

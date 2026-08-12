@@ -51,7 +51,9 @@ from zenith_business.ui.components import (
     apply_shadow,
     chip,
     escape_amp,
+    eyebrow,
     field_label,
+    horizontal_divider,
     muted,
     primary_button,
     secondary_button,
@@ -159,35 +161,25 @@ class SalesInvoiceDemoPage(QWidget):
 
     def _build_header(self) -> QWidget:
         card = Card(role="section"); card.setProperty("accent", "navy"); apply_shadow(card)
+        card.body.setSpacing(Spacing.SM)
         t = self._t
-
         d = self._demo
-        meta = QHBoxLayout(); meta.setSpacing(Spacing.LG)
-        # Bound to the single source-of-truth transaction so screen == print (§11).
-        inv_no = apply_field_width(QLineEdit(d.number), FieldWidth.SM)
-        date = apply_field_width(QLineEdit(d.date), FieldWidth.SM)
-        warehouse = self._combo(["Main", "Store-2", "Transit"]); apply_field_width(warehouse, FieldWidth.MD)
-        salesperson = self._combo([d.salesperson, "Sara", "—"]); apply_field_width(salesperson, FieldWidth.MD)
-        currency = self._combo([d.currency, "USD", "PKR", "EUR"]); apply_field_width(currency, FieldWidth.SM)
-        rate = apply_field_width(QLineEdit("1.00"), FieldWidth.SM)
-        for lbl, ctrl in (
-            ("si.invoice_no", inv_no), ("si.date", date), ("si.warehouse", warehouse),
-            ("si.salesperson", salesperson), ("si.currency", currency), ("si.rate", rate),
-        ):
-            meta.addWidget(LabeledField(t.gettext(lbl), ctrl))
-        meta.addStretch(1)
-        card.body.addLayout(meta)
 
-        # Customer autocomplete row + live info chips.
+        # PRIMARY — Customer: promoted to the top and visually prominent (§8).
         cust_row = QHBoxLayout(); cust_row.setSpacing(Spacing.LG)
         self._customer_selector = SearchSelector(
             self._customers, placeholder=t.gettext("si.customer_search_ph"),
             display_index=0, panel_width=460,
         )
         self._customer_selector.rowSelected.connect(self._on_customer_selected)
-        cust_field = LabeledField(t.gettext("si.customer"), self._customer_selector)
-        cust_field.setMinimumWidth(int(FieldWidth.LG))
-        cust_row.addWidget(cust_field, 2)
+        cust_col = QVBoxLayout(); cust_col.setContentsMargins(0, 0, 0, 0); cust_col.setSpacing(Spacing.XXS)
+        self._cust_eyebrow = eyebrow(t.gettext("si.customer"))
+        cust_col.addWidget(self._cust_eyebrow)
+        cust_col.addWidget(self._customer_selector)
+        cust_wrap = QWidget(); cust_wrap.setLayout(cust_col)
+        cust_wrap.setStyleSheet("background: transparent;")
+        cust_wrap.setMinimumWidth(int(FieldWidth.LG))
+        cust_row.addWidget(cust_wrap, 2)
 
         self._chip_phone = self._info_chip("si.phone", "—", "neutral")
         self._chip_balance = self._info_chip("si.prev_balance", "—", "neutral")
@@ -197,6 +189,32 @@ class SalesInvoiceDemoPage(QWidget):
         cust_row.addWidget(self._chip_credit)
         cust_row.addStretch(1)
         card.body.addLayout(cust_row)
+
+        card.body.addWidget(horizontal_divider())
+
+        # SECONDARY — compact metadata strip (quieter than the primary row).
+        meta = QHBoxLayout(); meta.setSpacing(Spacing.LG)
+        inv_no = QLineEdit(d.number)      # bound to the shared transaction (§11)
+        date = QLineEdit(d.date)
+        warehouse = self._combo(["Main", "Store-2", "Transit"])
+        salesperson = self._combo([d.salesperson, "Sara", "—"])
+        currency = self._combo([d.currency, "USD", "PKR", "EUR"])
+        rate = QLineEdit("1.00")
+        self._meta_fields: list[tuple[str, LabeledField]] = []
+        specs = [
+            ("si.invoice_no", inv_no, FieldWidth.SM, False),
+            ("si.date", date, FieldWidth.SM, False),
+            ("si.warehouse", warehouse, FieldWidth.MD, True),
+            ("si.salesperson", salesperson, FieldWidth.MD, True),
+            ("si.currency", currency, FieldWidth.SM, True),
+            ("si.rate", rate, FieldWidth.SM, True),
+        ]
+        for key, ctrl, width, compact in specs:
+            lf = LabeledField(t.gettext(key), ctrl, width=width, compact=compact)
+            self._meta_fields.append((key, lf))
+            meta.addWidget(lf)
+        meta.addStretch(1)
+        card.body.addLayout(meta)
         return card
 
     def _info_chip(self, label_key: str, value: str, accent: str) -> QWidget:
@@ -588,6 +606,9 @@ class SalesInvoiceDemoPage(QWidget):
         self._btn_delete.setText(escape_amp(translator.gettext("si.delete_line")))
         self._customer_selector.line_edit.setPlaceholderText(translator.gettext("si.customer_search_ph"))
         self._item_selector.line_edit.setPlaceholderText(translator.gettext("si.item_search_ph"))
+        self._cust_eyebrow.setText(translator.gettext("si.customer"))
+        for key, lf in self._meta_fields:
+            lf.set_label(translator.gettext(key))
         self._cost_note.setText(translator.gettext("si.cost_hidden"))
         for wrap in (self._chip_phone, self._chip_balance, self._chip_credit):
             wrap._label.setText(translator.gettext(wrap._label_key))  # type: ignore[attr-defined]

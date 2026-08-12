@@ -39,7 +39,7 @@ from PyQt6.QtWidgets import (
 from zenith_business.core.i18n import Direction, Translator
 from zenith_business.core.identity import IDENTITY
 from zenith_business.core.numbers import amount_in_words
-from zenith_business.ui.design.tokens import Color, Radius
+from zenith_business.ui.design.tokens import Color, Radius, Typography
 from zenith_business.ui.mock.demo_invoice import InvoiceData
 
 
@@ -106,7 +106,7 @@ def _stylesheet(scale: float) -> str:
     return f"""
     QWidget#Page {{ background: {c.PRINT_BG}; }}
     QWidget#Page QLabel {{ background: transparent; color: {c.PRINT_INK};
-        font-family: "Segoe UI","Tahoma","Noto Naskh Arabic",sans-serif; font-size: {s(9.5)}; }}
+        font-family: {Typography.FAMILY}; font-size: {s(9.5)}; }}
     QWidget#Page QLabel[p="company"] {{ font-size: {s(15)}; font-weight: 700; color: {c.PRINT_INK}; }}
     QWidget#Page QLabel[p="muted"] {{ color: {c.PRINT_MUTED}; font-size: {s(8.8)}; }}
     QWidget#Page QLabel[p="title"] {{ font-size: {s(19)}; font-weight: 800; color: {c.PRINT_ACCENT}; letter-spacing: 2px; }}

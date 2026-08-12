@@ -38,4 +38,4 @@ addopts = "-ra"
 # suite sets in tests/conftest.py before PyQt6 loads a platform plugin.
 
 [tool.setuptools.package-data]
-zenith_business = ["resources/*"]
+zenith_business = ["resources/*", "resources/fonts/*"]

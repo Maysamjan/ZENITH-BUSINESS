@@ -15,8 +15,8 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 0.8 |
-| Current Stage | **01 — FOUNDATION + 01B–01G PREMIUM UI (implemented; READY FOR OWNER REVIEW)** |
+| PROJECT_MASTER.md Version | 0.9 |
+| Current Stage | **01 — FOUNDATION + 01B–01G premium UI + typography (implemented; READY FOR OWNER REVIEW)** |
 | Database Schema Version | none (infrastructure only; **no tables created**) |
 | Last Updated | 2026-08-11 |
 
@@ -831,6 +831,45 @@ print-to-paper/PDF export is a later stage.
 
 ---
 
+## 13H. Stage 01 refinements — header hierarchy + global typography (pending review)
+
+Two global UI-foundation refinements requested before approval. Backend untouched.
+
+### 13H.1 Global Dari/Persian typography system (permanent rule)
+
+- **Font: Vazirmatn (SIL OFL 1.1)** — bundled in `zenith_business/resources/fonts/`
+  (Regular/Medium/SemiBold/Bold) with its license. A high-quality Persian/Dari +
+  Latin typeface with proper Arabic shaping, clear numerals and weight hierarchy.
+- **Centralized loader** `core/fonts.py` registers the bundled fonts at startup
+  (`apply_base_font`) and exposes `FONT_STACK`. The single `Typography.FAMILY`
+  token now leads with Vazirmatn and is used by **both** the app theme and the
+  printed documents — so navigation, dashboard, forms, labels, inputs, buttons,
+  tables, dialogs, the Sales Invoice, the print preview, printed invoices and all
+  **future Stage 02+ screens inherit it automatically** (no per-screen fonts).
+- One family covers Persian, Latin and Western digits with a consistent baseline,
+  so mixed content (`فروش امروز` · `128,400 AFN` · `SALE-000001` · `1404/02/03`)
+  aligns cleanly. Dari now reads as a first-class, native, professional UI/print,
+  not a lower-quality localization.
+
+### 13H.2 Sales Invoice header hierarchy (§8)
+
+Primary vs secondary is now explicit and systematic (design-system level, not
+per-page): **Customer** is promoted to the top with an accent **eyebrow** label
+and a prominent search field + balance/credit/phone chips; **Invoice No/Date**
+stay normal; **Warehouse/Salesperson/Currency/Exchange Rate** become a **compact,
+quieter** metadata strip (smaller muted labels, lighter/shorter inputs) via a new
+`LabeledField(compact=True)` variant and shared QSS. One-screen 1366×768,
+keyboard workflow, alignment, RTL/LTR and EN/Dari consistency all preserved.
+
+### 13H.3 Tests & changed files
+
+**90 tests pass** (added font-system tests). Changed: `core/fonts.py` (new),
+`resources/fonts/*` (Vazirmatn + OFL), `app.py`, `design/tokens.py`,
+`design/theme.py`, `components.py`, `pages/sales_invoice_demo.py`,
+`print/invoice_document.py`, `pyproject.toml`.
+
+---
+
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
@@ -843,6 +882,7 @@ print-to-paper/PDF export is a later stage.
 | 2026-08-11 | 0.6 | Stage 01E (premium color system + printed invoice) on the same feature branch: intentional semantic color tokens (accent, workspace gradient, financial/status roles) applied by meaning (strong filled Grand Total, cash/credit/stock colors, active-row marker, destructive Delete); richer Sales Invoice character (accent cards, colored indicators); and a real customer-facing **A4 printed Sales Invoice** (EN LTR + Dari RTL) driven by the same demo transaction, opened via Save & Print → in-app print preview. Backend unchanged. 84 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 | 2026-08-11 | 0.7 | Stage 01F (one-screen workspace + dashboard + print reflow) on the same feature branch: Sales Invoice fits one screen at 1366×768 (non-scrolling) with fields bound to the shared transaction (screen == print, date fixed); Home replaced by a compact business **dashboard** (KPIs, quick actions, recent transactions, low stock); new **paginated print engine** supporting **A4 and A5**, content reflow (compact short invoices, multi-page long invoices with repeated headers + page numbers + totals on the last page) and **amount-in-words** (English + Dari); print preview gains an A4/A5 toggle. Backend unchanged. 88 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 | 2026-08-11 | 0.8 | Stage 01G (final visual-quality & print-composition pass) on the same feature branch: printed invoice redesigned as a real document (identity block, boxed identity panel, accent Bill To, gridless item table, coherent financial summary, redesigned signatures); **A4 and A5 given genuinely different compositions**; totals collision/overflow fixed (stacked Grand Total + widened numeric columns, verified to ~13M); short invoices balanced and multi-page distribution evened out with widow/orphan control (22 items → 11+11); print preview rebuilt into a real workspace (paper, language, zoom Fit Width/Page, print); operational info compacted to a contextual strip; dashboard KPIs gain accent borders. Backend unchanged. 88 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
+| 2026-08-11 | 0.9 | Stage 01 refinements (header hierarchy + global typography) on the same feature branch: bundled **Vazirmatn (OFL)** Persian/Dari + Latin font with a centralized loader (`core/fonts.py`) and a single `Typography.FAMILY` token driving the whole app **and** print — Dari now renders as a polished, native UI/document; and the Sales Invoice **header hierarchy** (Customer promoted/prominent; Warehouse/Salesperson/Currency/Rate compacted and quieted) via a shared `LabeledField(compact=True)` variant, consistent in EN + Dari with one-screen 1366×768 preserved. Backend unchanged. 90 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 
 ---
 

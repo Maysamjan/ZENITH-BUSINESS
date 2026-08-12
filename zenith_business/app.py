@@ -94,11 +94,14 @@ def run(argv: list[str] | None = None) -> int:
     boot = Bootstrap()
     config = boot.initialize()
 
+    from zenith_business.core.fonts import apply_base_font
+
     app = QApplication(argv if argv is not None else sys.argv)
     app.setApplicationName(IDENTITY.product)
     app.setApplicationDisplayName(IDENTITY.product)
     app.setApplicationVersion(IDENTITY.version)
     app.setOrganizationName(IDENTITY.company)
+    apply_base_font(app)  # bundled Vazirmatn — consistent EN + Dari typography
     app.setStyleSheet(build_stylesheet())
 
     window = MainWindow(
