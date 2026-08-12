@@ -51,6 +51,7 @@ class HomeScreen(QScrollArea):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         outer = QWidget()
+        outer.setProperty("role", "workspace")  # premium tinted depth (§10 home)
         self.setWidget(outer)
         outer_layout = QVBoxLayout(outer)
         outer_layout.setContentsMargins(
@@ -87,7 +88,8 @@ class HomeScreen(QScrollArea):
     # ---- hero ------------------------------------------------------------
 
     def _build_hero(self) -> QWidget:
-        hero = Card()
+        hero = Card(role="section")
+        hero.setProperty("accent", "brand")
         apply_shadow(hero, blur=32, y=6, alpha=34)
         hero.body.setContentsMargins(Spacing.XXL, Spacing.XL, Spacing.XXL, Spacing.XL)
         hero.body.setSpacing(Spacing.SM)

@@ -202,3 +202,47 @@ class Color:
     STATUSBAR_BG = "#14263D"
     STATUSBAR_TEXT = "#C4D0DE"
     STATUSBAR_BORDER = "#0E1B2C"
+
+    # ---- secondary / accent (breaks the blue-only monotony; Prompt 01E §14) ----
+    ACCENT = "#0E9E8E"           # teal
+    ACCENT_HOVER = "#0C8577"
+    ACCENT_SOFT = "#E1F4F1"
+    ACCENT_TEXT = "#0A6E63"
+
+    # ---- workspace depth (subtle tinted gradient, not flat gray) ----
+    WORKSPACE_TOP = "#EFF3FA"
+    WORKSPACE_BOTTOM = "#E5ECF6"
+
+    # ---- semantic financial / status roles ----
+    POSITIVE = "#1E874B"         # positive financial value
+    POSITIVE_SOFT = "#E4F3EA"
+    NEGATIVE = "#C0392B"         # debt / negative value
+    NEGATIVE_SOFT = "#FBE7E4"
+
+    CASH = "#1E874B"             # cash transaction  -> success
+    CASH_SOFT = "#E4F3EA"
+    CREDIT = "#B7791F"           # credit transaction -> warning
+    CREDIT_SOFT = "#FBF1DD"
+    PARTIAL = "#C46A10"          # partial payment    -> amber
+    PARTIAL_SOFT = "#FBEBD8"
+
+    IN_STOCK = "#1E874B"
+    LOW_STOCK = "#B7791F"
+    OUT_OF_STOCK = "#C0392B"
+
+    # ---- interaction surfaces ----
+    SELECTED_ROW_BG = "#E7F0FE"          # committed selected row (brand tint)
+    ACTIVE_ROW_BG = "#FFF8EC"            # active editing row (warm tint)
+    ACTIVE_ROW_ACCENT = "#E0A93B"        # active editing row left accent
+    SEARCH_SELECTION_BG = "#D8E8FE"      # highlighted autocomplete result
+    INPUT_FOCUS = "#1F6FEB"
+    READONLY_BG = "#F1F4F8"              # read-only / disabled surface
+
+    # ---- print (customer-facing invoice; ink-friendly) ----
+    PRINT_BG = "#FFFFFF"
+    PRINT_INK = "#1B2430"
+    PRINT_MUTED = "#5A6675"
+    PRINT_ACCENT = "#14263D"             # brand navy for header/title accents
+    PRINT_ACCENT_SOFT = "#EDF1F6"
+    PRINT_RULE = "#C9D2DD"
+    PRINT_TOTAL = "#14263D"

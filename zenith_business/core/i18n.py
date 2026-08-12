@@ -295,6 +295,35 @@ _CATALOG: dict[str, dict[str, str]] = {
     "si.act_print": {LANG_ENGLISH: "Print", LANG_DARI: "چاپ"},
     "si.act_receive": {LANG_ENGLISH: "Receive Cash", LANG_DARI: "دریافت نقد"},
     "si.act_close": {LANG_ENGLISH: "Close", LANG_DARI: "بستن"},
+    # ---- Tools command: print preview ---------------------------------
+    "cmd.tools.print_preview": {
+        LANG_ENGLISH: "Invoice Print Preview", LANG_DARI: "پیش‌نمایش چاپ بل",
+    },
+    # ---- printed A4 invoice -------------------------------------------
+    "print.preview_title": {LANG_ENGLISH: "Print Preview", LANG_DARI: "پیش‌نمایش چاپ"},
+    "print.back": {LANG_ENGLISH: "Back to Invoice", LANG_DARI: "بازگشت به بل"},
+    "print.title": {LANG_ENGLISH: "SALES INVOICE", LANG_DARI: "بل فروش"},
+    "print.bill_to": {LANG_ENGLISH: "Bill To", LANG_DARI: "صورت‌حساب برای"},
+    "print.tax_id": {LANG_ENGLISH: "Tax ID", LANG_DARI: "شماره مالیه"},
+    "print.email": {LANG_ENGLISH: "Email", LANG_DARI: "ایمیل"},
+    "print.col_item": {LANG_ENGLISH: "Item", LANG_DARI: "جنس"},
+    "print.paid": {LANG_ENGLISH: "Amount Paid", LANG_DARI: "مبلغ پرداخت‌شده"},
+    "print.prepared_by": {LANG_ENGLISH: "Prepared By", LANG_DARI: "تهیه‌کننده"},
+    "print.customer_sign": {LANG_ENGLISH: "Customer Signature", LANG_DARI: "امضای مشتری"},
+    "print.authorized_sign": {LANG_ENGLISH: "Authorized Signature", LANG_DARI: "امضای مجاز"},
+    "print.notes": {LANG_ENGLISH: "Notes / Terms", LANG_DARI: "یادداشت / شرایط"},
+    "print.terms_text": {
+        LANG_ENGLISH: "Payment due on receipt. Goods sold are subject to the store return policy.",
+        LANG_DARI: "پرداخت هنگام دریافت. اجناس فروخته‌شده تابع پالیسی برگشت فروشگاه است.",
+    },
+    "print.thankyou": {
+        LANG_ENGLISH: "Thank you for your business!",
+        LANG_DARI: "از خرید شما سپاسگزاریم!",
+    },
+    "print.demo_note": {
+        LANG_ENGLISH: "Demonstration document — company details are placeholders and configurable.",
+        LANG_DARI: "سند نمایشی — مشخصات شرکت نمونه و قابل تنظیم است.",
+    },
 }
 
 

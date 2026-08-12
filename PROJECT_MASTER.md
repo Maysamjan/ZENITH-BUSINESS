@@ -15,8 +15,8 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 0.5 |
-| Current Stage | **01 — FOUNDATION + 01B/01C/01D PREMIUM UI (implemented; READY FOR OWNER REVIEW)** |
+| PROJECT_MASTER.md Version | 0.6 |
+| Current Stage | **01 — FOUNDATION + 01B–01E PREMIUM UI (implemented; READY FOR OWNER REVIEW)** |
 | Database Schema Version | none (infrastructure only; **no tables created**) |
 | Last Updated | 2026-08-11 |
 
@@ -172,7 +172,7 @@ requested module is implemented.
 | # | Module | Status |
 |---|--------|--------|
 | 00 | MASTER (constitution) | ✅ Ratified (on `main`) |
-| 01 | Project Foundation (+01B/01C/01D premium UI) | 🔶 Implemented — **ready for owner review** (not LOCKED) |
+| 01 | Project Foundation (+01B–01E premium UI) | 🔶 Implemented — **ready for owner review** (not LOCKED) |
 | 02 | Database | ⛔ Not started |
 | 03 | Company & Financial Year | ⛔ Not started |
 | 04 | Chart of Accounts | ⛔ Not started |
@@ -675,6 +675,56 @@ stages; logo/icon-set still pending.
 
 ---
 
+## 13E. Stage 01E — Premium color system + printed A4 invoice (pending review)
+
+UI/print-only stage (Prompt 01E). Adds an intentional semantic color system, more
+visual character to the Sales Invoice, and a real customer-facing **A4 printed
+invoice** driven by the same demo transaction. Backend untouched; no tables, no
+persistence.
+
+### 13E.1 Semantic color system (§14) — centralized
+
+New tokens in `ui/design/tokens.py`: secondary **accent** (teal), workspace
+gradient, and financial/status roles — positive/negative value, cash/credit/
+partial, in/low/out stock, selected-row vs **active-editing-row**, search-
+selection, input focus, read-only, and an ink-friendly **print** palette.
+Applied by meaning, not decoration:
+- Grand Total → strong filled brand bar (max emphasis).
+- Cash → success chip; Credit/Remaining → warning/red; debt → red.
+- Stock tile → success / warning / danger by level.
+- Active invoice row → warm tint + amber marker (distinct from committed rows).
+- Selected autocomplete result → accent background.
+- Save → primary; **Delete → destructive** variant.
+
+### 13E.2 Sales Invoice visual character (§15)
+
+Subtle workspace gradient behind cards; accent-topped section cards (navy header,
+brand grid + payment, teal operational); stronger financial typography; colored
+balance/credit indicators; icons + shortcut hints retained. Reads as the flagship
+transaction screen, not a database form.
+
+### 13E.3 Printed A4 Sales Invoice (§16-§19)
+
+New print architecture: `ui/print/invoice_document.py` (`A4InvoiceDocument`,
+794×1123) + `ui/pages/print_preview.py` (preview workspace with Back/Print). A
+real customer document — company block + logo, `SALES INVOICE` identity, Bill-To,
+items table (`# | Item | Qty | Unit | Unit Price | Discount | Total` — no
+internal warehouse/stock/cost), summary (Subtotal/Discount, prominent **Grand
+Total**, Amount Paid green, Remaining red), and footer (Prepared By / Customer
+Signature / Authorized Signature / notes / thank-you). Ink-friendly (white page,
+restrained navy accents; readable in grayscale). **English LTR and Dari RTL**
+both genuinely laid out. Driven by `ui/mock/demo_invoice.py` — the **same
+transaction** shown on screen; **Save & Print / Print** open the preview in-app.
+
+### 13E.4 Tests & known issues
+
+**84 tests pass** (added demo-invoice totals, A4 document EN/RTL construction,
+print-preview page, and the Save & Print → preview workflow using the same
+transaction). Known issues: company details are placeholder/configurable; real
+print-to-paper/PDF export is a later stage; logo remains a placeholder.
+
+---
+
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
@@ -684,6 +734,7 @@ stages; logo/icon-set still pending.
 | 2026-08-11 | 0.3 | Stage 01B (UI/UX refinement) on the same feature branch: three-tier top chrome (navy HeaderBar + white PrimaryNav + contextual ContextBar), redesigned composed home (hero + readiness + reserved quick-access), expanded semantic design system (colors, typography hierarchy, control dims, FieldWidth XS–XL, reusable components), form + table + dialog + empty-state standards, RTL/LTR visual pass. Backend foundation unchanged. 70 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 | 2026-08-11 | 0.4 | Stage 01C (premium UI redesign) on the same feature branch: denser professional layout tokens, grid-based business-form architecture, full **Sales Invoice visual prototype** as the reference design (header + dominant line grid + summary/operational + action bar with shortcut hints), StatTile/LabeledField/apply_shadow/escape_amp components, upgraded list/management screen, home depth refinement, multi-resolution (1366/1600/1920) + Dari-RTL verification. Backend unchanged. 72 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 | 2026-08-11 | 0.5 | Stage 01D (rapid invoice entry UX) on the same feature branch: reusable provider-driven `SearchSelector` autocomplete architecture; keyboard-first Sales Invoice (item search → populate → qty → price → discount → next line); customer autocomplete filling balance/credit/phone; redesigned ERP/POS invoice workspace with always-visible payment area and permission-gated cost note; platform-style action icons; mock providers in `ui/mock/` (clearly non-production); Dari-RTL + 1366/1600 verification (no horizontal scroll at 1366). Backend unchanged. 80 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
+| 2026-08-11 | 0.6 | Stage 01E (premium color system + printed invoice) on the same feature branch: intentional semantic color tokens (accent, workspace gradient, financial/status roles) applied by meaning (strong filled Grand Total, cash/credit/stock colors, active-row marker, destructive Delete); richer Sales Invoice character (accent cards, colored indicators); and a real customer-facing **A4 printed Sales Invoice** (EN LTR + Dari RTL) driven by the same demo transaction, opened via Save & Print → in-app print preview. Backend unchanged. 84 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 
 ---
 

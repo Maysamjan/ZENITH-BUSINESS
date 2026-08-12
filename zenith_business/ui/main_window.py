@@ -45,6 +45,7 @@ from zenith_business.ui.components import EmptyState, vertical_line
 from zenith_business.ui.design.tokens import ControlSize
 from zenith_business.ui.home_screen import HomeScreen
 from zenith_business.ui.pages.form_demo import FormDemoPage
+from zenith_business.ui.pages.print_preview import PrintPreviewPage
 from zenith_business.ui.pages.sales_invoice_demo import SalesInvoiceDemoPage
 from zenith_business.ui.pages.table_demo import TableDemoPage
 from zenith_business.ui.shell import ContextBar, HeaderBar, PrimaryNav
@@ -100,6 +101,7 @@ _COMMANDS: dict[str, list[tuple[str, bool, str | None]]] = {
     ],
     "menu.tools": [
         ("cmd.tools.sales_invoice", True, "sales_invoice"),
+        ("cmd.tools.print_preview", True, "print_preview"),
         ("cmd.tools.form_demo", True, "form"),
         ("cmd.tools.table_demo", True, "table"),
         ("cmd.tools.settings", False, None),
@@ -168,9 +170,14 @@ class MainWindow(QMainWindow):
         )
         self.form_page = FormDemoPage(self._translator)
         self.table_page = TableDemoPage(self._translator)
-        self.sales_invoice_page = SalesInvoiceDemoPage(self._translator)
+        self.print_preview_page = PrintPreviewPage(
+            self._translator, on_back=self.show_sales_invoice
+        )
+        self.sales_invoice_page = SalesInvoiceDemoPage(
+            self._translator, on_print=self._open_print_preview
+        )
         for page in (self.home_page, self.unavailable_page, self.form_page,
-                     self.table_page, self.sales_invoice_page):
+                     self.table_page, self.sales_invoice_page, self.print_preview_page):
             self.content.addWidget(page)
         layout.addWidget(self.content, stretch=1)
 
@@ -209,6 +216,7 @@ class MainWindow(QMainWindow):
             "form": self.show_form_demo,
             "table": self.show_table_demo,
             "sales_invoice": self.show_sales_invoice,
+            "print_preview": self.show_print_preview,
         }
         commands = [
             (
@@ -240,6 +248,14 @@ class MainWindow(QMainWindow):
 
     def show_sales_invoice(self) -> None:
         self.content.setCurrentWidget(self.sales_invoice_page)
+
+    def show_print_preview(self) -> None:
+        self.print_preview_page.show_invoice(self.sales_invoice_page.demo_invoice)
+        self.content.setCurrentWidget(self.print_preview_page)
+
+    def _open_print_preview(self, data) -> None:
+        self.print_preview_page.show_invoice(data)
+        self.content.setCurrentWidget(self.print_preview_page)
 
     # ---- status ----------------------------------------------------------
 
@@ -276,6 +292,7 @@ class MainWindow(QMainWindow):
         self.form_page.retranslate(self._translator)
         self.table_page.retranslate(self._translator)
         self.sales_invoice_page.retranslate(self._translator)
+        self.print_preview_page.retranslate(self._translator)
         self.unavailable_page.set_text(
             self._translator.gettext("empty.unavailable_title"),
             self._translator.gettext("empty.unavailable_sub"),

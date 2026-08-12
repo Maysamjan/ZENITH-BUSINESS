@@ -23,6 +23,7 @@ Keyboard model (Prompt 01D §3)
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -56,20 +57,13 @@ from zenith_business.ui.components import (
     secondary_button,
     standard_icon,
 )
-from zenith_business.ui.design.tokens import ControlSize, FieldWidth, Spacing
+from zenith_business.ui.design.tokens import Color, ControlSize, FieldWidth, Spacing
+from zenith_business.ui.mock.demo_invoice import build_demo_invoice
 from zenith_business.ui.mock.demo_search import DemoCustomerProvider, DemoItemProvider
 from zenith_business.ui.widgets.search_selector import SearchRow, SearchSelector
 
 # Columns: # | Code | Item Name | Unit | Qty | Unit Price | Discount | Total | Warehouse
 COL_NO, COL_CODE, COL_NAME, COL_UNIT, COL_QTY, COL_PRICE, COL_DISC, COL_TOTAL, COL_WH = range(9)
-
-# Pre-committed demonstration lines (clearly fake; no persistence).
-_DEMO_LINES = [
-    ("IT-1004", "Cooking Oil 5L", "Ctn", 10, 320.00, 0.00, "Main"),
-    ("IT-1002", "Basmati Rice 25kg", "Bag", 25, 1980.00, 50.00, "Main"),
-    ("IT-1006", "Sugar 50kg", "Bag", 8, 2600.00, 0.00, "Main"),
-]
-
 
 def _num(text: str) -> float:
     try:
@@ -85,18 +79,27 @@ def _money(value: float) -> str:
 class SalesInvoiceDemoPage(QScrollArea):
     """Full-workspace, keyboard-first Sales Invoice prototype."""
 
-    def __init__(self, translator: Translator, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        translator: Translator,
+        *,
+        on_print=None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self._t = translator
         self._items = DemoItemProvider()
         self._customers = DemoCustomerProvider()
-        self._received = 40000.0
+        self._on_print = on_print
+        self._demo = build_demo_invoice()
+        self._received = self._demo.paid
 
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         inner = QWidget()
+        inner.setProperty("role", "workspace")  # subtle tinted depth behind cards
         self.setWidget(inner)
         root = QVBoxLayout(inner)
         root.setContentsMargins(
@@ -113,7 +116,16 @@ class SalesInvoiceDemoPage(QScrollArea):
 
         self._reload_demo_lines()
         self._add_active_row()
+        self._prefill_customer()
         self._recompute_totals()
+
+    def _prefill_customer(self) -> None:
+        """Show the shared demo customer so the screen matches the print."""
+        d = self._demo
+        self._customer_selector.set_text(d.customer_name)
+        self._set_info_chip(self._chip_phone, d.customer_phone, "neutral")
+        self._set_info_chip(self._chip_balance, _money(12500.0) + " AFN", "danger")
+        self._set_info_chip(self._chip_credit, _money(50000.0) + " AFN", "info")
 
     # ---- small helpers ---------------------------------------------------
 
@@ -148,7 +160,7 @@ class SalesInvoiceDemoPage(QScrollArea):
     # ---- header (invoice meta + customer autocomplete) -------------------
 
     def _build_header(self) -> QWidget:
-        card = Card(role="section"); apply_shadow(card)
+        card = Card(role="section"); card.setProperty("accent", "navy"); apply_shadow(card)
         t = self._t
 
         meta = QHBoxLayout(); meta.setSpacing(Spacing.LG)
@@ -207,11 +219,12 @@ class SalesInvoiceDemoPage(QScrollArea):
                 "si.col_warehouse"]
 
     def _build_grid_card(self) -> QWidget:
-        card = Card(role="section"); apply_shadow(card)
+        card = Card(role="section"); card.setProperty("accent", "brand"); apply_shadow(card)
         bar = QHBoxLayout(); bar.setSpacing(Spacing.SM)
         bar.addWidget(self._card_title("si.lines"))
         bar.addStretch(1)
         self._btn_delete = secondary_button(self._t.gettext("si.delete_line"))
+        self._btn_delete.setProperty("variant", "danger")
         self._btn_delete.setIcon(standard_icon("delete"))
         self._btn_delete.clicked.connect(self._delete_selected_line)
         bar.addWidget(self._btn_delete)
@@ -238,8 +251,10 @@ class SalesInvoiceDemoPage(QScrollArea):
 
     def _reload_demo_lines(self) -> None:
         self._table.setRowCount(0)
-        for line in _DEMO_LINES:
-            self._append_committed_row(*line)
+        for line in self._demo.lines:
+            self._append_committed_row(
+                line.code, line.name, line.unit, line.qty, line.price, line.discount, "Main"
+            )
 
     def _append_committed_row(self, code, name, unit, qty, price, disc, wh) -> None:
         r = self._table.rowCount()
@@ -263,6 +278,13 @@ class SalesInvoiceDemoPage(QScrollArea):
         self._table.setItem(r, COL_UNIT, self._ro_item(""))
         self._table.setItem(r, COL_TOTAL, self._ro_item(""))
         self._table.setItem(r, COL_WH, self._ro_item("Main"))
+        # Differentiate the active editing row from committed rows (§14).
+        tint = QColor(Color.ACTIVE_ROW_BG)
+        for col in (COL_NO, COL_CODE, COL_UNIT, COL_TOTAL, COL_WH):
+            self._table.item(r, col).setBackground(tint)
+        no_item = self._table.item(r, COL_NO)
+        no_item.setBackground(QColor(Color.ACTIVE_ROW_ACCENT))
+        no_item.setForeground(QColor("#FFFFFF"))
 
         self._item_selector = SearchSelector(
             self._items, placeholder=self._t.gettext("si.item_search_ph"),
@@ -327,6 +349,13 @@ class SalesInvoiceDemoPage(QScrollArea):
             align = Qt.AlignmentFlag.AlignRight if num else Qt.AlignmentFlag.AlignLeft
             item.setTextAlignment(align | Qt.AlignmentFlag.AlignVCenter)
             self._table.setItem(r, col, item)
+        # Clear the active-row tint now that this line is committed.
+        from PyQt6.QtGui import QBrush
+        for col in range(9):
+            cell = self._table.item(r, col)
+            if cell is not None:
+                cell.setBackground(QBrush())
+                cell.setForeground(QBrush())
         self._add_active_row()
         self._recompute_totals()
         self._item_selector.focus()
@@ -348,7 +377,15 @@ class SalesInvoiceDemoPage(QScrollArea):
     # ---- quick item info (permission-aware) ------------------------------
 
     def _update_quick_info(self, payload: dict) -> None:
-        self._tile_stock.set_value(f"{payload['stock']:,.0f}")
+        stock = payload["stock"]
+        self._tile_stock.set_value(f"{stock:,.0f} {payload['unit']}")
+        # Stock level colour (Prompt 01E §14): out / low / in.
+        if stock <= 0:
+            self._tile_stock.set_accent("danger")
+        elif stock < 30:
+            self._tile_stock.set_accent("warning")
+        else:
+            self._tile_stock.set_accent("success")
         self._tile_last_sale.set_value(_money(payload["last_sale"]) + " AFN")
         self._tile_default.set_value(_money(payload["price"]) + " AFN")
 
@@ -361,10 +398,11 @@ class SalesInvoiceDemoPage(QScrollArea):
         return band
 
     def _build_quick_info(self) -> QWidget:
-        card = Card(role="section"); apply_shadow(card)
-        card.body.addWidget(self._card_title("si.operational"))
+        card = Card(role="section"); card.setProperty("accent", "teal"); apply_shadow(card)
+        title = self._card_title("si.operational"); title.setProperty("accent", "teal")
+        card.body.addWidget(title)
         tiles = QHBoxLayout(); tiles.setSpacing(Spacing.MD)
-        self._tile_stock = StatTile(self._t.gettext("si.op_stock"), "—", accent="info")
+        self._tile_stock = StatTile(self._t.gettext("si.op_stock"), "—", accent="success")
         self._tile_last_sale = StatTile(self._t.gettext("si.op_last_sale"), "—")
         self._tile_default = StatTile(self._t.gettext("si.default_price"), "—")
         for tile in (self._tile_stock, self._tile_last_sale, self._tile_default):
@@ -378,25 +416,26 @@ class SalesInvoiceDemoPage(QScrollArea):
         return card
 
     def _build_payment(self) -> QWidget:
-        card = Card(role="section"); apply_shadow(card)
+        card = Card(role="section"); card.setProperty("accent", "brand"); apply_shadow(card)
         t = self._t
 
         # Cash / Credit segmented indicator.
         seg = QHBoxLayout(); seg.setSpacing(Spacing.XS)
-        seg.addWidget(self._card_title("si.payment"))
+        title = self._card_title("si.payment"); title.setProperty("accent", "brand")
+        seg.addWidget(title)
         seg.addStretch(1)
         self._seg_cash = chip(t.gettext("si.pay_cash"), "success")
         self._seg_credit = chip(t.gettext("si.pay_credit"), "neutral")
         seg.addWidget(self._seg_cash); seg.addWidget(self._seg_credit)
         card.body.addLayout(seg)
 
-        # Grand total (emphasized).
-        gt = QFrame(); gt.setProperty("role", "grand-total")
-        gtl = QHBoxLayout(gt); gtl.setContentsMargins(Spacing.MD, Spacing.SM, Spacing.MD, Spacing.SM)
+        # Grand total — strong filled brand bar (max emphasis, §14).
+        gt = QFrame(); gt.setProperty("role", "grand-total-strong")
+        gtl = QHBoxLayout(gt); gtl.setContentsMargins(Spacing.LG, Spacing.SM, Spacing.LG, Spacing.SM)
         self._grand_label = QLabel(t.gettext("si.grand_total"))
-        self._grand_label.setProperty("role", "grand-total-label")
+        self._grand_label.setProperty("role", "gts-label")
         self._grand_value = QLabel("—")
-        self._grand_value.setProperty("role", "grand-total-value")
+        self._grand_value.setProperty("role", "gts-value")
         self._grand_value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         gtl.addWidget(self._grand_label); gtl.addStretch(1); gtl.addWidget(self._grand_value)
         card.body.addWidget(gt)
@@ -437,8 +476,11 @@ class SalesInvoiceDemoPage(QScrollArea):
         grand = self._committed_subtotal()
         self._grand_value.setText(_money(grand) + " AFN")
         remaining = grand - self._received
-        self._rem_value.setText(_money(remaining))
-        # Cash when fully paid, otherwise credit.
+        self._rem_value.setText(_money(remaining) + " AFN")
+        # Remaining is debt (red) when unpaid, positive (green) when settled.
+        self._rem_value.setProperty("money", "negative" if remaining > 0.001 else "positive")
+        self._rem_value.style().unpolish(self._rem_value); self._rem_value.style().polish(self._rem_value)
+        # Cash when fully paid, otherwise credit (§14).
         cash = remaining <= 0.001
         self._seg_cash.setProperty("chip", "success" if cash else "neutral")
         self._seg_credit.setProperty("chip", "neutral" if cash else "warning")
@@ -464,6 +506,8 @@ class SalesInvoiceDemoPage(QScrollArea):
         for key, icon, shortcut, primary in specs:
             btn = primary_button(self._t.gettext(key)) if primary else secondary_button(self._t.gettext(key))
             btn.setIcon(standard_icon(icon)); btn.setToolTip(shortcut)
+            if key in ("si.act_save_print", "si.act_print"):
+                btn.clicked.connect(self._trigger_print)
             self._action_buttons.append((key, btn))
             row.addWidget(btn)
             hint = QLabel(shortcut); hint.setProperty("role", "shortcut")
@@ -473,6 +517,15 @@ class SalesInvoiceDemoPage(QScrollArea):
         self._close_btn.setIcon(standard_icon("close"))
         row.addWidget(self._close_btn)
         return bar
+
+    def _trigger_print(self) -> None:
+        """Save & Print / Print → open the A4 print preview (same transaction)."""
+        if self._on_print is not None:
+            self._on_print(self._demo)
+
+    @property
+    def demo_invoice(self):
+        return self._demo
 
     # ---- demo drivers (for screenshots / tests) --------------------------
 

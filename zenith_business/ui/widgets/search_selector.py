@@ -320,11 +320,17 @@ def selector_styles() -> str:
     QFrame#SearchPanel QTableWidget {{
         border: none;
         background: {c.SURFACE};
-        selection-background-color: {c.PRIMARY_SOFT};
+        selection-background-color: {c.SEARCH_SELECTION_BG};
         selection-color: {c.TEXT_PRIMARY};
     }}
     QFrame#SearchPanel QTableWidget::item:selected {{
+        background: {c.SEARCH_SELECTION_BG};
+        color: {c.PRIMARY_PRESSED};
+    }}
+    QFrame#SearchPanel QHeaderView::section {{
         background: {c.PRIMARY_SOFT};
-        color: {c.TEXT_PRIMARY};
+        color: {c.PRIMARY_PRESSED};
+        border: none; border-bottom: 1px solid {c.BORDER};
+        font-weight: 600;
     }}
     """

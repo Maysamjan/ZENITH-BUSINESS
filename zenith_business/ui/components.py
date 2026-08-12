@@ -223,6 +223,11 @@ class StatTile(QFrame):
     def set_label(self, label: str) -> None:
         self._label.setText(label)
 
+    def set_accent(self, accent: str) -> None:
+        self._value.setProperty("accent", accent)
+        self._value.style().unpolish(self._value)
+        self._value.style().polish(self._value)
+
 
 class LabeledField(QWidget):
     """A field label stacked above its control — compact and grid-friendly (§9).

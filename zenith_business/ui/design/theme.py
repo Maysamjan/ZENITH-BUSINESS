@@ -401,6 +401,52 @@ def build_stylesheet() -> str:
         padding-bottom: {Spacing.XS}px;
     }}
 
+    /* ==== workspace depth (subtle tinted gradient behind cards) ========= */
+    QWidget[role="workspace"] {{
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+            stop:0 {c.WORKSPACE_TOP}, stop:1 {c.WORKSPACE_BOTTOM});
+    }}
+
+    /* ==== accent-topped section cards (Prompt 01E §15) ================== */
+    QFrame[role="section"][accent="brand"] {{ border-top: 2px solid {c.PRIMARY}; }}
+    QFrame[role="section"][accent="teal"] {{ border-top: 2px solid {c.ACCENT}; }}
+    QFrame[role="section"][accent="navy"] {{ border-top: 2px solid {c.HEADER_BG}; }}
+    QLabel[role="card-title"][accent="teal"] {{ color: {c.ACCENT_TEXT}; }}
+    QLabel[role="card-title"][accent="brand"] {{ color: {c.PRIMARY_PRESSED}; }}
+
+    /* ==== destructive button ============================================ */
+    QPushButton[variant="danger"] {{
+        background-color: {c.SURFACE}; color: {c.DANGER};
+        border: 1px solid #E4B4AE;
+    }}
+    QPushButton[variant="danger"]:hover {{
+        background-color: {c.DANGER_SOFT}; border-color: {c.DANGER}; color: {c.DANGER};
+    }}
+    QPushButton[variant="accent"] {{
+        background-color: {c.ACCENT}; color: {c.TEXT_ON_PRIMARY};
+        border: 1px solid {c.ACCENT}; font-weight: {t.WEIGHT_MEDIUM};
+    }}
+    QPushButton[variant="accent"]:hover {{ background-color: {c.ACCENT_HOVER}; }}
+
+    /* ==== strong filled grand total (brand emphasis) =================== */
+    QFrame[role="grand-total-strong"] {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+            stop:0 {c.PRIMARY}, stop:1 {c.PRIMARY_PRESSED});
+        border: none; border-radius: {Radius.MD}px;
+    }}
+    QLabel[role="gts-label"] {{
+        color: {c.TEXT_ON_PRIMARY}; font-size: {t.SIZE_SECTION_TITLE}pt;
+        font-weight: {t.WEIGHT_SEMIBOLD};
+    }}
+    QLabel[role="gts-value"] {{
+        color: {c.TEXT_ON_PRIMARY}; font-size: {t.SIZE_PAGE_TITLE}pt;
+        font-weight: {t.WEIGHT_BOLD};
+    }}
+
+    /* ==== financial value colors ======================================= */
+    QLabel[money="positive"] {{ color: {c.POSITIVE}; font-weight: {t.WEIGHT_SEMIBOLD}; }}
+    QLabel[money="negative"] {{ color: {c.NEGATIVE}; font-weight: {t.WEIGHT_SEMIBOLD}; }}
+
     /* ==== menus (used by combo popups / context menus) ================== */
     QMenu {{
         background-color: {c.SURFACE}; border: 1px solid {c.BORDER};
