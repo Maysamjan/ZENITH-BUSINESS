@@ -72,7 +72,7 @@ class ControlSize(IntEnum):
     TABLE_HEADER_HEIGHT = 30
 
     # Stat / KPI tiles
-    STAT_TILE_HEIGHT = 56
+    STAT_TILE_HEIGHT = 46
 
     # Iconography
     ICON_SM = 16

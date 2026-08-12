@@ -1,15 +1,21 @@
-"""A4 printed Sales Invoice document (Prompt 01E §16-§19).
+"""Paginated printed Sales Invoice engine (Prompt 01F §6-§10).
 
-A real customer-facing invoice — not a screenshot of the app. Ink-friendly:
-white page, restrained navy/brand accents used only for the header rule, title,
-totals and separators (§17). Direction-aware for English LTR and Dari RTL (§18).
-Driven by the shared demo transaction so it matches the on-screen invoice (§19).
+A genuine content-reflowing print layout — not a fixed screenshot:
+    * A4 and A5 paper sizes, each with its own typography/spacing/density (§6).
+    * The document reflows to the number of items (§7): short invoices compose
+      compactly (no half-page gap); long invoices continue onto more pages with
+      repeated document + table headers, page numbers, and totals kept on the
+      final page (§7, §8).
+    * Amount in words from the actual grand total, English + Dari (§10).
+    * Ink-friendly (white page, restrained navy accents; clear in grayscale).
+    * Real RTL for Dari (§12).
 
-Self-contained styling (its own stylesheet) so the customer document never
-inherits application chrome.
+Driven by the shared demo transaction so screen and print match (§11).
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -27,7 +33,8 @@ from PyQt6.QtWidgets import (
 
 from zenith_business.core.i18n import Direction, Translator
 from zenith_business.core.identity import IDENTITY
-from zenith_business.ui.design.tokens import Color, Radius, Spacing, Typography
+from zenith_business.core.numbers import amount_in_words
+from zenith_business.ui.design.tokens import Color, Radius
 from zenith_business.ui.mock.demo_invoice import InvoiceData
 
 
@@ -35,149 +42,218 @@ def _money(v: float) -> str:
     return f"{v:,.2f}"
 
 
-def _print_stylesheet() -> str:
+@dataclass(frozen=True)
+class PaperSize:
+    """A print paper preset with its own density (§6)."""
+
+    key: str
+    w: int
+    h: int
+    margin: int
+    scale: float        # font scale relative to A4
+    row_h: int
+    rows_per_page: int  # capacity of a non-final page
+    last_reserve: int   # rows of space the totals/footer consume on the last page
+
+
+A4 = PaperSize("A4", 794, 1123, 40, 1.0, 30, 24, 10)
+A5 = PaperSize("A5", 559, 794, 26, 0.84, 25, 12, 6)
+
+PAPERS = {"A4": A4, "A5": A5}
+
+
+def paginate(n: int, cap: int, reserve: int) -> list[tuple[int, int, bool]]:
+    """Return (start, end, is_last) slices so totals/footer fit on the last page."""
+    last_cap = max(1, cap - reserve)
+    if n <= last_cap:
+        return [(0, n, True)]
+    pages: list[tuple[int, int, bool]] = []
+    i = 0
+    while True:
+        remaining = n - i
+        if remaining <= last_cap:
+            pages.append((i, n, True))
+            break
+        take = min(cap, remaining - 1)  # leave >=1 row for the final page
+        pages.append((i, i + take, False))
+        i += take
+    return pages
+
+
+def _stylesheet(scale: float) -> str:
     c = Color
-    t = Typography
+
+    def s(pt: float) -> str:
+        return f"{max(7.5, pt * scale):.1f}pt"
+
     return f"""
-    QWidget#A4Page {{ background: {c.PRINT_BG}; }}
-    QWidget#A4Page QLabel {{ background: transparent; color: {c.PRINT_INK};
-        font-family: {t.FAMILY}; font-size: 9.5pt; }}
-    QWidget#A4Page QLabel[p="company"] {{ font-size: 14pt; font-weight: {t.WEIGHT_BOLD};
-        color: {c.PRINT_ACCENT}; }}
-    QWidget#A4Page QLabel[p="muted"] {{ color: {c.PRINT_MUTED}; font-size: 9pt; }}
-    QWidget#A4Page QLabel[p="title"] {{ font-size: 21pt; font-weight: {t.WEIGHT_BOLD};
-        color: {c.PRINT_ACCENT}; letter-spacing: 1px; }}
-    QWidget#A4Page QLabel[p="meta-label"] {{ color: {c.PRINT_MUTED}; font-size: 9pt; }}
-    QWidget#A4Page QLabel[p="meta-value"] {{ color: {c.PRINT_INK}; font-size: 9.5pt;
-        font-weight: {t.WEIGHT_MEDIUM}; }}
-    QWidget#A4Page QLabel[p="section"] {{ color: {c.PRINT_ACCENT}; font-size: 10pt;
-        font-weight: {t.WEIGHT_SEMIBOLD}; }}
-    QWidget#A4Page QLabel[p="cust-name"] {{ font-size: 12pt; font-weight: {t.WEIGHT_SEMIBOLD}; }}
-    QWidget#A4Page QLabel[p="total-label"] {{ color: {c.PRINT_MUTED}; font-size: 10pt; }}
-    QWidget#A4Page QLabel[p="total-value"] {{ color: {c.PRINT_INK}; font-size: 10pt;
-        font-weight: {t.WEIGHT_MEDIUM}; }}
-    QWidget#A4Page QLabel[p="paid"] {{ color: {c.POSITIVE}; font-weight: {t.WEIGHT_SEMIBOLD}; }}
-    QWidget#A4Page QLabel[p="due"] {{ color: {c.NEGATIVE}; font-weight: {t.WEIGHT_BOLD}; }}
-    QWidget#A4Page QLabel[p="thanks"] {{ color: {c.PRINT_ACCENT}; font-size: 11pt;
-        font-weight: {t.WEIGHT_SEMIBOLD}; }}
-    QWidget#A4Page QLabel[p="logo"] {{ background: {c.PRINT_ACCENT}; color: #FFFFFF;
-        font-size: 22pt; font-weight: {t.WEIGHT_BOLD}; border-radius: {Radius.MD}px; }}
-    QWidget#A4Page QFrame[p="rule"] {{ background: {c.PRINT_ACCENT}; max-height: 3px;
-        min-height: 3px; border: none; }}
-    QWidget#A4Page QFrame[p="thin"] {{ background: {c.PRINT_RULE}; max-height: 1px;
-        min-height: 1px; border: none; }}
-    QWidget#A4Page QFrame[p="grand"] {{ background: {c.PRINT_ACCENT};
-        border-radius: {Radius.MD}px; }}
-    QWidget#A4Page QLabel[p="grand-label"] {{ color: #FFFFFF; font-size: 12pt;
-        font-weight: {t.WEIGHT_SEMIBOLD}; }}
-    QWidget#A4Page QLabel[p="grand-value"] {{ color: #FFFFFF; font-size: 15pt;
-        font-weight: {t.WEIGHT_BOLD}; }}
-    QWidget#A4Page QFrame[p="sign"] {{ background: {c.PRINT_RULE}; max-height: 1px;
-        min-height: 1px; }}
-    QWidget#A4Page QTableWidget {{ background: {c.PRINT_BG}; border: 1px solid {c.PRINT_RULE};
-        gridline-color: {c.PRINT_RULE}; font-size: 9.5pt; color: {c.PRINT_INK}; }}
-    QWidget#A4Page QHeaderView::section {{ background: {c.PRINT_ACCENT_SOFT};
-        color: {c.PRINT_ACCENT}; border: none; border-bottom: 1px solid {c.PRINT_RULE};
-        padding: 5px 6px; font-weight: {t.WEIGHT_SEMIBOLD}; }}
+    QWidget#Page {{ background: {c.PRINT_BG}; }}
+    QWidget#Page QLabel {{ background: transparent; color: {c.PRINT_INK};
+        font-family: "Segoe UI","Tahoma","Noto Naskh Arabic",sans-serif; font-size: {s(9.5)}; }}
+    QWidget#Page QLabel[p="company"] {{ font-size: {s(14)}; font-weight: 700; color: {c.PRINT_ACCENT}; }}
+    QWidget#Page QLabel[p="muted"] {{ color: {c.PRINT_MUTED}; font-size: {s(9)}; }}
+    QWidget#Page QLabel[p="title"] {{ font-size: {s(21)}; font-weight: 700; color: {c.PRINT_ACCENT}; letter-spacing: 1px; }}
+    QWidget#Page QLabel[p="run-title"] {{ font-size: {s(12)}; font-weight: 700; color: {c.PRINT_ACCENT}; }}
+    QWidget#Page QLabel[p="meta-label"] {{ color: {c.PRINT_MUTED}; font-size: {s(9)}; }}
+    QWidget#Page QLabel[p="meta-value"] {{ color: {c.PRINT_INK}; font-size: {s(9.5)}; font-weight: 500; }}
+    QWidget#Page QLabel[p="section"] {{ color: {c.PRINT_ACCENT}; font-size: {s(10)}; font-weight: 600; }}
+    QWidget#Page QLabel[p="cust-name"] {{ font-size: {s(12)}; font-weight: 600; }}
+    QWidget#Page QLabel[p="total-label"] {{ color: {c.PRINT_MUTED}; font-size: {s(10)}; }}
+    QWidget#Page QLabel[p="total-value"] {{ color: {c.PRINT_INK}; font-size: {s(10)}; font-weight: 500; }}
+    QWidget#Page QLabel[p="paid"] {{ color: {c.POSITIVE}; font-weight: 600; }}
+    QWidget#Page QLabel[p="due"] {{ color: {c.NEGATIVE}; font-weight: 700; }}
+    QWidget#Page QLabel[p="words"] {{ color: {c.PRINT_INK}; font-size: {s(9.5)}; font-style: italic; }}
+    QWidget#Page QLabel[p="thanks"] {{ color: {c.PRINT_ACCENT}; font-size: {s(11)}; font-weight: 600; }}
+    QWidget#Page QLabel[p="pagenum"] {{ color: {c.PRINT_MUTED}; font-size: {s(8.5)}; }}
+    QWidget#Page QLabel[p="logo"] {{ background: {c.PRINT_ACCENT}; color: #FFFFFF; font-size: {s(20)}; font-weight: 700; border-radius: {Radius.MD}px; }}
+    QWidget#Page QFrame[p="rule"] {{ background: {c.PRINT_ACCENT}; max-height: 3px; min-height: 3px; border: none; }}
+    QWidget#Page QFrame[p="thin"] {{ background: {c.PRINT_RULE}; max-height: 1px; min-height: 1px; border: none; }}
+    QWidget#Page QFrame[p="grand"] {{ background: {c.PRINT_ACCENT}; border-radius: {Radius.MD}px; }}
+    QWidget#Page QLabel[p="grand-label"] {{ color: #FFFFFF; font-size: {s(12)}; font-weight: 600; }}
+    QWidget#Page QLabel[p="grand-value"] {{ color: #FFFFFF; font-size: {s(15)}; font-weight: 700; }}
+    QWidget#Page QFrame[p="sign"] {{ background: {c.PRINT_RULE}; max-height: 1px; min-height: 1px; }}
+    QWidget#Page QTableWidget {{ background: {c.PRINT_BG}; border: 1px solid {c.PRINT_RULE}; gridline-color: {c.PRINT_RULE}; font-size: {s(9.5)}; color: {c.PRINT_INK}; }}
+    QWidget#Page QHeaderView::section {{ background: {c.PRINT_ACCENT_SOFT}; color: {c.PRINT_ACCENT}; border: none; border-bottom: 1px solid {c.PRINT_RULE}; padding: 4px 6px; font-weight: 600; font-size: {s(9)}; }}
     """
 
 
-class A4InvoiceDocument(QWidget):
-    """A single A4 portrait page (approx. 96 dpi: 794×1123)."""
-
-    WIDTH = 794
-    HEIGHT = 1123
+class InvoicePrintDocument(QWidget):
+    """A stack of paper pages that reflows to the invoice's item count."""
 
     def __init__(
-        self, data: InvoiceData, translator: Translator, parent: QWidget | None = None
+        self,
+        data: InvoiceData,
+        translator: Translator,
+        paper: PaperSize = A4,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._d = data
         self._t = translator
-        self.setObjectName("A4Page")
-        self.setFixedSize(self.WIDTH, self.HEIGHT)
-        self.setStyleSheet(_print_stylesheet())
+        self._paper = paper
+        self._rtl = translator.direction == Direction.RTL
         self.setLayoutDirection(
-            Qt.LayoutDirection.RightToLeft if translator.direction == Direction.RTL
-            else Qt.LayoutDirection.LeftToRight
+            Qt.LayoutDirection.RightToLeft if self._rtl else Qt.LayoutDirection.LeftToRight
         )
+        self.setStyleSheet(_stylesheet(paper.scale))
+        self.setFixedWidth(paper.w)
 
-        page = QVBoxLayout(self)
-        page.setContentsMargins(44, 40, 44, 36)
-        page.setSpacing(Spacing.LG)
+        stack = QVBoxLayout(self)
+        stack.setContentsMargins(0, 0, 0, 0)
+        stack.setSpacing(18)
+        stack.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
 
-        page.addLayout(self._header())
-        rule = QFrame(); rule.setProperty("p", "rule"); page.addWidget(rule)
-        page.addLayout(self._bill_and_meta())
-        page.addWidget(self._items_table())
-        page.addLayout(self._summary())
-        page.addStretch(1)
-        page.addWidget(self._footer())
+        pages = paginate(len(data.lines), paper.rows_per_page, paper.last_reserve)
+        total = len(pages)
+        for idx, (start, end, is_last) in enumerate(pages):
+            stack.addWidget(self._build_page(start, end, is_last, idx + 1, total))
 
-    # ---- header ----------------------------------------------------------
+    # ---- page ------------------------------------------------------------
 
-    def _header(self) -> QHBoxLayout:
-        row = QHBoxLayout(); row.setSpacing(Spacing.LG)
-        # Company block with logo placeholder.
-        left = QHBoxLayout(); left.setSpacing(Spacing.MD)
+    def _build_page(self, start: int, end: int, is_last: bool, page_no: int, total: int) -> QWidget:
+        page = QFrame()
+        page.setObjectName("Page")
+        page.setFixedSize(self._paper.w, self._paper.h)
+        col = QVBoxLayout(page)
+        m = self._paper.margin
+        col.setContentsMargins(m, m, m, m)
+        col.setSpacing(int(12 * self._paper.scale))
+
+        if page_no == 1:
+            col.addLayout(self._full_header())
+            rule = QFrame(); rule.setProperty("p", "rule"); col.addWidget(rule)
+            col.addLayout(self._bill_to())
+        else:
+            col.addLayout(self._running_header(page_no, total))
+            rule = QFrame(); rule.setProperty("p", "rule"); col.addWidget(rule)
+
+        col.addWidget(self._items_table(start, end))
+
+        if is_last:
+            # Compact composition (§7): items → totals → words → footer stacked,
+            # with the remaining whitespace at the very bottom of the page — no
+            # absurd half-page gap for short invoices.
+            col.addSpacing(int(8 * self._paper.scale))
+            col.addLayout(self._summary())
+            col.addSpacing(int(6 * self._paper.scale))
+            col.addWidget(self._amount_words())
+            col.addSpacing(int(12 * self._paper.scale))
+            col.addWidget(self._footer())
+            col.addStretch(1)
+        else:
+            col.addStretch(1)
+
+        pn = QLabel(f"{page_no} / {total}"); pn.setProperty("p", "pagenum")
+        pn.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        col.addWidget(pn)
+        return page
+
+    # ---- headers ---------------------------------------------------------
+
+    def _full_header(self):
+        row = QHBoxLayout(); row.setSpacing(16)
+        left = QHBoxLayout(); left.setSpacing(10)
+        size = int(60 * self._paper.scale)
         logo = QLabel(IDENTITY.product[:1]); logo.setProperty("p", "logo")
-        logo.setFixedSize(64, 64); logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo.setFixedSize(size, size); logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         left.addWidget(logo)
         comp = QVBoxLayout(); comp.setSpacing(1)
         c = self._d.company
-        name = QLabel(c.name); name.setProperty("p", "company")
-        comp.addWidget(name)
-        for text in (c.address, f"{c.phone}", f"{self._t.gettext('print.email')}: {c.email}",
+        nm = QLabel(c.name); nm.setProperty("p", "company"); comp.addWidget(nm)
+        for text in (c.address, c.phone,
+                     f"{self._t.gettext('print.email')}: {c.email}",
                      f"{self._t.gettext('print.tax_id')}: {c.tax_id}"):
-            lab = QLabel(text); lab.setProperty("p", "muted"); comp.addWidget(lab)
+            l = QLabel(text); l.setProperty("p", "muted"); comp.addWidget(l)
         left.addLayout(comp)
         row.addLayout(left)
         row.addStretch(1)
 
-        # Invoice identity block.
         right = QVBoxLayout(); right.setSpacing(2)
         title = QLabel(self._t.gettext("print.title")); title.setProperty("p", "title")
-        title.setAlignment(self._end_align())
+        title.setAlignment(self._end())
         right.addWidget(title)
-        ident = QGridLayout(); ident.setHorizontalSpacing(Spacing.MD); ident.setVerticalSpacing(1)
-        pairs = [
-            ("si.invoice_no", self._d.number),
-            ("si.date", self._d.date),
-            ("si.salesperson", self._d.salesperson),
-            ("si.currency", self._d.currency),
-        ]
-        for i, (key, value) in enumerate(pairs):
+        ident = QGridLayout(); ident.setHorizontalSpacing(12); ident.setVerticalSpacing(1)
+        for i, (key, val) in enumerate([
+            ("si.invoice_no", self._d.number), ("si.date", self._d.date),
+            ("si.salesperson", self._d.salesperson), ("si.currency", self._d.currency),
+        ]):
             k = QLabel(self._t.gettext(key)); k.setProperty("p", "meta-label")
-            v = QLabel(value); v.setProperty("p", "meta-value")
-            v.setAlignment(self._end_align())
-            ident.addWidget(k, i, 0)
-            ident.addWidget(v, i, 1, self._end_align())
+            v = QLabel(val); v.setProperty("p", "meta-value"); v.setAlignment(self._end())
+            ident.addWidget(k, i, 0); ident.addWidget(v, i, 1, self._end())
         right.addLayout(ident)
         row.addLayout(right)
         return row
 
-    # ---- bill to + meta --------------------------------------------------
-
-    def _bill_and_meta(self) -> QHBoxLayout:
+    def _running_header(self, page_no: int, total: int):
         row = QHBoxLayout()
-        col = QVBoxLayout(); col.setSpacing(2)
-        col.addWidget(self._labelled("print.bill_to", "section"))
+        nm = QLabel(self._d.company.name); nm.setProperty("p", "run-title")
+        row.addWidget(nm); row.addStretch(1)
+        info = QLabel(f"{self._t.gettext('print.title')} · {self._d.number}")
+        info.setProperty("p", "meta-value")
+        row.addWidget(info)
+        return row
+
+    def _bill_to(self):
+        row = QHBoxLayout()
+        col = QVBoxLayout(); col.setSpacing(1)
+        s = QLabel(self._t.gettext("print.bill_to")); s.setProperty("p", "section")
+        col.addWidget(s)
         d = self._d
         nm = QLabel(d.customer_name); nm.setProperty("p", "cust-name"); col.addWidget(nm)
         for text in (f"{self._t.gettext('si.phone')}: {d.customer_phone}",
                      f"{self._t.gettext('si.address')}: {d.customer_address}",
                      f"{self._t.gettext('si.customer_code')}: {d.customer_code}"):
-            lab = QLabel(text); lab.setProperty("p", "muted"); col.addWidget(lab)
-        row.addLayout(col)
-        row.addStretch(1)
+            l = QLabel(text); l.setProperty("p", "muted"); col.addWidget(l)
+        row.addLayout(col); row.addStretch(1)
         return row
 
     # ---- items -----------------------------------------------------------
 
-    def _items_table(self) -> QWidget:
+    def _items_table(self, start: int, end: int) -> QWidget:
         headers = ["si.col_row", "print.col_item", "si.col_qty", "si.col_unit",
                    "si.col_price", "si.col_discount", "si.col_total"]
-        table = QTableWidget(len(self._d.lines), len(headers))
+        rows = self._d.lines[start:end]
+        table = QTableWidget(len(rows), len(headers))
         table.setHorizontalHeaderLabels([self._t.gettext(k) for k in headers])
         table.verticalHeader().setVisible(False)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -185,111 +261,101 @@ class A4InvoiceDocument(QWidget):
         table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        table.verticalHeader().setDefaultSectionSize(30)
+        table.verticalHeader().setDefaultSectionSize(self._paper.row_h)
 
         header = table.horizontalHeader()
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Item
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.setHighlightSections(False)
-        widths = {0: 36, 2: 64, 3: 60, 4: 100, 5: 90, 6: 120}
+        sc = self._paper.scale
+        widths = {0: int(34 * sc), 2: int(60 * sc), 3: int(56 * sc),
+                  4: int(96 * sc), 5: int(84 * sc), 6: int(112 * sc)}
         for col, w in widths.items():
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
             table.setColumnWidth(col, w)
 
         numeric = {2, 4, 5, 6}
-        for r, line in enumerate(self._d.lines):
-            values = [str(r + 1), line.name, f"{line.qty:,.0f}", line.unit,
+        for r, line in enumerate(rows):
+            values = [str(start + r + 1), line.name, f"{line.qty:,.0f}", line.unit,
                       _money(line.price), _money(line.discount), _money(line.total)]
             for col, text in enumerate(values):
                 item = QTableWidgetItem(text)
-                align = (Qt.AlignmentFlag.AlignRight if col in numeric
-                         else Qt.AlignmentFlag.AlignLeft)
+                align = Qt.AlignmentFlag.AlignRight if col in numeric else Qt.AlignmentFlag.AlignLeft
                 item.setTextAlignment(align | Qt.AlignmentFlag.AlignVCenter)
                 table.setItem(r, col, item)
-
-        table.setFixedHeight(36 + len(self._d.lines) * 30 + 4)
+        header_h = int(34 * sc)
+        table.setFixedHeight(header_h + len(rows) * self._paper.row_h + 8)
         return table
 
-    # ---- summary ---------------------------------------------------------
+    # ---- summary + words + footer ---------------------------------------
 
-    def _summary(self) -> QHBoxLayout:
-        row = QHBoxLayout()
-        row.addStretch(1)
-        box = QVBoxLayout(); box.setSpacing(Spacing.XS)
-        grid = QGridLayout(); grid.setHorizontalSpacing(Spacing.XXL); grid.setVerticalSpacing(2)
+    def _summary(self):
+        row = QHBoxLayout(); row.addStretch(1)
+        box = QVBoxLayout(); box.setSpacing(int(6 * self._paper.scale))
+        grid = QGridLayout(); grid.setHorizontalSpacing(int(28 * self._paper.scale)); grid.setVerticalSpacing(2)
         d = self._d
-        lines = [("si.subtotal", _money(d.subtotal), None),
-                 ("si.discount", _money(d.discount_total), None)]
+        pairs = [("si.subtotal", _money(d.subtotal)), ("si.discount", _money(d.discount_total))]
         if d.tax or d.additional:
-            lines.append(("si.tax", _money(d.tax + d.additional), None))
-        for i, (key, value, _p) in enumerate(lines):
+            pairs.append(("si.tax", _money(d.tax + d.additional)))
+        for i, (key, val) in enumerate(pairs):
             k = QLabel(self._t.gettext(key)); k.setProperty("p", "total-label")
-            v = QLabel(value + f" {d.currency}"); v.setProperty("p", "total-value")
-            v.setAlignment(self._end_align())
-            grid.addWidget(k, i, 0); grid.addWidget(v, i, 1, self._end_align())
+            v = QLabel(f"{val} {d.currency}"); v.setProperty("p", "total-value"); v.setAlignment(self._end())
+            grid.addWidget(k, i, 0); grid.addWidget(v, i, 1, self._end())
         box.addLayout(grid)
 
-        # Grand total (brand band).
         grand = QFrame(); grand.setProperty("p", "grand")
-        gl = QHBoxLayout(grand); gl.setContentsMargins(Spacing.MD, Spacing.SM, Spacing.MD, Spacing.SM)
+        gl = QHBoxLayout(grand); gl.setContentsMargins(12, 6, 12, 6)
         gk = QLabel(self._t.gettext("si.grand_total")); gk.setProperty("p", "grand-label")
-        gv = QLabel(_money(d.grand_total) + f" {d.currency}"); gv.setProperty("p", "grand-value")
-        gv.setAlignment(self._end_align())
+        gv = QLabel(f"{_money(d.grand_total)} {d.currency}"); gv.setProperty("p", "grand-value"); gv.setAlignment(self._end())
         gl.addWidget(gk); gl.addStretch(1); gl.addWidget(gv)
         box.addWidget(grand)
 
-        # Paid + remaining.
-        pay = QGridLayout(); pay.setHorizontalSpacing(Spacing.XXL); pay.setVerticalSpacing(2)
+        pay = QGridLayout(); pay.setHorizontalSpacing(int(28 * self._paper.scale)); pay.setVerticalSpacing(2)
         pk = QLabel(self._t.gettext("print.paid")); pk.setProperty("p", "total-label")
-        pv = QLabel(_money(d.paid) + f" {d.currency}"); pv.setProperty("p", "paid")
-        pv.setAlignment(self._end_align())
+        pv = QLabel(f"{_money(d.paid)} {d.currency}"); pv.setProperty("p", "paid"); pv.setAlignment(self._end())
         rk = QLabel(self._t.gettext("si.remaining")); rk.setProperty("p", "total-label")
-        rv = QLabel(_money(d.remaining) + f" {d.currency}")
-        rv.setProperty("p", "due" if d.remaining > 0.001 else "paid")
-        rv.setAlignment(self._end_align())
-        pay.addWidget(pk, 0, 0); pay.addWidget(pv, 0, 1, self._end_align())
-        pay.addWidget(rk, 1, 0); pay.addWidget(rv, 1, 1, self._end_align())
+        rv = QLabel(f"{_money(d.remaining)} {d.currency}")
+        rv.setProperty("p", "due" if d.remaining > 0.001 else "paid"); rv.setAlignment(self._end())
+        pay.addWidget(pk, 0, 0); pay.addWidget(pv, 0, 1, self._end())
+        pay.addWidget(rk, 1, 0); pay.addWidget(rv, 1, 1, self._end())
         box.addLayout(pay)
 
-        box_w = QWidget(); box_w.setLayout(box); box_w.setFixedWidth(320)
-        row.addWidget(box_w)
+        holder = QWidget(); holder.setLayout(box); holder.setFixedWidth(int(360 * self._paper.scale))
+        row.addWidget(holder)
         return row
 
-    # ---- footer ----------------------------------------------------------
+    def _amount_words(self) -> QWidget:
+        lang = "fa_AF" if self._rtl else "en"
+        words = amount_in_words(self._d.grand_total, self._d.currency, lang)
+        lbl = QLabel(f"★ {words}"); lbl.setProperty("p", "words"); lbl.setWordWrap(True)
+        return lbl
 
     def _footer(self) -> QWidget:
         wrap = QWidget()
-        col = QVBoxLayout(wrap); col.setContentsMargins(0, 0, 0, 0); col.setSpacing(Spacing.MD)
+        col = QVBoxLayout(wrap); col.setContentsMargins(0, 0, 0, 0); col.setSpacing(int(10 * self._paper.scale))
         thin = QFrame(); thin.setProperty("p", "thin"); col.addWidget(thin)
-
-        signs = QHBoxLayout(); signs.setSpacing(Spacing.XXL)
+        signs = QHBoxLayout(); signs.setSpacing(int(28 * self._paper.scale))
         for key in ("print.prepared_by", "print.customer_sign", "print.authorized_sign"):
-            block = QVBoxLayout(); block.setSpacing(4)
-            block.addSpacing(Spacing.LG)
+            block = QVBoxLayout(); block.setSpacing(3); block.addSpacing(int(16 * self._paper.scale))
             line = QFrame(); line.setProperty("p", "sign"); block.addWidget(line)
             lab = QLabel(self._t.gettext(key)); lab.setProperty("p", "muted")
-            lab.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            block.addWidget(lab)
-            holder = QWidget(); holder.setLayout(block)
-            signs.addWidget(holder, 1)
+            lab.setAlignment(Qt.AlignmentFlag.AlignCenter); block.addWidget(lab)
+            holder = QWidget(); holder.setLayout(block); signs.addWidget(holder, 1)
         col.addLayout(signs)
-
         notes = QLabel(f"{self._t.gettext('print.notes')}: {self._t.gettext('print.terms_text')}")
         notes.setProperty("p", "muted"); notes.setWordWrap(True); col.addWidget(notes)
-
         thanks = QLabel(self._t.gettext("print.thankyou")); thanks.setProperty("p", "thanks")
         thanks.setAlignment(Qt.AlignmentFlag.AlignCenter); col.addWidget(thanks)
-
-        demo = QLabel(self._t.gettext("print.demo_note")); demo.setProperty("p", "muted")
-        demo.setAlignment(Qt.AlignmentFlag.AlignCenter); col.addWidget(demo)
         return wrap
 
-    # ---- helpers ---------------------------------------------------------
+    def _end(self):
+        return (Qt.AlignmentFlag.AlignLeft if self._rtl else Qt.AlignmentFlag.AlignRight) | Qt.AlignmentFlag.AlignVCenter
 
-    def _labelled(self, key: str, prop: str) -> QLabel:
-        lab = QLabel(self._t.gettext(key)); lab.setProperty("p", prop); return lab
 
-    def _end_align(self):
-        # "End" side: right in LTR, left in RTL — for figures/values.
-        if self._t.direction == Direction.RTL:
-            return Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-        return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+class A4InvoiceDocument(InvoicePrintDocument):
+    """Backward-compatible single-format A4 document."""
+
+    WIDTH = A4.w
+    HEIGHT = A4.h
+
+    def __init__(self, data: InvoiceData, translator: Translator, parent: QWidget | None = None) -> None:
+        super().__init__(data, translator, A4, parent)

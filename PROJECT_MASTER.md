@@ -15,8 +15,8 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 0.6 |
-| Current Stage | **01 — FOUNDATION + 01B–01E PREMIUM UI (implemented; READY FOR OWNER REVIEW)** |
+| PROJECT_MASTER.md Version | 0.7 |
+| Current Stage | **01 — FOUNDATION + 01B–01F PREMIUM UI (implemented; READY FOR OWNER REVIEW)** |
 | Database Schema Version | none (infrastructure only; **no tables created**) |
 | Last Updated | 2026-08-11 |
 
@@ -172,7 +172,7 @@ requested module is implemented.
 | # | Module | Status |
 |---|--------|--------|
 | 00 | MASTER (constitution) | ✅ Ratified (on `main`) |
-| 01 | Project Foundation (+01B–01E premium UI) | 🔶 Implemented — **ready for owner review** (not LOCKED) |
+| 01 | Project Foundation (+01B–01F premium UI) | 🔶 Implemented — **ready for owner review** (not LOCKED) |
 | 02 | Database | ⛔ Not started |
 | 03 | Company & Financial Year | ⛔ Not started |
 | 04 | Chart of Accounts | ⛔ Not started |
@@ -725,6 +725,58 @@ print-to-paper/PDF export is a later stage; logo remains a placeholder.
 
 ---
 
+## 13F. Stage 01F — One-screen workspace, Home dashboard, print reflow (pending review)
+
+Major UI/print pass (Prompt 01F). Backend still untouched; no tables, no
+persistence.
+
+### 13F.1 Sales Invoice = one-screen workspace (§2)
+
+The invoice page is now non-scrolling: header/customer, the (dominant) line
+grid, totals+payment and the action bar all fit **one screen at 1366×768** with
+no page scroll; the grid stretches on larger resolutions. Header compacted;
+on-screen fields **bound to the shared transaction** so screen == print (§11 —
+fixes the earlier date mismatch: date now shows the invoice's real date).
+
+### 13F.2 Home business dashboard (§5)
+
+`ui/pages/dashboard.py` replaces the branded home: KPI tiles (today's sales/
+purchases, cash, receivables, payables, profit — colored by meaning), Quick
+Actions (New Sale wired to the invoice; others reserved), Recent Transactions
+(colored amounts) and Low Stock (low/out chips). Compact, operational, EN + Dari.
+Old `home_screen.py` removed.
+
+### 13F.3 Print engine — reflow, A4 + A5, multi-page, amount-in-words (§6-§10)
+
+New paginated engine `ui/print/invoice_document.py`:
+- **A4 and A5** presets, each with its own density (scale, row height, margins,
+  capacity) — A5 is not a scaled A4.
+- **Content reflow (§7):** short invoices compose compactly (items → totals →
+  amount-in-words → footer stacked; no half-page gap); long invoices continue
+  onto more pages with **repeated document + table headers, page numbers, and
+  totals kept on the final page**; `paginate()` guarantees each page has ≥1 row.
+- **Amount in words** from the actual grand total, English **and** Dari
+  (`core/numbers.py`).
+- Genuine RTL for Dari (header, columns, totals, words, signatures).
+- Preview page gains an **A4/A5 toggle**; Save & Print opens it with the same
+  transaction.
+
+### 13F.4 Color / density / consistency (§1, §4, §13, §14)
+
+Denser tokens (smaller tiles), workspace gradient, accent-topped cards and the
+strong filled Grand Total carried across dashboard, invoice and print. Cost/
+profit remain permission-gated. Barcode-scan increment behavior is noted as a
+future configurable interaction (not yet wired).
+
+### 13F.5 Tests & known issues
+
+**88 tests pass** (added amount-in-words EN/Dari, print pagination reflow,
+multi-page A4, A5 single-page). Known issues: barcode scanning not yet wired;
+A5 header is tight (company name/title proximity); KPI/recent data is mock;
+print-to-paper/PDF export is a later stage.
+
+---
+
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
@@ -735,6 +787,7 @@ print-to-paper/PDF export is a later stage; logo remains a placeholder.
 | 2026-08-11 | 0.4 | Stage 01C (premium UI redesign) on the same feature branch: denser professional layout tokens, grid-based business-form architecture, full **Sales Invoice visual prototype** as the reference design (header + dominant line grid + summary/operational + action bar with shortcut hints), StatTile/LabeledField/apply_shadow/escape_amp components, upgraded list/management screen, home depth refinement, multi-resolution (1366/1600/1920) + Dari-RTL verification. Backend unchanged. 72 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 | 2026-08-11 | 0.5 | Stage 01D (rapid invoice entry UX) on the same feature branch: reusable provider-driven `SearchSelector` autocomplete architecture; keyboard-first Sales Invoice (item search → populate → qty → price → discount → next line); customer autocomplete filling balance/credit/phone; redesigned ERP/POS invoice workspace with always-visible payment area and permission-gated cost note; platform-style action icons; mock providers in `ui/mock/` (clearly non-production); Dari-RTL + 1366/1600 verification (no horizontal scroll at 1366). Backend unchanged. 80 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 | 2026-08-11 | 0.6 | Stage 01E (premium color system + printed invoice) on the same feature branch: intentional semantic color tokens (accent, workspace gradient, financial/status roles) applied by meaning (strong filled Grand Total, cash/credit/stock colors, active-row marker, destructive Delete); richer Sales Invoice character (accent cards, colored indicators); and a real customer-facing **A4 printed Sales Invoice** (EN LTR + Dari RTL) driven by the same demo transaction, opened via Save & Print → in-app print preview. Backend unchanged. 84 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
+| 2026-08-11 | 0.7 | Stage 01F (one-screen workspace + dashboard + print reflow) on the same feature branch: Sales Invoice fits one screen at 1366×768 (non-scrolling) with fields bound to the shared transaction (screen == print, date fixed); Home replaced by a compact business **dashboard** (KPIs, quick actions, recent transactions, low stock); new **paginated print engine** supporting **A4 and A5**, content reflow (compact short invoices, multi-page long invoices with repeated headers + page numbers + totals on the last page) and **amount-in-words** (English + Dari); print preview gains an A4/A5 toggle. Backend unchanged. 88 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 
 ---
 

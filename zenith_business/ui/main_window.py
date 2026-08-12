@@ -43,7 +43,7 @@ from zenith_business.database import Database, check_health
 from zenith_business.security.licensing import DevelopmentLicenseProvider, LicenseProvider
 from zenith_business.ui.components import EmptyState, vertical_line
 from zenith_business.ui.design.tokens import ControlSize
-from zenith_business.ui.home_screen import HomeScreen
+from zenith_business.ui.pages.dashboard import DashboardPage
 from zenith_business.ui.pages.form_demo import FormDemoPage
 from zenith_business.ui.pages.print_preview import PrintPreviewPage
 from zenith_business.ui.pages.sales_invoice_demo import SalesInvoiceDemoPage
@@ -134,7 +134,6 @@ class MainWindow(QMainWindow):
         self._apply_direction()
         self.show_home()
         self._refresh_status()
-        self._refresh_home_readiness()
 
     # ---- shell assembly --------------------------------------------------
 
@@ -163,7 +162,9 @@ class MainWindow(QMainWindow):
 
         # Central content stack.
         self.content = QStackedWidget()
-        self.home_page = HomeScreen(self._translator)
+        self.home_page = DashboardPage(
+            self._translator, on_new_sale=self.show_sales_invoice
+        )
         self.unavailable_page = EmptyState(
             self._translator.gettext("empty.unavailable_title"),
             self._translator.gettext("empty.unavailable_sub"),
@@ -269,12 +270,6 @@ class MainWindow(QMainWindow):
         state = self._license.current_state()
         self._status_license.setText(state.summary or t.gettext("status.unlicensed"))
 
-    def _refresh_home_readiness(self) -> None:
-        db_ok = self._database is not None and check_health(self._database).ok
-        self.home_page.set_readiness(
-            db_ok=db_ok, license_summary=self._license.current_state().summary
-        )
-
     # ---- language / direction --------------------------------------------
 
     def _switch_language(self, code: str) -> None:
@@ -298,7 +293,6 @@ class MainWindow(QMainWindow):
             self._translator.gettext("empty.unavailable_sub"),
         )
         self._refresh_status()
-        self._refresh_home_readiness()
         # Restore the contextual command state for the active view.
         if self._current_category is None:
             self.context_bar.show_hint()

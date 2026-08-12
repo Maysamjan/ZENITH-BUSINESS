@@ -100,3 +100,36 @@ def build_demo_invoice() -> InvoiceData:
         ],
         paid=40000.00,
     )
+
+
+# Catalogue used to synthesize invoices of arbitrary length (print reflow tests).
+_CATALOGUE = [
+    ("IT-1004", "Cooking Oil 5L", "Ctn", 320.00),
+    ("IT-1002", "Basmati Rice 25kg", "Bag", 1980.00),
+    ("IT-1006", "Sugar 50kg", "Bag", 2600.00),
+    ("IT-1005", "Green Tea 500g", "Box", 120.00),
+    ("IT-1007", "Sunflower Oil 1L", "Ctn", 95.00),
+    ("IT-1008", "Black Tea 250g", "Box", 80.00),
+    ("IT-1001", "Basmati Rice 10kg", "Bag", 850.00),
+    ("IT-1003", "Basmati Premium 50kg", "Bag", 4100.00),
+]
+
+
+def build_demo_invoice_n(n_items: int, *, paid: float | None = None) -> InvoiceData:
+    """A demonstration invoice with ``n_items`` lines (for print reflow tests)."""
+    base = build_demo_invoice()
+    lines: list[InvoiceLine] = []
+    for i in range(max(1, n_items)):
+        code, name, unit, price = _CATALOGUE[i % len(_CATALOGUE)]
+        qty = 5 + (i % 7) * 3
+        disc = 0.0 if i % 4 else 25.0
+        lines.append(InvoiceLine(code, f"{name}", unit, qty, price, disc))
+    subtotal = sum(l.gross - l.discount for l in lines)
+    return InvoiceData(
+        company=base.company, number=base.number, date=base.date,
+        currency=base.currency, salesperson=base.salesperson,
+        customer_code=base.customer_code, customer_name=base.customer_name,
+        customer_phone=base.customer_phone, customer_address=base.customer_address,
+        lines=lines,
+        paid=subtotal * 0.5 if paid is None else paid,
+    )

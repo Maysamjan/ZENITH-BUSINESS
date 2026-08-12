@@ -76,8 +76,13 @@ def _money(value: float) -> str:
     return f"{value:,.2f}"
 
 
-class SalesInvoiceDemoPage(QScrollArea):
-    """Full-workspace, keyboard-first Sales Invoice prototype."""
+class SalesInvoiceDemoPage(QWidget):
+    """Full-workspace, keyboard-first Sales Invoice — one screen at 1366×768.
+
+    Non-scrolling: the line grid stretches to fill remaining height while the
+    header, totals/payment and action bar stay compact and always visible
+    (Prompt 01F §2).
+    """
 
     def __init__(
         self,
@@ -94,19 +99,12 @@ class SalesInvoiceDemoPage(QScrollArea):
         self._demo = build_demo_invoice()
         self._received = self._demo.paid
 
-        self.setWidgetResizable(True)
-        self.setFrameShape(QFrame.Shape.NoFrame)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-
-        inner = QWidget()
-        inner.setProperty("role", "workspace")  # subtle tinted depth behind cards
-        self.setWidget(inner)
-        root = QVBoxLayout(inner)
+        self.setProperty("role", "workspace")  # subtle tinted depth behind cards
+        root = QVBoxLayout(self)
         root.setContentsMargins(
-            Spacing.PAGE_MARGIN, Spacing.PAGE_MARGIN,
-            Spacing.PAGE_MARGIN, Spacing.PAGE_MARGIN,
+            Spacing.MD, Spacing.SM, Spacing.MD, Spacing.SM,
         )
-        root.setSpacing(Spacing.SECTION_GAP)
+        root.setSpacing(Spacing.SM)
 
         root.addLayout(self._build_titlebar())
         root.addWidget(self._build_header())
@@ -163,13 +161,14 @@ class SalesInvoiceDemoPage(QScrollArea):
         card = Card(role="section"); card.setProperty("accent", "navy"); apply_shadow(card)
         t = self._t
 
+        d = self._demo
         meta = QHBoxLayout(); meta.setSpacing(Spacing.LG)
-        inv_no = apply_field_width(QLineEdit("SALE-000001"), FieldWidth.SM)
-        date = QDateEdit(); date.setCalendarPopup(True); date.setDisplayFormat("yyyy/MM/dd")
-        apply_field_width(date, FieldWidth.SM)
+        # Bound to the single source-of-truth transaction so screen == print (§11).
+        inv_no = apply_field_width(QLineEdit(d.number), FieldWidth.SM)
+        date = apply_field_width(QLineEdit(d.date), FieldWidth.SM)
         warehouse = self._combo(["Main", "Store-2", "Transit"]); apply_field_width(warehouse, FieldWidth.MD)
-        salesperson = self._combo(["—", "Ahmad", "Sara"]); apply_field_width(salesperson, FieldWidth.MD)
-        currency = self._combo(["AFN", "USD", "PKR", "EUR"]); apply_field_width(currency, FieldWidth.SM)
+        salesperson = self._combo([d.salesperson, "Sara", "—"]); apply_field_width(salesperson, FieldWidth.MD)
+        currency = self._combo([d.currency, "USD", "PKR", "EUR"]); apply_field_width(currency, FieldWidth.SM)
         rate = apply_field_width(QLineEdit("1.00"), FieldWidth.SM)
         for lbl, ctrl in (
             ("si.invoice_no", inv_no), ("si.date", date), ("si.warehouse", warehouse),
@@ -237,7 +236,7 @@ class SalesInvoiceDemoPage(QScrollArea):
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.verticalHeader().setDefaultSectionSize(ControlSize.TABLE_ROW_HEIGHT + 2)
-        self._table.setMinimumHeight(230)
+        self._table.setMinimumHeight(150)
 
         header = self._table.horizontalHeader()
         header.setHighlightSections(False)
