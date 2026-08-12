@@ -15,16 +15,17 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 0.9 |
-| Current Stage | **01 — FOUNDATION + 01B–01G premium UI + typography (implemented; READY FOR OWNER REVIEW)** |
+| PROJECT_MASTER.md Version | 1.0 |
+| Current Stage | **01 — PROJECT FOUNDATION — ✅ LOCKED (owner-approved)** |
 | Database Schema Version | none (infrastructure only; **no tables created**) |
-| Last Updated | 2026-08-11 |
+| Last Updated | 2026-08-12 |
 
-**Stage gate:** Stage 00 (constitution) is the approved baseline on `main`.
-Stage 01 (foundation) is implemented on a feature branch and is **awaiting owner
-review**. It is **not** LOCKED — only the owner may declare it LOCKED after
-review. No business modules and no database tables were created (Prompt 01 §31).
-Next authorized step after approval is **PROMPT 02 — DATABASE**.
+**Stage gate:** Stage 00 (constitution) and **Stage 01 (foundation, incl.
+01B–01G refinements + typography)** are both owner-approved. Stage 01 is now
+**LOCKED** (Master Spec §33): its public architecture/contracts (see §8) are
+stable and must not be renamed/removed/refactored without explicit owner
+authorization. No business modules and no database tables were created
+(Prompt 01 §31). The next authorized step is **PROMPT 02 — DATABASE**.
 
 ---
 
@@ -172,8 +173,8 @@ requested module is implemented.
 | # | Module | Status |
 |---|--------|--------|
 | 00 | MASTER (constitution) | ✅ Ratified (on `main`) |
-| 01 | Project Foundation (+01B–01G premium UI) | 🔶 Implemented — **ready for owner review** (not LOCKED) |
-| 02 | Database | ⛔ Not started |
+| 01 | Project Foundation (+01B–01G premium UI + typography) | ✅ **LOCKED** (owner-approved) |
+| 02 | Database | ⏳ Next — authorized |
 | 03 | Company & Financial Year | ⛔ Not started |
 | 04 | Chart of Accounts | ⛔ Not started |
 | 05 | Persons | ⛔ Not started |
@@ -188,12 +189,67 @@ requested module is implemented.
 
 ## 8. Locked Modules (Spec §33)
 
-_None yet._ When a module is declared **LOCKED**, its public architecture becomes
-stable: no renaming of tables/public service methods, no changed accounting
-behavior, no removed fields, no changed relationships, no refactored public
-interfaces — without explicit authorization. A later module needing such a change
-must **STOP** and present: (1) change, (2) necessity, (3) affected components,
-(4) migration/compatibility risk, (5) alternatives — then wait for approval.
+When a module is declared **LOCKED**, its public architecture becomes stable: no
+renaming of tables/public service methods, no changed behavior, no removed
+fields, no changed relationships, no refactored public interfaces — without
+explicit authorization. A later module needing such a change must **STOP** and
+present: (1) change, (2) necessity, (3) affected components, (4) migration/
+compatibility risk, (5) alternatives — then wait for approval.
+
+### 🔒 Stage 01 — Project Foundation — LOCKED (2026-08-12, owner-approved)
+
+The following **public contracts are frozen**. Future stages consume them and
+must not rename/remove/refactor them without authorization. (Demonstration pages
+— `pages/sales_invoice_demo.py`, `pages/dashboard.py`, the mock providers in
+`ui/mock/` — are *reference designs*, not frozen business logic; real modules
+replace their mock data via the locked provider interfaces.)
+
+**Core (`zenith_business/core/`)**
+- `identity`: `IDENTITY`, `AppIdentity`, `COMPANY_NAME/PRODUCT_NAME/APP_VERSION`.
+- `paths`: `AppPaths` (config/data/logs/backups/license dirs, `database_file`),
+  `resolve_paths()`, `DATA_HOME_ENV`.
+- `config`: `AppConfig` (+`LoggingConfig`,`UIConfig`), `load_config()`, language
+  constants (`LANG_DARI`,`LANG_ENGLISH`,`SUPPORTED_LANGUAGES`).
+- `logging_setup`: `setup_logging()`, `get_logger()`, `ROOT_LOGGER_NAME`.
+- `exceptions`: `ZenithError` + `ConfigurationError/DatabaseError/
+  TransactionError/SecurityError/LicensingError` (with `user_message`).
+- `error_handler`: `install_global_exception_handler()`.
+- `i18n`: `Translator`, `Direction`, `resolve_direction()`.
+- `numbers`: `amount_in_words(amount, currency, lang)`.
+- `fonts`: `load_application_fonts()`, `apply_base_font()`, `FONT_STACK`,
+  `FONT_FAMILY` (**Vazirmatn**, bundled). Single typography source of truth.
+
+**Database infrastructure (`zenith_business/database/`)** — no business tables
+- `Database`: `connect()`, `connection()`, `close()`, `transaction()` (atomic,
+  nested SAVEPOINTs), `foreign_keys_enabled()`, `pragma()`. Pragmas: FK ON,
+  busy_timeout, WAL+NORMAL (file DBs). `check_health()` / `DatabaseHealth`.
+
+**Security (`zenith_business/security/`)**
+- `passwords`: `hash_password()`, `verify_password()`, `needs_rehash()`
+  (PBKDF2-HMAC-SHA256, never plaintext).
+- `licensing`: `LicenseProvider` Protocol, `LicenseState`, `LicenseStatus`,
+  `DevelopmentLicenseProvider` (dev-only).
+
+**UI design system (`zenith_business/ui/`)**
+- `design/tokens`: `Color`, `Spacing`, `Radius`, `ControlSize`, `FieldWidth`
+  (XS–XL), `Typography` (`FAMILY` = the font stack). Semantic color roles.
+- `design/theme`: `build_stylesheet()`.
+- `components`: `Card`, `StatTile`, `LabeledField(compact=)`, `PageHeader`,
+  `EmptyState`, `chip`, `eyebrow`, `field_label`, primary/secondary/ghost
+  buttons, `standard_icon`, `apply_field_width`, `apply_shadow`, `escape_amp`.
+- `widgets/search_selector`: `SearchSelector`, `SearchProvider` Protocol,
+  `SearchColumn`, `SearchRow` — the reusable autocomplete architecture.
+- `main_window.MainWindow`: top-nav shell (header + primary nav + context bar +
+  content stack + status bar).
+
+**Print engine (`zenith_business/ui/print/`)**
+- `invoice_document`: `InvoicePrintDocument`, `A4InvoiceDocument`, `PaperSize`,
+  `A4`, `A5`, `PAPERS`, `paginate()` (balanced reflow, widow/orphan).
+
+**Locked principles:** single `Typography.FAMILY`/font stack drives app + print;
+one `InvoiceData`-style source of truth for screen↔print parity; keyboard-first
++ autocomplete UX pattern (never re-enter known data); cost/profit permission-
+gated; genuine RTL. Changing any of the above requires the §33 STOP procedure.
 
 ---
 
@@ -883,6 +939,8 @@ keyboard workflow, alignment, RTL/LTR and EN/Dari consistency all preserved.
 | 2026-08-11 | 0.7 | Stage 01F (one-screen workspace + dashboard + print reflow) on the same feature branch: Sales Invoice fits one screen at 1366×768 (non-scrolling) with fields bound to the shared transaction (screen == print, date fixed); Home replaced by a compact business **dashboard** (KPIs, quick actions, recent transactions, low stock); new **paginated print engine** supporting **A4 and A5**, content reflow (compact short invoices, multi-page long invoices with repeated headers + page numbers + totals on the last page) and **amount-in-words** (English + Dari); print preview gains an A4/A5 toggle. Backend unchanged. 88 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 | 2026-08-11 | 0.8 | Stage 01G (final visual-quality & print-composition pass) on the same feature branch: printed invoice redesigned as a real document (identity block, boxed identity panel, accent Bill To, gridless item table, coherent financial summary, redesigned signatures); **A4 and A5 given genuinely different compositions**; totals collision/overflow fixed (stacked Grand Total + widened numeric columns, verified to ~13M); short invoices balanced and multi-page distribution evened out with widow/orphan control (22 items → 11+11); print preview rebuilt into a real workspace (paper, language, zoom Fit Width/Page, print); operational info compacted to a contextual strip; dashboard KPIs gain accent borders. Backend unchanged. 88 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 | 2026-08-11 | 0.9 | Stage 01 refinements (header hierarchy + global typography) on the same feature branch: bundled **Vazirmatn (OFL)** Persian/Dari + Latin font with a centralized loader (`core/fonts.py`) and a single `Typography.FAMILY` token driving the whole app **and** print — Dari now renders as a polished, native UI/document; and the Sales Invoice **header hierarchy** (Customer promoted/prominent; Warehouse/Salesperson/Currency/Rate compacted and quieted) via a shared `LabeledField(compact=True)` variant, consistent in EN + Dari with one-screen 1366×768 preserved. Backend unchanged. 90 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
+| 2026-08-12 | 0.9 | Print-only legibility pass: Dari/English secondary print text darkened to a stronger secondary ink at Medium weight with tiny size nudges; amount-in-words de-italicized. Vazirmatn, A4/A5 layouts and pagination unchanged; verified single-page with no wrapping/clipping/collision. 90 passing tests. |
+| 2026-08-12 | 1.0 | **Stage 01 — Project Foundation declared LOCKED (owner-approved).** Public contracts frozen and recorded in §8 (core, database infrastructure, security, UI design system, search-selector architecture, print engine, and locked principles). No business tables. Stage 02 — Database is now the next authorized step. |
 
 ---
 
