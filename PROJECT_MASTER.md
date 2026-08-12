@@ -15,14 +15,17 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 0.1 |
-| Current Stage | **00 — MASTER (constitution ratified; implementation NOT authorized)** |
-| Database Schema Version | none (no schema yet) |
-| Last Updated | 2026-08-11 |
+| PROJECT_MASTER.md Version | 1.0 |
+| Current Stage | **01 — PROJECT FOUNDATION — ✅ LOCKED (owner-approved)** |
+| Database Schema Version | none (infrastructure only; **no tables created**) |
+| Last Updated | 2026-08-12 |
 
-**Stage gate:** Per Master Spec §45, this Master stage does not authorize
-implementation. No production code, no database tables, no full project tree.
-Next authorized step is **PROMPT 01 — PROJECT FOUNDATION**.
+**Stage gate:** Stage 00 (constitution) and **Stage 01 (foundation, incl.
+01B–01G refinements + typography)** are both owner-approved. Stage 01 is now
+**LOCKED** (Master Spec §33): its public architecture/contracts (see §8) are
+stable and must not be renamed/removed/refactored without explicit owner
+authorization. No business modules and no database tables were created
+(Prompt 01 §31). The next authorized step is **PROMPT 02 — DATABASE**.
 
 ---
 
@@ -169,9 +172,9 @@ requested module is implemented.
 
 | # | Module | Status |
 |---|--------|--------|
-| 00 | MASTER (constitution) | ✅ Ratified |
-| 01 | Project Foundation | ⏳ Awaiting prompt |
-| 02 | Database | ⛔ Not started |
+| 00 | MASTER (constitution) | ✅ Ratified (on `main`) |
+| 01 | Project Foundation (+01B–01G premium UI + typography) | ✅ **LOCKED** (owner-approved) |
+| 02 | Database | ⏳ Next — authorized |
 | 03 | Company & Financial Year | ⛔ Not started |
 | 04 | Chart of Accounts | ⛔ Not started |
 | 05 | Persons | ⛔ Not started |
@@ -186,12 +189,67 @@ requested module is implemented.
 
 ## 8. Locked Modules (Spec §33)
 
-_None yet._ When a module is declared **LOCKED**, its public architecture becomes
-stable: no renaming of tables/public service methods, no changed accounting
-behavior, no removed fields, no changed relationships, no refactored public
-interfaces — without explicit authorization. A later module needing such a change
-must **STOP** and present: (1) change, (2) necessity, (3) affected components,
-(4) migration/compatibility risk, (5) alternatives — then wait for approval.
+When a module is declared **LOCKED**, its public architecture becomes stable: no
+renaming of tables/public service methods, no changed behavior, no removed
+fields, no changed relationships, no refactored public interfaces — without
+explicit authorization. A later module needing such a change must **STOP** and
+present: (1) change, (2) necessity, (3) affected components, (4) migration/
+compatibility risk, (5) alternatives — then wait for approval.
+
+### 🔒 Stage 01 — Project Foundation — LOCKED (2026-08-12, owner-approved)
+
+The following **public contracts are frozen**. Future stages consume them and
+must not rename/remove/refactor them without authorization. (Demonstration pages
+— `pages/sales_invoice_demo.py`, `pages/dashboard.py`, the mock providers in
+`ui/mock/` — are *reference designs*, not frozen business logic; real modules
+replace their mock data via the locked provider interfaces.)
+
+**Core (`zenith_business/core/`)**
+- `identity`: `IDENTITY`, `AppIdentity`, `COMPANY_NAME/PRODUCT_NAME/APP_VERSION`.
+- `paths`: `AppPaths` (config/data/logs/backups/license dirs, `database_file`),
+  `resolve_paths()`, `DATA_HOME_ENV`.
+- `config`: `AppConfig` (+`LoggingConfig`,`UIConfig`), `load_config()`, language
+  constants (`LANG_DARI`,`LANG_ENGLISH`,`SUPPORTED_LANGUAGES`).
+- `logging_setup`: `setup_logging()`, `get_logger()`, `ROOT_LOGGER_NAME`.
+- `exceptions`: `ZenithError` + `ConfigurationError/DatabaseError/
+  TransactionError/SecurityError/LicensingError` (with `user_message`).
+- `error_handler`: `install_global_exception_handler()`.
+- `i18n`: `Translator`, `Direction`, `resolve_direction()`.
+- `numbers`: `amount_in_words(amount, currency, lang)`.
+- `fonts`: `load_application_fonts()`, `apply_base_font()`, `FONT_STACK`,
+  `FONT_FAMILY` (**Vazirmatn**, bundled). Single typography source of truth.
+
+**Database infrastructure (`zenith_business/database/`)** — no business tables
+- `Database`: `connect()`, `connection()`, `close()`, `transaction()` (atomic,
+  nested SAVEPOINTs), `foreign_keys_enabled()`, `pragma()`. Pragmas: FK ON,
+  busy_timeout, WAL+NORMAL (file DBs). `check_health()` / `DatabaseHealth`.
+
+**Security (`zenith_business/security/`)**
+- `passwords`: `hash_password()`, `verify_password()`, `needs_rehash()`
+  (PBKDF2-HMAC-SHA256, never plaintext).
+- `licensing`: `LicenseProvider` Protocol, `LicenseState`, `LicenseStatus`,
+  `DevelopmentLicenseProvider` (dev-only).
+
+**UI design system (`zenith_business/ui/`)**
+- `design/tokens`: `Color`, `Spacing`, `Radius`, `ControlSize`, `FieldWidth`
+  (XS–XL), `Typography` (`FAMILY` = the font stack). Semantic color roles.
+- `design/theme`: `build_stylesheet()`.
+- `components`: `Card`, `StatTile`, `LabeledField(compact=)`, `PageHeader`,
+  `EmptyState`, `chip`, `eyebrow`, `field_label`, primary/secondary/ghost
+  buttons, `standard_icon`, `apply_field_width`, `apply_shadow`, `escape_amp`.
+- `widgets/search_selector`: `SearchSelector`, `SearchProvider` Protocol,
+  `SearchColumn`, `SearchRow` — the reusable autocomplete architecture.
+- `main_window.MainWindow`: top-nav shell (header + primary nav + context bar +
+  content stack + status bar).
+
+**Print engine (`zenith_business/ui/print/`)**
+- `invoice_document`: `InvoicePrintDocument`, `A4InvoiceDocument`, `PaperSize`,
+  `A4`, `A5`, `PAPERS`, `paginate()` (balanced reflow, widow/orphan).
+
+**Locked principles:** single `Typography.FAMILY`/font stack drives app + print;
+one `InvoiceData`-style source of truth for screen↔print parity; keyboard-first
++ autocomplete UX pattern (never re-enter known data); cost/profit permission-
+gated; genuine RTL. Changing any of the above requires the §33 STOP procedure.
 
 ---
 
@@ -256,15 +314,637 @@ required tests fail (§41).
 
 ---
 
-## 13. Change Log
+## 13. Stage 01 — Project Foundation (implemented, pending review)
+
+Foundation only. No business modules, no database tables (Prompt 01 §31).
+
+### 13.1 Technology & dependencies
+
+| Dependency | Scope | Justification |
+|------------|-------|---------------|
+| `PyQt6` (>=6.6) | runtime | UI framework (Master Spec §2). |
+| `pytest`, `pytest-qt` | dev | Test foundation incl. headless UI (§32). |
+
+- Python target **3.12+**; code kept **3.11-compatible** for CI/dev.
+- Windows-safe data locations use the **standard library only** (no extra
+  dependency) — `%APPDATA%` / `%LOCALAPPDATA%` with home-dir fallbacks.
+- Build/packaging via `pyproject.toml`; console script `zenith-business`;
+  module entry `python -m zenith_business`.
+
+### 13.2 Approved project structure
+
+```
+zenith_business/
+    app.py            # startup orchestration + entry point (Bootstrap + run)
+    __main__.py       # python -m zenith_business
+    core/             # identity, paths, config, exceptions, logging, i18n, error_handler
+    database/         # connection, transaction context, health  (NO business tables)
+    security/         # passwords (PBKDF2 readiness), licensing (architecture boundary)
+    ui/               # main_window (shell), home_screen
+        design/       # tokens, theme (QSS)  — centralized design system
+    resources/        # static assets (logo placeholder only)
+tests/                # pytest foundation (60 tests)
+```
+
+Reserved-but-not-faked: `accounting/`, `inventory/`, `reports/`, `backup/`,
+`repositories/`, `services/`, `models/` are **not** created yet — they will be
+added by the stages that own them, to avoid empty fake scaffolding (Prompt 01 §3).
+
+### 13.3 Configuration architecture
+
+- Single typed `AppConfig` (+ `LoggingConfig`, `UIConfig`) in `core/config.py`.
+- Defaults → overlaid by optional JSON in the user config dir; corrupt config
+  raises `ConfigurationError` (never silently ignored). Atomic save.
+- No scattered constants; no hard-coded absolute paths (paths via `core/paths`).
+
+### 13.4 Application identity
+
+Central in `core/identity.py`: Zenith Soft / Zenith Business / version `0.1.0` /
+channel `development`. Imported everywhere; never duplicated in UI.
+
+### 13.5 Logging architecture
+
+- `core/logging_setup.py`: namespaced `zenith.*` loggers, **rotating** file
+  handler (1 MiB × 5) in the user logs dir, console handler in dev.
+- Technical logging only — **separate from the future business Audit Log**.
+- Never logs passwords/secrets (plumbing only; callers must not pass secrets).
+
+### 13.6 Global exception handling
+
+- `core/error_handler.py` installs a process-wide `sys.excepthook`: logs full
+  traceback at CRITICAL, shows a friendly non-technical dialog when a Qt app is
+  running, never displays raw stack traces to users, never swallows silently.
+- Foundation exception hierarchy in `core/exceptions.py` (`ZenithError` base with
+  `user_message`; `ConfigurationError`, `DatabaseError`, `TransactionError`,
+  `SecurityError`, `LicensingError`).
+
+### 13.7 Database infrastructure decision
+
+- `database/connection.py` `Database` wraps a single SQLite connection; app
+  talks to this, not `sqlite3` directly (keeps a future PostgreSQL path open).
+- **SQLite safety pragmas (deliberate, documented):** `foreign_keys = ON`,
+  `busy_timeout = 5000ms`, and for file DBs `journal_mode = WAL` +
+  `synchronous = NORMAL`. **WAL rationale:** better read/write concurrency while
+  remaining crash-safe; `synchronous=NORMAL` is SQLite's recommended companion
+  for WAL and gives a sound durability/speed balance for a financial desktop
+  app. WAL is skipped for in-memory DBs. *(This is the one non-default SQLite
+  choice; flagged here for owner awareness.)*
+- **Transactions:** explicit `with db.transaction(): ...` issuing BEGIN/COMMIT/
+  ROLLBACK; nested blocks use SAVEPOINTs so composed operations stay atomic
+  (Master Spec §6). Driver autocommit disabled (`isolation_level=None`).
+- `database/health.py` non-destructive health probe (connection + FK + round
+  trip). **No business tables created** — verified by test.
+
+### 13.8 UI architecture
+
+- **Top navigation is mandatory** (Prompt 01 §13): a `QMenuBar` across the top,
+  **no permanent left sidebar**. Business menus exist as **disabled
+  placeholders** (§33) — nothing appears functional.
+- Placeholder top menus (localized): Base Data / Buy & Sell / Receipts &
+  Payments / Funds / Account Reports / Item Reports / Tools. Final wording &
+  availability defined by later prompts.
+- Branded **home screen** (`ui/home_screen.py`): replaceable logo placeholder
+  (auto-uses `resources/logo.png` if added — no permanent logo invented, no
+  third-party assets), product name, tagline, version. Wrapped in a scroll area.
+- **Status bar** shows only real state (§24): company (none), DB health, license
+  (development/unlicensed). No faked business values.
+
+### 13.9 Responsive / adaptive UI rules
+
+- Qt **layout managers only** — no absolute x/y positioning.
+- Window `minimumSize = 900×600`; starts maximized (configurable); home screen
+  scroll area guards small windows. Logical-pixel tokens scale under Windows DPI
+  (125%/150%).
+
+### 13.10 RTL / LTR rules
+
+- `core/i18n.py`: Dari (`fa_AF`) → **RTL**, English (`en`) → **LTR**; config may
+  force direction (`auto`/`rtl`/`ltr`). Direction applied via
+  `QWidget.setLayoutDirection`; **proven both ways** (default Dari RTL, switch to
+  English LTR at runtime) and covered by tests + screenshots.
+- User-facing shell strings go through a `Translator` (key-based catalog), not
+  hard-coded literals. Future stages may migrate to Qt `.ts/.qm` behind the same
+  interface.
+
+### 13.11 UI design-system rules (centralized — §15-§18, §22)
+
+- **Single source of truth**: `ui/design/tokens.py` (Spacing, Radius,
+  ControlSize, **semantic FieldWidth**, Typography, Color) + `ui/design/theme.py`
+  (QSS built from tokens). Applied once to the QApplication.
+- **Field/label rule (§16):** field widths are *semantic* (NAME, AMOUNT, DATE,
+  QUANTITY, DESCRIPTION, DROPDOWN, …) so labels always get proportionate,
+  non-clipping inputs and related fields align. No arbitrary per-screen widths.
+- Standard control heights (input 32 / button 34 / table row 30), validation
+  state hook (`state="error"`), primary-button variant, table/header styling.
+- **Rule for all future modules:** never hard-code sizes/colors/fonts in a
+  screen — reference tokens/QSS classes. Fonts use a system/fallback stack
+  (Segoe UI / Tahoma / Noto Naskh Arabic / B Nazanin) — no unlicensed fonts
+  bundled (§21).
+
+### 13.12 Security foundation
+
+- **Passwords** (`security/passwords.py`): **never plaintext**. PBKDF2-HMAC-
+  SHA256, per-password salt, 240k iterations, versioned self-describing format
+  (`pbkdf2_sha256$…`), constant-time verify, `needs_rehash`. Stdlib-only;
+  upgradeable to Argon2id/bcrypt behind the same interface later.
+- **Licensing boundary** (`security/licensing.py`): Protocol + development-only
+  `DevelopmentLicenseProvider` (always reports unlicensed dev build). **No keys,
+  no secrets, no crypto** generated in Stage 01.
+- Business data and license state are **logically separate** on disk (license
+  under roaming dir; data under local dir).
+
+### 13.13 Future machine-bound licensing requirement (recorded — do not implement)
+
+Permanent project requirement for the dedicated future **Licensing, Activation &
+Application Security Engine** (Prompt 01 §26-§28):
+
+- Machine-bound **lifetime** license; purchased once; permanent for the approved
+  machine. No SaaS/subscription requirement.
+- Copying the installer **or** the business database must **not** transfer
+  activation rights.
+- **Offline activation** flow: Customer PC → Activation Request → Zenith Soft
+  vendor tool approves → **signed** Activation Code → import → app verifies
+  signature + device fingerprint → activate.
+- Verification via **asymmetric signatures**: customer app embeds a **public**
+  key only; vendor **private** signing key never ships. Never a plaintext key
+  comparison.
+- Vendor controls approve / reject / deactivate / **transfer** to a replacement
+  machine; tolerate reasonable hardware changes; offline verification possible.
+- Reserved directories already exist (`license/`) separate from business data.
+
+### 13.14 Testing foundation
+
+- `pytest` + `pytest-qt`; UI tests run **headless** via Qt `offscreen`
+  (configured in `tests/conftest.py`); `ZENITH_DATA_HOME` sandboxes all data.
+- **60 tests, all passing.** Coverage: imports, identity, paths/separation,
+  config load/roundtrip/corrupt/fallback, DB connect, FK enforcement, WAL,
+  commit, rollback, nested savepoint rollback, health, logging + rotation,
+  i18n + direction, password hash/verify/rehash, licensing boundary, global
+  error handler, bootstrap, **assertion that no tables are created**, UI shell
+  (title, top menus, placeholder-only business menus, status bar truthfulness,
+  RTL default, runtime direction flip). Normal **and** failure/edge cases.
+
+### 13.15 Known issues / items requiring future resolution
+
+- No real logo asset yet (placeholder shown by design — Prompt 01 §14).
+- Localization catalog is an in-memory shell subset; a full Qt `.ts/.qm`
+  pipeline is deferred (interface is ready).
+- WAL journal mode is the only non-default SQLite setting — flagged for owner
+  awareness (see 13.7).
+- Reserved layers (services/repositories/models/accounting/inventory/reports/
+  backup) are intentionally absent until their owning stages.
+- Menu keyboard **mnemonics** are escaped for now (`&` shown literally);
+  deliberate Alt-mnemonics/shortcuts assigned per module later (§23, §28).
+
+---
+
+## 13B. Stage 01B — UI/UX Foundation Refinement (pending review)
+
+A UI/UX-only correction of Stage 01 (Prompt 01B). The technical foundation
+(database, transactions, logging, exceptions, config, security, licensing
+interfaces) is **unchanged**; all prior infrastructure tests still pass.
+
+### 13B.1 Professional visual quality requirement (approved direction)
+
+Zenith Business must look like a mature, premium commercial accounting/ERP
+desktop product — not a prototype. "Clean" never means "empty/unfinished".
+**UI approval requires visual review by the owner; automated tests passing is
+not sufficient** to approve or LOCK the UI.
+
+### 13B.2 Chortkeh-style top navigation concept, original Zenith identity
+
+Preserve the concept — **TOP** = navigation, **CENTER** = working area,
+**BOTTOM** = status — with an original Zenith visual identity. No left sidebar
+as primary navigation. No Chortkeh graphics/assets.
+
+### 13B.3 Three-tier top chrome (structural, business-free)
+
+- **HeaderBar** (deep-navy brand header): brand mark + `ZENITH BUSINESS`
+  wordmark + `Zenith Soft`; trailing user placeholder + development marker +
+  EN/دری segmented language control. Clicking the brand returns Home.
+- **PrimaryNav** (white strip): Home + the seven top categories (اطلاعات پایه،
+  خرید و فروش، دریافت و پرداخت، وجوه، گزارش حساب‌ها، گزارش اجناس، امکانات برنامه)
+  with a clear selected (underline) state.
+- **ContextBar** (secondary command area, Prompt 01B §6): shows the selected
+  category's commands. Business commands are **disabled placeholders**; Tools
+  exposes enabled **Form/Table preview** commands (design-system validation
+  only). Real module commands slot in here later with **no main-window
+  redesign**.
+
+### 13B.4 Home screen (redesigned)
+
+Composed brand workspace: hero card (replaceable logo placeholder + product +
+system tagline + version chip), a **System Readiness** card (database/language/
+license/version — truthful state via chips, **no fake financial numbers**), and
+a reserved **Quick Access** area for future modules.
+
+### 13B.5 Design system (expanded, centralized)
+
+- **Semantic color tokens** (§10): background, surface, surface_alt, border,
+  text_primary/secondary/muted, primary(+hover/pressed/soft), selected, success,
+  warning, danger, info, disabled, plus shell-chrome tokens. No per-widget hex.
+- **Typography hierarchy** (§11): brand → page title → section title → body →
+  labels → secondary → table header → status; body never below 9pt.
+- **Control dimensions** (§12): header/nav/context/statusbar heights, input
+  (+compact), button, toolbar-button, table row/header, page margin, section
+  gap, field gaps.
+- **Semantic field widths** (§13): `FieldWidth.XS/SM/MD/LG/XL` — width matches
+  information purpose; labels + controls belong together (§14).
+- **Reusable components** (`ui/components.py`): page/section titles, field label,
+  chips, primary/secondary/ghost buttons, dividers, `Card`, `PageHeader`,
+  `EmptyState`, `apply_field_width`. **Rule: modules compose from these; no
+  local restyling.**
+- **QSS** (`ui/design/theme.py`) is generated entirely from tokens; ampersands
+  in button labels are escaped until deliberate mnemonics are assigned.
+
+### 13B.6 Form / table / dialog / state standards
+
+- **Form template** (`ui/pages/form_demo.py`, §18): page header, grouped
+  sections, semantic widths, aligned labels/controls, right-aligned numerics,
+  validation `state="error"` message — proves Sales/Purchase/Person/Product can
+  share one language. Not a business form; nothing saved.
+- **Table template** (`ui/pages/table_demo.py`, §19): styled header, selected
+  row, alternating rows, numeric right-alignment, stretch column, scrolling.
+  Placeholder rows only; **no business data, no tables**.
+- **Dialog standard** (§20): tokens for min width/height + QSS for QDialog/
+  QMessageBox; shared confirmation/warning/error language later.
+- **Empty/unavailable/loading state** (§23): reusable `EmptyState`; selecting a
+  not-yet-built category shows a truthful "module not available" panel.
+
+### 13B.7 RTL/LTR visual rules & adaptive/DPI
+
+- Dari is first-class: nav, labels, inputs, table headers, numerics, status bar,
+  and dialog button order all mirror correctly; Latin brand/wordmark stays LTR.
+  Verified via screenshots in both directions.
+- Layouts only; min window 1024×640; content max-width column keeps proportions
+  when maximized; logical-pixel tokens scale under Windows 125%/150%.
+
+### 13B.8 Icon strategy (§21)
+
+No icon library bundled yet. Chrome uses text + a typographic brand mark;
+`ControlSize.ICON_*` tokens reserve sizing so an approved, licensed icon set can
+be added later without layout changes. No third-party/Chortkeh icons.
+
+### 13B.9 Tests & known issues
+
+- **70 tests pass** (was 60): added design-system tokens/components + form/table
+  construction, rebuilt shell tests (primary nav, disabled business commands,
+  Tools previews, status truthfulness, RTL default + runtime flip). Fixed a test
+  that could block on the global-error modal by patching the dialog (production
+  behavior unchanged).
+- Known issues: real logo still pending (placeholder by design); form/table
+  retranslation updates key texts rather than full rebuild; icon set not yet
+  chosen; mnemonics deferred.
+
+---
+
+## 13C. Stage 01C — Premium UI Redesign + Sales Invoice reference (pending review)
+
+A further UI/UX-only redesign (Prompt 01C) raising the shell to a premium
+commercial standard and establishing the **Sales Invoice** screen as the visual
+reference for all future business forms. Backend untouched; all infra tests pass.
+No business tables, no accounting/inventory logic, no persistence.
+
+### 13C.1 Information density (§5)
+
+Spacing/control tokens re-tuned denser for fast daily entry (page margin 14,
+section gap 12, input 30 / compact 26, table row 28, header 54 / nav 42 /
+context 40) — compact but not cramped. Card padding reduced via `CARD_PAD_*`.
+
+### 13C.2 Grid-based business-form architecture (§2, §4)
+
+Business screens follow **Top** (compact transaction header) → **Center**
+(dominant line-item grid) → **Bottom** (totals + operational info + actions),
+using the **full workspace width/height**. New building blocks:
+`components.StatTile`, `components.LabeledField` (label-above-control for dense
+multi-column headers), `apply_shadow` (subtle depth), `escape_amp` (centralized
+ampersand escaping for all button factories).
+
+### 13C.3 Sales Invoice prototype — REFERENCE DESIGN (§3)
+
+`ui/pages/sales_invoice_demo.py` — the standard every future transaction screen
+(Sales/Purchase invoices & returns, receipts, payments, journal voucher) must
+follow. Sections: invoice header (number, date, currency, rate, warehouse,
+salesperson, reference, description); customer panel (code, searchable name,
+phone, address, previous-balance + credit-limit indicators); **dominant** line
+grid (#, item code, item name [stretch], unit, qty, unit price, discount, total,
+warehouse, numeric right-aligned, trailing entry row); summary (subtotal,
+discount, additional expense, tax, emphasized **Grand Total**, cash received,
+credit/remaining); operational stat tiles (current stock, last purchase, last
+sale, average cost); bottom action bar (New/Save/Save & Print/Print/Receive
+Cash/Close) with **shortcut hints** (F2/Ctrl+S/…). Wrapped in a resizable scroll
+area: grid dominates at 1600×900 / 1920×1080, keeps a healthy minimum and
+scrolls gracefully at 1366×768. **All figures are labelled demonstration data.**
+
+### 13C.4 Field-width rules (§9)
+
+Central `FieldWidth.XS/SM/MD/LG/XL` applied by meaning — code/date/qty/currency
+compact; name/address/description wide; amounts medium + right-aligned;
+searchable selectors wide (LG). Long labels never sit beside tiny inputs.
+
+### 13C.5 List/management screen (§12 required screenshot #7)
+
+`TableDemoPage` upgraded with a toolbar (search field, record count, New +
+disabled Edit/Delete placeholders) above the styled table — the reference for
+future master-data/list screens.
+
+### 13C.6 RTL first-class (§10)
+
+The complete Sales Invoice was verified in Dari RTL: header, customer panel,
+line grid (columns mirror, numerics stay right-aligned), totals, operational
+tiles, and action bar (button order mirrored, shortcut hints retained). Latin
+brand/wordmark stays LTR.
+
+### 13C.7 Screenshots delivered (§12)
+
+Home (Dari, English), Sales Invoice (Dari 1600×900, English 1600×900, 1366×768,
+1920×1080), and the list screen — all actual application renders.
+
+### 13C.8 Tests & known issues
+
+**72 tests pass** (added Sales Invoice construction in both directions + StatTile/
+LabeledField; adjusted a density assertion). Known issues: real logo still
+pending; at 1366×768 the invoice action bar sits just below the fold (small
+scroll by design); demo figures are illustrative; icon set still deferred.
+
+---
+
+## 13D. Stage 01D — Rapid Invoice Entry UX + reusable search selectors (pending review)
+
+UI/interaction-only stage (Prompt 01D) turning the Sales Invoice into a
+keyboard-first, search-driven data-entry workspace and establishing a **reusable
+autocomplete selector** architecture for the whole app. Backend untouched; no
+tables, no persistence, no accounting/inventory logic. All data comes from
+clearly-separated mock providers.
+
+### 13D.1 Reusable search-selector architecture (§5, §12) — permanent UX rule
+
+`ui/widgets/search_selector.py`: a data-source-agnostic `SearchSelector` driven
+by a `SearchProvider` Protocol (`columns()` + `search()` returning rich
+`SearchRow`s with display values **and** a structured `payload`). Results render
+in an in-window overlay panel (Code/Name/Unit/Stock/Price, etc.) with keyboard
+nav (↓ open/next, ↑ prev, Enter select, Esc close) and mouse select.
+**Permanent principle:** never make users re-enter data the system already
+knows — future modules (items, customers, suppliers, accounts, warehouses,
+salespersons, units, categories) reuse this instead of long combo boxes. Stage
+02+ supplies repository-backed providers **without changing the UI**.
+
+### 13D.2 Keyboard-first invoice flow (§1-§3)
+
+Item field → type to search → ↑/↓ choose → Enter select → auto-populates code,
+name, unit, default price, warehouse, stock, then focuses **Quantity** →
+Enter → **Unit Price** → Enter → **Discount** → Enter → commits the line, opens a
+fresh line focused on item search. Esc closes suggestions; Delete removes the
+selected committed line. Live line-total and grand-total/received/remaining.
+
+### 13D.3 Customer autocomplete (§4)
+
+Same pattern for the customer field (search by name / code / phone; results show
+Name/Code/Phone/Balance). On selection the header fills phone, previous balance
+(color-coded), and credit limit — no manual re-entry.
+
+### 13D.4 Redesigned invoice workspace (§6-§9)
+
+Denser ERP/POS composition: compact meta row + customer autocomplete on top; the
+**line grid is the operational centre** (# | Code | Item Name [stretch] | Unit |
+Qty | Unit Price | Discount | Total | Warehouse; monetary right-aligned; active
+row uses inline editors + item search); bottom band = quick item info (stock /
+last sale / default price) beside an always-visible payment card (emphasized
+Grand Total, editable Amount Received, computed Remaining, Cash/Credit
+indicator). Platform-style icons on actions with shortcut hints. **Cost & profit
+are hidden by default** — a permission-gated note marks where RBAC integrates
+(§8). No horizontal scroll at 1366×768 (verified).
+
+### 13D.5 RTL & data separation
+
+Full workflow verified in Dari RTL (header, grid, autocomplete popups, totals,
+actions all genuinely mirrored) and English LTR. Mock providers live in
+`ui/mock/` and are explicitly non-production (§13).
+
+### 13D.6 Tests & known issues
+
+**80 tests pass** (added provider matching, selector open/keyboard-select/hide,
+and invoice item/customer population + line-commit + RTL construction). Known
+issues: barcode/alternate-name matching and true per-cell in-grid editing are
+represented at prototype fidelity; real providers/permissions arrive in later
+stages; logo/icon-set still pending.
+
+---
+
+## 13E. Stage 01E — Premium color system + printed A4 invoice (pending review)
+
+UI/print-only stage (Prompt 01E). Adds an intentional semantic color system, more
+visual character to the Sales Invoice, and a real customer-facing **A4 printed
+invoice** driven by the same demo transaction. Backend untouched; no tables, no
+persistence.
+
+### 13E.1 Semantic color system (§14) — centralized
+
+New tokens in `ui/design/tokens.py`: secondary **accent** (teal), workspace
+gradient, and financial/status roles — positive/negative value, cash/credit/
+partial, in/low/out stock, selected-row vs **active-editing-row**, search-
+selection, input focus, read-only, and an ink-friendly **print** palette.
+Applied by meaning, not decoration:
+- Grand Total → strong filled brand bar (max emphasis).
+- Cash → success chip; Credit/Remaining → warning/red; debt → red.
+- Stock tile → success / warning / danger by level.
+- Active invoice row → warm tint + amber marker (distinct from committed rows).
+- Selected autocomplete result → accent background.
+- Save → primary; **Delete → destructive** variant.
+
+### 13E.2 Sales Invoice visual character (§15)
+
+Subtle workspace gradient behind cards; accent-topped section cards (navy header,
+brand grid + payment, teal operational); stronger financial typography; colored
+balance/credit indicators; icons + shortcut hints retained. Reads as the flagship
+transaction screen, not a database form.
+
+### 13E.3 Printed A4 Sales Invoice (§16-§19)
+
+New print architecture: `ui/print/invoice_document.py` (`A4InvoiceDocument`,
+794×1123) + `ui/pages/print_preview.py` (preview workspace with Back/Print). A
+real customer document — company block + logo, `SALES INVOICE` identity, Bill-To,
+items table (`# | Item | Qty | Unit | Unit Price | Discount | Total` — no
+internal warehouse/stock/cost), summary (Subtotal/Discount, prominent **Grand
+Total**, Amount Paid green, Remaining red), and footer (Prepared By / Customer
+Signature / Authorized Signature / notes / thank-you). Ink-friendly (white page,
+restrained navy accents; readable in grayscale). **English LTR and Dari RTL**
+both genuinely laid out. Driven by `ui/mock/demo_invoice.py` — the **same
+transaction** shown on screen; **Save & Print / Print** open the preview in-app.
+
+### 13E.4 Tests & known issues
+
+**84 tests pass** (added demo-invoice totals, A4 document EN/RTL construction,
+print-preview page, and the Save & Print → preview workflow using the same
+transaction). Known issues: company details are placeholder/configurable; real
+print-to-paper/PDF export is a later stage; logo remains a placeholder.
+
+---
+
+## 13F. Stage 01F — One-screen workspace, Home dashboard, print reflow (pending review)
+
+Major UI/print pass (Prompt 01F). Backend still untouched; no tables, no
+persistence.
+
+### 13F.1 Sales Invoice = one-screen workspace (§2)
+
+The invoice page is now non-scrolling: header/customer, the (dominant) line
+grid, totals+payment and the action bar all fit **one screen at 1366×768** with
+no page scroll; the grid stretches on larger resolutions. Header compacted;
+on-screen fields **bound to the shared transaction** so screen == print (§11 —
+fixes the earlier date mismatch: date now shows the invoice's real date).
+
+### 13F.2 Home business dashboard (§5)
+
+`ui/pages/dashboard.py` replaces the branded home: KPI tiles (today's sales/
+purchases, cash, receivables, payables, profit — colored by meaning), Quick
+Actions (New Sale wired to the invoice; others reserved), Recent Transactions
+(colored amounts) and Low Stock (low/out chips). Compact, operational, EN + Dari.
+Old `home_screen.py` removed.
+
+### 13F.3 Print engine — reflow, A4 + A5, multi-page, amount-in-words (§6-§10)
+
+New paginated engine `ui/print/invoice_document.py`:
+- **A4 and A5** presets, each with its own density (scale, row height, margins,
+  capacity) — A5 is not a scaled A4.
+- **Content reflow (§7):** short invoices compose compactly (items → totals →
+  amount-in-words → footer stacked; no half-page gap); long invoices continue
+  onto more pages with **repeated document + table headers, page numbers, and
+  totals kept on the final page**; `paginate()` guarantees each page has ≥1 row.
+- **Amount in words** from the actual grand total, English **and** Dari
+  (`core/numbers.py`).
+- Genuine RTL for Dari (header, columns, totals, words, signatures).
+- Preview page gains an **A4/A5 toggle**; Save & Print opens it with the same
+  transaction.
+
+### 13F.4 Color / density / consistency (§1, §4, §13, §14)
+
+Denser tokens (smaller tiles), workspace gradient, accent-topped cards and the
+strong filled Grand Total carried across dashboard, invoice and print. Cost/
+profit remain permission-gated. Barcode-scan increment behavior is noted as a
+future configurable interaction (not yet wired).
+
+### 13F.5 Tests & known issues
+
+**88 tests pass** (added amount-in-words EN/Dari, print pagination reflow,
+multi-page A4, A5 single-page). Known issues: barcode scanning not yet wired;
+A5 header is tight (company name/title proximity); KPI/recent data is mock;
+print-to-paper/PDF export is a later stage.
+
+---
+
+## 13G. Stage 01G — Final visual-quality & print-composition pass (pending review)
+
+Graphic-design/document-composition pass (Prompt 01G). Backend untouched.
+
+### 13G.1 Printed invoice redesigned as a document (§1, §4)
+
+Rewritten `ui/print/invoice_document.py`: company identity block + boxed
+invoice-identity panel (A4), accent-bar **Bill To** section, clean item table
+(dark header, row-rhythm separators, **no Excel gridlines**), a single coherent
+**financial summary panel**, amount-in-words in an accent strip, redesigned
+signatures (thin lines, no gray rectangle).
+
+### 13G.2 A4 vs A5 are genuinely different compositions (§2)
+
+A4 = spacious header with a boxed identity panel and **3 signature columns**;
+A5 = compact inline header, single-row Bill To, tighter table/typography and
+**2 signature columns**. Not a scaled A4.
+
+### 13G.3 Collision/overflow fixed (§5)
+
+Grand Total is **stacked** (label above value), and numeric columns are sized
+for large values — verified with a 13,024,800.00 grand total and 12,448,800.00
+line total on both A4 and A5 (no clipping/collision). Long company/customer/item
+names wrap or truncate cleanly.
+
+### 13G.4 Balanced short & multi-page composition (§3, §6)
+
+Short invoices center the closing+signatures block for a complete look (no
+top-crammed layout, no fake stretch). `paginate()` now distributes rows evenly
+with widow/orphan control (22 items → **11 + 11**, not 24 + … + 1); repeated
+headers, page numbers, and totals stay on the final page.
+
+### 13G.5 Print-preview workspace (§7)
+
+`ui/pages/print_preview.py` rebuilt: **Paper A4/A5**, Orientation (Portrait),
+**Language EN/Dari**, **Zoom −/+ with Fit Width / Fit Page**, and Print. The
+document renders to a scaled pixmap so zoom/fit behave like a real preview.
+
+### 13G.6 Screen & dashboard hierarchy (§8-§10)
+
+Operational info is now a **compact contextual strip** (not a form section);
+dashboard KPI tiles gain **colored accent left-borders** for scannability, with
+Recent Transactions as the center and Low Stock as the alert panel. One-screen
+1366×768 invoice preserved.
+
+### 13G.7 Tests & known issues
+
+**88 tests pass** (balanced-pagination assertion added). Known issues: invoice
+header secondary fields (warehouse/salesperson/currency/rate) are not yet
+visually de-emphasized (§8 partial); very long item names truncate on A5;
+print-to-paper/PDF export is a later stage.
+
+---
+
+## 13H. Stage 01 refinements — header hierarchy + global typography (pending review)
+
+Two global UI-foundation refinements requested before approval. Backend untouched.
+
+### 13H.1 Global Dari/Persian typography system (permanent rule)
+
+- **Font: Vazirmatn (SIL OFL 1.1)** — bundled in `zenith_business/resources/fonts/`
+  (Regular/Medium/SemiBold/Bold) with its license. A high-quality Persian/Dari +
+  Latin typeface with proper Arabic shaping, clear numerals and weight hierarchy.
+- **Centralized loader** `core/fonts.py` registers the bundled fonts at startup
+  (`apply_base_font`) and exposes `FONT_STACK`. The single `Typography.FAMILY`
+  token now leads with Vazirmatn and is used by **both** the app theme and the
+  printed documents — so navigation, dashboard, forms, labels, inputs, buttons,
+  tables, dialogs, the Sales Invoice, the print preview, printed invoices and all
+  **future Stage 02+ screens inherit it automatically** (no per-screen fonts).
+- One family covers Persian, Latin and Western digits with a consistent baseline,
+  so mixed content (`فروش امروز` · `128,400 AFN` · `SALE-000001` · `1404/02/03`)
+  aligns cleanly. Dari now reads as a first-class, native, professional UI/print,
+  not a lower-quality localization.
+
+### 13H.2 Sales Invoice header hierarchy (§8)
+
+Primary vs secondary is now explicit and systematic (design-system level, not
+per-page): **Customer** is promoted to the top with an accent **eyebrow** label
+and a prominent search field + balance/credit/phone chips; **Invoice No/Date**
+stay normal; **Warehouse/Salesperson/Currency/Exchange Rate** become a **compact,
+quieter** metadata strip (smaller muted labels, lighter/shorter inputs) via a new
+`LabeledField(compact=True)` variant and shared QSS. One-screen 1366×768,
+keyboard workflow, alignment, RTL/LTR and EN/Dari consistency all preserved.
+
+### 13H.3 Tests & changed files
+
+**90 tests pass** (added font-system tests). Changed: `core/fonts.py` (new),
+`resources/fonts/*` (Vazirmatn + OFL), `app.py`, `design/tokens.py`,
+`design/theme.py`, `components.py`, `pages/sales_invoice_demo.py`,
+`print/invoice_document.py`, `pyproject.toml`.
+
+---
+
+## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
 | 2026-08-11 | 0.1 | Initial constitution captured from Master Spec v1.0 at Stage 00. No production code or schema created. Awaiting Prompt 01 — Project Foundation. |
+| 2026-08-11 | 0.2 | Stage 01 (Project Foundation) implemented on feature branch: project structure, config, identity, logging, exceptions/global handler, SQLite infrastructure (connection + transactions + health, FK on, WAL), i18n/RTL-LTR, centralized UI design system, top-nav shell + branded home + status bar, security readiness (PBKDF2 passwords, licensing boundary), 60 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
+| 2026-08-11 | 0.3 | Stage 01B (UI/UX refinement) on the same feature branch: three-tier top chrome (navy HeaderBar + white PrimaryNav + contextual ContextBar), redesigned composed home (hero + readiness + reserved quick-access), expanded semantic design system (colors, typography hierarchy, control dims, FieldWidth XS–XL, reusable components), form + table + dialog + empty-state standards, RTL/LTR visual pass. Backend foundation unchanged. 70 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
+| 2026-08-11 | 0.4 | Stage 01C (premium UI redesign) on the same feature branch: denser professional layout tokens, grid-based business-form architecture, full **Sales Invoice visual prototype** as the reference design (header + dominant line grid + summary/operational + action bar with shortcut hints), StatTile/LabeledField/apply_shadow/escape_amp components, upgraded list/management screen, home depth refinement, multi-resolution (1366/1600/1920) + Dari-RTL verification. Backend unchanged. 72 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
+| 2026-08-11 | 0.5 | Stage 01D (rapid invoice entry UX) on the same feature branch: reusable provider-driven `SearchSelector` autocomplete architecture; keyboard-first Sales Invoice (item search → populate → qty → price → discount → next line); customer autocomplete filling balance/credit/phone; redesigned ERP/POS invoice workspace with always-visible payment area and permission-gated cost note; platform-style action icons; mock providers in `ui/mock/` (clearly non-production); Dari-RTL + 1366/1600 verification (no horizontal scroll at 1366). Backend unchanged. 80 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
+| 2026-08-11 | 0.6 | Stage 01E (premium color system + printed invoice) on the same feature branch: intentional semantic color tokens (accent, workspace gradient, financial/status roles) applied by meaning (strong filled Grand Total, cash/credit/stock colors, active-row marker, destructive Delete); richer Sales Invoice character (accent cards, colored indicators); and a real customer-facing **A4 printed Sales Invoice** (EN LTR + Dari RTL) driven by the same demo transaction, opened via Save & Print → in-app print preview. Backend unchanged. 84 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
+| 2026-08-11 | 0.7 | Stage 01F (one-screen workspace + dashboard + print reflow) on the same feature branch: Sales Invoice fits one screen at 1366×768 (non-scrolling) with fields bound to the shared transaction (screen == print, date fixed); Home replaced by a compact business **dashboard** (KPIs, quick actions, recent transactions, low stock); new **paginated print engine** supporting **A4 and A5**, content reflow (compact short invoices, multi-page long invoices with repeated headers + page numbers + totals on the last page) and **amount-in-words** (English + Dari); print preview gains an A4/A5 toggle. Backend unchanged. 88 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
+| 2026-08-11 | 0.8 | Stage 01G (final visual-quality & print-composition pass) on the same feature branch: printed invoice redesigned as a real document (identity block, boxed identity panel, accent Bill To, gridless item table, coherent financial summary, redesigned signatures); **A4 and A5 given genuinely different compositions**; totals collision/overflow fixed (stacked Grand Total + widened numeric columns, verified to ~13M); short invoices balanced and multi-page distribution evened out with widow/orphan control (22 items → 11+11); print preview rebuilt into a real workspace (paper, language, zoom Fit Width/Page, print); operational info compacted to a contextual strip; dashboard KPIs gain accent borders. Backend unchanged. 88 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
+| 2026-08-11 | 0.9 | Stage 01 refinements (header hierarchy + global typography) on the same feature branch: bundled **Vazirmatn (OFL)** Persian/Dari + Latin font with a centralized loader (`core/fonts.py`) and a single `Typography.FAMILY` token driving the whole app **and** print — Dari now renders as a polished, native UI/document; and the Sales Invoice **header hierarchy** (Customer promoted/prominent; Warehouse/Salesperson/Currency/Rate compacted and quieted) via a shared `LabeledField(compact=True)` variant, consistent in EN + Dari with one-screen 1366×768 preserved. Backend unchanged. 90 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
+| 2026-08-12 | 0.9 | Print-only legibility pass: Dari/English secondary print text darkened to a stronger secondary ink at Medium weight with tiny size nudges; amount-in-words de-italicized. Vazirmatn, A4/A5 layouts and pagination unchanged; verified single-page with no wrapping/clipping/collision. 90 passing tests. |
+| 2026-08-12 | 1.0 | **Stage 01 — Project Foundation declared LOCKED (owner-approved).** Public contracts frozen and recorded in §8 (core, database infrastructure, security, UI design system, search-selector architecture, print engine, and locked principles). No business tables. Stage 02 — Database is now the next authorized step. |
 
 ---
 
-## 14. Module Completion Template (Spec §41)
+## 15. Module Completion Template (Spec §41)
 
 Every completed module reports:
 

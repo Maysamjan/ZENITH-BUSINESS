@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zenith-business"
+version = "0.1.0"
+description = "Zenith Business — offline business management and accounting system (Zenith Soft)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Zenith Soft" }]
+
+# Runtime dependencies are intentionally minimal (Master Spec §2, Prompt 01 §2).
+# Only PyQt6 is required at runtime. Windows-safe data locations are resolved
+# with the standard library (no extra dependency).
+dependencies = [
+    "PyQt6>=6.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-qt>=4.4",
+]
+
+[project.scripts]
+zenith-business = "zenith_business.app:main"
+
+[tool.setuptools.packages.find]
+include = ["zenith_business*"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra"
+# UI-shell tests run headlessly via the offscreen Qt platform, which the test
+# suite sets in tests/conftest.py before PyQt6 loads a platform plugin.
+
+[tool.setuptools.package-data]
+zenith_business = ["resources/*", "resources/fonts/*"]
