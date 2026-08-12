@@ -15,8 +15,8 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 0.7 |
-| Current Stage | **01 — FOUNDATION + 01B–01F PREMIUM UI (implemented; READY FOR OWNER REVIEW)** |
+| PROJECT_MASTER.md Version | 0.8 |
+| Current Stage | **01 — FOUNDATION + 01B–01G PREMIUM UI (implemented; READY FOR OWNER REVIEW)** |
 | Database Schema Version | none (infrastructure only; **no tables created**) |
 | Last Updated | 2026-08-11 |
 
@@ -172,7 +172,7 @@ requested module is implemented.
 | # | Module | Status |
 |---|--------|--------|
 | 00 | MASTER (constitution) | ✅ Ratified (on `main`) |
-| 01 | Project Foundation (+01B–01F premium UI) | 🔶 Implemented — **ready for owner review** (not LOCKED) |
+| 01 | Project Foundation (+01B–01G premium UI) | 🔶 Implemented — **ready for owner review** (not LOCKED) |
 | 02 | Database | ⛔ Not started |
 | 03 | Company & Financial Year | ⛔ Not started |
 | 04 | Chart of Accounts | ⛔ Not started |
@@ -777,6 +777,60 @@ print-to-paper/PDF export is a later stage.
 
 ---
 
+## 13G. Stage 01G — Final visual-quality & print-composition pass (pending review)
+
+Graphic-design/document-composition pass (Prompt 01G). Backend untouched.
+
+### 13G.1 Printed invoice redesigned as a document (§1, §4)
+
+Rewritten `ui/print/invoice_document.py`: company identity block + boxed
+invoice-identity panel (A4), accent-bar **Bill To** section, clean item table
+(dark header, row-rhythm separators, **no Excel gridlines**), a single coherent
+**financial summary panel**, amount-in-words in an accent strip, redesigned
+signatures (thin lines, no gray rectangle).
+
+### 13G.2 A4 vs A5 are genuinely different compositions (§2)
+
+A4 = spacious header with a boxed identity panel and **3 signature columns**;
+A5 = compact inline header, single-row Bill To, tighter table/typography and
+**2 signature columns**. Not a scaled A4.
+
+### 13G.3 Collision/overflow fixed (§5)
+
+Grand Total is **stacked** (label above value), and numeric columns are sized
+for large values — verified with a 13,024,800.00 grand total and 12,448,800.00
+line total on both A4 and A5 (no clipping/collision). Long company/customer/item
+names wrap or truncate cleanly.
+
+### 13G.4 Balanced short & multi-page composition (§3, §6)
+
+Short invoices center the closing+signatures block for a complete look (no
+top-crammed layout, no fake stretch). `paginate()` now distributes rows evenly
+with widow/orphan control (22 items → **11 + 11**, not 24 + … + 1); repeated
+headers, page numbers, and totals stay on the final page.
+
+### 13G.5 Print-preview workspace (§7)
+
+`ui/pages/print_preview.py` rebuilt: **Paper A4/A5**, Orientation (Portrait),
+**Language EN/Dari**, **Zoom −/+ with Fit Width / Fit Page**, and Print. The
+document renders to a scaled pixmap so zoom/fit behave like a real preview.
+
+### 13G.6 Screen & dashboard hierarchy (§8-§10)
+
+Operational info is now a **compact contextual strip** (not a form section);
+dashboard KPI tiles gain **colored accent left-borders** for scannability, with
+Recent Transactions as the center and Low Stock as the alert panel. One-screen
+1366×768 invoice preserved.
+
+### 13G.7 Tests & known issues
+
+**88 tests pass** (balanced-pagination assertion added). Known issues: invoice
+header secondary fields (warehouse/salesperson/currency/rate) are not yet
+visually de-emphasized (§8 partial); very long item names truncate on A5;
+print-to-paper/PDF export is a later stage.
+
+---
+
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
@@ -788,6 +842,7 @@ print-to-paper/PDF export is a later stage.
 | 2026-08-11 | 0.5 | Stage 01D (rapid invoice entry UX) on the same feature branch: reusable provider-driven `SearchSelector` autocomplete architecture; keyboard-first Sales Invoice (item search → populate → qty → price → discount → next line); customer autocomplete filling balance/credit/phone; redesigned ERP/POS invoice workspace with always-visible payment area and permission-gated cost note; platform-style action icons; mock providers in `ui/mock/` (clearly non-production); Dari-RTL + 1366/1600 verification (no horizontal scroll at 1366). Backend unchanged. 80 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 | 2026-08-11 | 0.6 | Stage 01E (premium color system + printed invoice) on the same feature branch: intentional semantic color tokens (accent, workspace gradient, financial/status roles) applied by meaning (strong filled Grand Total, cash/credit/stock colors, active-row marker, destructive Delete); richer Sales Invoice character (accent cards, colored indicators); and a real customer-facing **A4 printed Sales Invoice** (EN LTR + Dari RTL) driven by the same demo transaction, opened via Save & Print → in-app print preview. Backend unchanged. 84 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 | 2026-08-11 | 0.7 | Stage 01F (one-screen workspace + dashboard + print reflow) on the same feature branch: Sales Invoice fits one screen at 1366×768 (non-scrolling) with fields bound to the shared transaction (screen == print, date fixed); Home replaced by a compact business **dashboard** (KPIs, quick actions, recent transactions, low stock); new **paginated print engine** supporting **A4 and A5**, content reflow (compact short invoices, multi-page long invoices with repeated headers + page numbers + totals on the last page) and **amount-in-words** (English + Dari); print preview gains an A4/A5 toggle. Backend unchanged. 88 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
+| 2026-08-11 | 0.8 | Stage 01G (final visual-quality & print-composition pass) on the same feature branch: printed invoice redesigned as a real document (identity block, boxed identity panel, accent Bill To, gridless item table, coherent financial summary, redesigned signatures); **A4 and A5 given genuinely different compositions**; totals collision/overflow fixed (stacked Grand Total + widened numeric columns, verified to ~13M); short invoices balanced and multi-page distribution evened out with widow/orphan control (22 items → 11+11); print preview rebuilt into a real workspace (paper, language, zoom Fit Width/Page, print); operational info compacted to a contextual strip; dashboard KPIs gain accent borders. Backend unchanged. 88 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 
 ---
 

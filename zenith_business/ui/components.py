@@ -204,6 +204,7 @@ class StatTile(QFrame):
     ) -> None:
         super().__init__(parent)
         self.setProperty("role", "stat")
+        self.setProperty("accent", accent)  # colored left border for scannability
         self.setMinimumHeight(ControlSize.STAT_TILE_HEIGHT)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(Spacing.MD, Spacing.SM, Spacing.MD, Spacing.SM)

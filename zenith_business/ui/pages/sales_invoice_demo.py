@@ -377,16 +377,14 @@ class SalesInvoiceDemoPage(QWidget):
 
     def _update_quick_info(self, payload: dict) -> None:
         stock = payload["stock"]
-        self._tile_stock.set_value(f"{stock:,.0f} {payload['unit']}")
+        stock_val = self._q_stock._val  # type: ignore[attr-defined]
+        stock_val.setText(f"{stock:,.0f} {payload['unit']}")
         # Stock level colour (Prompt 01E §14): out / low / in.
-        if stock <= 0:
-            self._tile_stock.set_accent("danger")
-        elif stock < 30:
-            self._tile_stock.set_accent("warning")
-        else:
-            self._tile_stock.set_accent("success")
-        self._tile_last_sale.set_value(_money(payload["last_sale"]) + " AFN")
-        self._tile_default.set_value(_money(payload["price"]) + " AFN")
+        accent = "danger" if stock <= 0 else "warning" if stock < 30 else "success"
+        stock_val.setProperty("accent", accent)
+        stock_val.style().unpolish(stock_val); stock_val.style().polish(stock_val)
+        self._q_last._val.setText(_money(payload["last_sale"]) + " AFN")  # type: ignore[attr-defined]
+        self._q_default._val.setText(_money(payload["price"]) + " AFN")  # type: ignore[attr-defined]
 
     # ---- bottom band -----------------------------------------------------
 
@@ -397,22 +395,36 @@ class SalesInvoiceDemoPage(QWidget):
         return band
 
     def _build_quick_info(self) -> QWidget:
+        # Compact contextual strip (Prompt 01G §9) — not a major form section.
         card = Card(role="section"); card.setProperty("accent", "teal"); apply_shadow(card)
+        card.body.setSpacing(Spacing.XS)
         title = self._card_title("si.operational"); title.setProperty("accent", "teal")
         card.body.addWidget(title)
-        tiles = QHBoxLayout(); tiles.setSpacing(Spacing.MD)
-        self._tile_stock = StatTile(self._t.gettext("si.op_stock"), "—", accent="success")
-        self._tile_last_sale = StatTile(self._t.gettext("si.op_last_sale"), "—")
-        self._tile_default = StatTile(self._t.gettext("si.default_price"), "—")
-        for tile in (self._tile_stock, self._tile_last_sale, self._tile_default):
-            tile.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            tiles.addWidget(tile)
-        card.body.addLayout(tiles)
+
+        strip = QHBoxLayout(); strip.setSpacing(Spacing.LG)
+        self._q_stock = self._info_pair("si.op_stock")
+        self._q_last = self._info_pair("si.op_last_sale")
+        self._q_default = self._info_pair("si.default_price")
+        for pair in (self._q_stock, self._q_last, self._q_default):
+            strip.addWidget(pair)
+        strip.addStretch(1)
+        card.body.addLayout(strip)
+
         # Cost/profit is permission-gated (Prompt 01D §8) — not shown by default.
         self._cost_note = muted(self._t.gettext("si.cost_hidden"))
         card.body.addWidget(self._cost_note)
         card.body.addStretch(1)
         return card
+
+    def _info_pair(self, label_key: str) -> QWidget:
+        wrap = QWidget(); wrap.setStyleSheet("background: transparent;")
+        row = QVBoxLayout(wrap); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(0)
+        lab = field_label(self._t.gettext(label_key))
+        val = QLabel("—"); val.setProperty("role", "stat-value")
+        row.addWidget(lab); row.addWidget(val)
+        wrap._val = val  # type: ignore[attr-defined]
+        wrap._key = label_key  # type: ignore[attr-defined]
+        return wrap
 
     def _build_payment(self) -> QWidget:
         card = Card(role="section"); card.setProperty("accent", "brand"); apply_shadow(card)

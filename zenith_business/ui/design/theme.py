@@ -350,8 +350,14 @@ def build_stylesheet() -> str:
     QFrame[role="stat"] {{
         background-color: {c.SURFACE};
         border: 1px solid {c.BORDER};
+        border-left: 3px solid {c.BORDER_STRONG};
         border-radius: {Radius.MD}px;
     }}
+    QFrame[role="stat"][accent="info"] {{ border-left: 3px solid {c.PRIMARY}; }}
+    QFrame[role="stat"][accent="success"] {{ border-left: 3px solid {c.SUCCESS}; }}
+    QFrame[role="stat"][accent="warning"] {{ border-left: 3px solid {c.WARNING}; }}
+    QFrame[role="stat"][accent="danger"] {{ border-left: 3px solid {c.DANGER}; }}
+    QFrame[role="stat"][accent="neutral"] {{ border-left: 3px solid {c.TEXT_MUTED}; }}
     QLabel[role="stat-label"] {{
         color: {c.TEXT_MUTED}; font-size: {t.SIZE_STAT_LABEL}pt;
     }}

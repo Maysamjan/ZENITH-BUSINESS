@@ -52,15 +52,18 @@ def test_amount_in_words() -> None:
 
 def test_print_reflow_pagination() -> None:
     # Short invoice → single page (totals fit).
-    assert paginate(1, A4.rows_per_page, A4.last_reserve) == [(0, 1, True)]
-    assert paginate(3, A4.rows_per_page, A4.last_reserve) == [(0, 3, True)]
+    assert paginate(1, A4.cap, A4.reserve) == [(0, 1, True)]
+    assert paginate(3, A4.cap, A4.reserve) == [(0, 3, True)]
     # Long invoice → multiple pages, last page flagged, every page >= 1 row.
-    pages = paginate(40, A4.rows_per_page, A4.last_reserve)
+    pages = paginate(40, A4.cap, A4.reserve)
     assert len(pages) >= 2
     assert pages[-1][2] is True
     assert all(end > start for start, end, _ in pages)
     # Rows are covered exactly once, in order.
     assert pages[0][0] == 0 and pages[-1][1] == 40
+    # Balanced distribution: pages differ by at most a few rows (no near-empty page).
+    counts = [end - start for start, end, _ in pages]
+    assert max(counts) - min(counts) <= A4.reserve + 1
 
 
 def test_multipage_a4_builds_multiple_pages() -> None:
