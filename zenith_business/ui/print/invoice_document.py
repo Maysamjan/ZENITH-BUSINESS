@@ -99,6 +99,9 @@ def paginate(n: int, cap: int, reserve: int) -> list[tuple[int, int, bool]]:
 
 def _stylesheet(scale: float) -> str:
     c = Color
+    # Print-only secondary ink: darker than the on-screen muted gray for better
+    # contrast on an ordinary office printer (legibility, not heaviness).
+    sec = "#3C4756"
 
     def s(pt: float) -> str:
         return f"{max(7.0, pt * scale):.1f}pt"
@@ -108,28 +111,28 @@ def _stylesheet(scale: float) -> str:
     QWidget#Page QLabel {{ background: transparent; color: {c.PRINT_INK};
         font-family: {Typography.FAMILY}; font-size: {s(9.5)}; }}
     QWidget#Page QLabel[p="company"] {{ font-size: {s(15)}; font-weight: 700; color: {c.PRINT_INK}; }}
-    QWidget#Page QLabel[p="muted"] {{ color: {c.PRINT_MUTED}; font-size: {s(8.8)}; }}
+    QWidget#Page QLabel[p="muted"] {{ color: {sec}; font-size: {s(9.2)}; font-weight: 500; }}
     QWidget#Page QLabel[p="title"] {{ font-size: {s(19)}; font-weight: 800; color: {c.PRINT_ACCENT}; letter-spacing: 2px; }}
     QWidget#Page QLabel[p="invno"] {{ font-size: {s(11)}; font-weight: 700; color: {c.PRINT_INK}; }}
     QWidget#Page QLabel[p="run-title"] {{ font-size: {s(11)}; font-weight: 700; color: {c.PRINT_ACCENT}; }}
-    QWidget#Page QLabel[p="meta-label"] {{ color: {c.PRINT_MUTED}; font-size: {s(8.5)}; }}
-    QWidget#Page QLabel[p="meta-value"] {{ color: {c.PRINT_INK}; font-size: {s(9)}; font-weight: 600; }}
-    QWidget#Page QLabel[p="eyebrow"] {{ color: {c.PRINT_ACCENT}; font-size: {s(8)}; font-weight: 700; letter-spacing: 1px; }}
+    QWidget#Page QLabel[p="meta-label"] {{ color: {sec}; font-size: {s(9.0)}; font-weight: 500; }}
+    QWidget#Page QLabel[p="meta-value"] {{ color: {c.PRINT_INK}; font-size: {s(9.3)}; font-weight: 700; }}
+    QWidget#Page QLabel[p="eyebrow"] {{ color: {c.PRINT_ACCENT}; font-size: {s(8.6)}; font-weight: 700; letter-spacing: 1px; }}
     QWidget#Page QLabel[p="cust-name"] {{ font-size: {s(12.5)}; font-weight: 700; color: {c.PRINT_INK}; }}
-    QWidget#Page QLabel[p="tl"] {{ color: {c.PRINT_MUTED}; font-size: {s(9.5)}; }}
-    QWidget#Page QLabel[p="tv"] {{ color: {c.PRINT_INK}; font-size: {s(9.5)}; font-weight: 600; }}
-    QWidget#Page QLabel[p="paid"] {{ color: {c.POSITIVE}; font-size: {s(9.5)}; font-weight: 700; }}
-    QWidget#Page QLabel[p="due"] {{ color: {c.NEGATIVE}; font-size: {s(9.5)}; font-weight: 700; }}
-    QWidget#Page QLabel[p="words"] {{ color: {c.PRINT_INK}; font-size: {s(9.5)}; font-style: italic; }}
-    QWidget#Page QLabel[p="words-cap"] {{ color: {c.PRINT_ACCENT}; font-size: {s(8)}; font-weight: 700; letter-spacing: 1px; }}
+    QWidget#Page QLabel[p="tl"] {{ color: {sec}; font-size: {s(9.7)}; font-weight: 500; }}
+    QWidget#Page QLabel[p="tv"] {{ color: {c.PRINT_INK}; font-size: {s(9.7)}; font-weight: 700; }}
+    QWidget#Page QLabel[p="paid"] {{ color: {c.POSITIVE}; font-size: {s(9.7)}; font-weight: 700; }}
+    QWidget#Page QLabel[p="due"] {{ color: {c.NEGATIVE}; font-size: {s(9.7)}; font-weight: 700; }}
+    QWidget#Page QLabel[p="words"] {{ color: {c.PRINT_INK}; font-size: {s(10)}; font-weight: 500; }}
+    QWidget#Page QLabel[p="words-cap"] {{ color: {c.PRINT_ACCENT}; font-size: {s(8.6)}; font-weight: 700; letter-spacing: 1px; }}
     QWidget#Page QLabel[p="thanks"] {{ color: {c.PRINT_ACCENT}; font-size: {s(11)}; font-weight: 700; }}
-    QWidget#Page QLabel[p="pagenum"] {{ color: {c.PRINT_MUTED}; font-size: {s(8.5)}; }}
+    QWidget#Page QLabel[p="pagenum"] {{ color: {sec}; font-size: {s(9.0)}; font-weight: 500; }}
     QWidget#Page QLabel[p="logo"] {{ background: {c.PRINT_ACCENT}; color: #FFFFFF; font-size: {s(22)}; font-weight: 800; border-radius: {Radius.MD}px; }}
     QWidget#Page QLabel[p="grand-label"] {{ color: #FFFFFF; font-size: {s(11.5)}; font-weight: 700; }}
     QWidget#Page QLabel[p="grand-value"] {{ color: #FFFFFF; font-size: {s(14)}; font-weight: 800; }}
-    QWidget#Page QLabel[p="notes-label"] {{ color: {c.PRINT_ACCENT}; font-size: {s(8)}; font-weight: 700; letter-spacing: 1px; }}
-    QWidget#Page QLabel[p="notes"] {{ color: {c.PRINT_MUTED}; font-size: {s(8.8)}; }}
-    QWidget#Page QLabel[p="sign"] {{ color: {c.PRINT_INK}; font-size: {s(9)}; font-weight: 600; }}
+    QWidget#Page QLabel[p="notes-label"] {{ color: {c.PRINT_ACCENT}; font-size: {s(8.6)}; font-weight: 700; letter-spacing: 1px; }}
+    QWidget#Page QLabel[p="notes"] {{ color: {sec}; font-size: {s(9.2)}; font-weight: 500; }}
+    QWidget#Page QLabel[p="sign"] {{ color: {c.PRINT_INK}; font-size: {s(9.4)}; font-weight: 600; }}
 
     QWidget#Page QFrame[p="titlebar"] {{ background: {c.PRINT_ACCENT}; border: none; }}
     QWidget#Page QFrame[p="ident"] {{ background: {c.PRINT_ACCENT_SOFT}; border: 1px solid {c.PRINT_RULE}; border-radius: {Radius.MD}px; }}
