@@ -444,6 +444,12 @@ _INDEXES: list[str] = [
     "CREATE INDEX idx_exrate_currency ON exchange_rates(currency_id, effective_at)",
     "CREATE INDEX idx_fel_entry ON financial_entry_lines(entry_id)",
     "CREATE INDEX idx_fel_party ON financial_entry_lines(party_type, party_id)",
+    # Account-ledger reporting (balance by account, general ledger by account).
+    "CREATE INDEX idx_fel_account ON financial_entry_lines(account_id)",
+    # Journal lookups by originating business document (sale/purchase → journal).
+    "CREATE INDEX idx_fe_source ON financial_entries(source_type, source_id)",
+    # Audit history for a specific entity (e.g. one user, one sale).
+    "CREATE INDEX idx_audit_entity ON audit_log(entity_type, entity_id)",
 ]
 
 

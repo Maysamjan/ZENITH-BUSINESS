@@ -42,3 +42,41 @@ def test_none_and_garbage_are_safe() -> None:
 
 def test_thousands_formatting() -> None:
     assert m.format_money("73450") == "73,450.00"
+
+
+# ---- Stage 02 audit: explicit financial edge values (§6) ----------------
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("0", "0.00"),
+    ("0.01", "0.01"),
+    ("0.10", "0.10"),
+    ("1.10", "1.10"),
+    ("10.99", "10.99"),
+    ("999999999.99", "999999999.99"),
+    ("1000000000000.00", "1000000000000.00"),
+])
+def test_money_db_roundtrip_edge_values(value, expected) -> None:
+    assert m.money_to_db(value) == expected
+    assert m.money_from_db(m.money_to_db(value)) == Decimal(expected)
+
+
+def test_repeated_fractional_calculations_stay_exact() -> None:
+    total = m.D(0)
+    for _ in range(10):
+        total += m.money("0.10")
+    assert m.money(total) == Decimal("1.00")  # not 0.9999999999
+
+
+def test_discount_calculation_exact() -> None:
+    gross = m.money(m.D("3") * m.D("100"))
+    line = m.money(gross - m.money("10"))
+    assert str(line) == "290.00"
+
+
+def test_exchange_rate_conversion_exact() -> None:
+    # 100 USD at rate 73.5 -> 7350.00 AFN, no float drift.
+    afn = m.money(m.D("100") * m.rate("73.5"))
+    assert str(afn) == "7350.00"

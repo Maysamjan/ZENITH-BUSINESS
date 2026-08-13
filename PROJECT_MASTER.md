@@ -15,8 +15,8 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 1.1 |
-| Current Stage | **02 — PRODUCTION DATABASE, AUTH & LOGIN — 🟡 READY FOR REVIEW (not locked)** |
+| PROJECT_MASTER.md Version | 1.2 |
+| Current Stage | **02 — PRODUCTION DATABASE, AUTH & LOGIN — 🟡 READY FOR OWNER FINAL REVIEW (audited; not locked)** |
 | Database Schema Version | **2** (migrations 0001 initial_schema, 0002 baseline_seed) |
 | Last Updated | 2026-08-13 |
 
@@ -1035,7 +1035,57 @@ existing Stage 01 public contract was renamed, removed, or behaviorally changed.
 - Dashboard/Sales-Invoice screens still render Stage 01 demonstration data; wiring
   them to live repositories is a later-stage UI task.
 - Receipts/payments/expenses have repositories + schema; dedicated posting
-  services beyond the sales/purchase flagship are deferred to their modules.
+  services beyond the sales/purchase flagship are deferred to their modules. Their
+  repositories are low-level primitives — the Stage 03 modules must post them
+  through `FinancialService.post_entry` (the guarded journal API) and validate
+  amounts, exactly as sales/purchases already do.
+
+### 13H.9 Final technical audit & hardening (2026-08-13)
+A strict production-level audit was performed across 7 passes (architecture/schema,
+functional/integration, adversarial, security/RBAC, migration/backup/integrity,
+UI/RTL, regression). Adversarial probes found real gaps, all **fixed at the service
+layer** (no Stage 01 contract touched):
+
+- **Unbalanced journals could commit** → added `document_math.assert_journal_balanced`
+  + `FinancialRepository.entry_balance`; sales/purchase posting now assert balance
+  before commit, and a new **`FinancialService.post_entry`** is the only sanctioned
+  (guarded) journal API for future modules. Unbalanced entries roll back.
+- **Sales could oversell into negative stock** → stockable lines now require a
+  warehouse and enough on-hand stock (checked before any write); `InsufficientStockError`.
+  An explicit `allow_backorder=True` escape hatch exists for businesses that permit it.
+- **Silent inventory hole** (stockable item sold with no warehouse) → now rejected.
+- **Negative price / negative discount / discount > line total** → rejected by the
+  shared `document_math.compute_line` validator (used by sales *and* purchases).
+- **Warehouse transfer foundation** added: `InventoryService.transfer` posts an atomic
+  `TRANSFER_OUT`/`TRANSFER_IN` pair (stock-checked) so totals are always conserved.
+
+Reporting **indexes** added to migration 0001 (unmerged, so amended in place):
+`financial_entry_lines(account_id)`, `financial_entries(source_type, source_id)`,
+`audit_log(entity_type, entity_id)`. Query plans confirmed index use for login,
+account-ledger, journal-by-document, and barcode lookups.
+
+**Audit verification results:**
+- Money: no `float(`/`REAL`/`DOUBLE`/float SQL aggregate in Stage 02 code; edge values
+  (0, 0.01, 0.10, 1.10, 10.99, 999999999.99, 1e12) round-trip exactly; repeated
+  fractional sums exact.
+- Accounting: sale/purchase/manual journals balance (debit == credit); unbalanced
+  rejected; rejected operations leave zero partial rows and reclaim document numbers.
+- Inventory: stock == SUM(signed movements); multi-warehouse isolation + conservation;
+  transfer atomic; insufficient-stock blocked; rollback leaves no movement.
+- Security: no plaintext password/hash stored or logged/audited; lockout after 5;
+  success resets counter; inactive rejected; malformed input rejected; RBAC enforced
+  below the UI (role→permission matrix); session cleared on logout; setup cannot re-run.
+- Migrations: empty DB, already-current DB, repeated run (idempotent), and simulated
+  **failure** (partial rolled back, version not marked) all verified.
+- Backup/restore: real file-DB backup → mutate → restore → data rolls back to backup
+  point; invalid file rejected; `PRAGMA integrity_check = ok` and
+  `PRAGMA foreign_key_check` = 0 violations after complex transactions and after restore.
+- Full **end-to-end** on a real on-disk database incl. simulated restart (data +
+  document numbering persist) and backup/restore.
+
+**Tests: 191 pass** (was 144 at first submission; +47 audit/adversarial/integration
+tests). Stage 01 contracts unchanged. Status remains **READY FOR OWNER FINAL REVIEW —
+not locked, not merged.**
 
 ---
 
@@ -1054,6 +1104,7 @@ existing Stage 01 public contract was renamed, removed, or behaviorally changed.
 | 2026-08-11 | 0.9 | Stage 01 refinements (header hierarchy + global typography) on the same feature branch: bundled **Vazirmatn (OFL)** Persian/Dari + Latin font with a centralized loader (`core/fonts.py`) and a single `Typography.FAMILY` token driving the whole app **and** print — Dari now renders as a polished, native UI/document; and the Sales Invoice **header hierarchy** (Customer promoted/prominent; Warehouse/Salesperson/Currency/Rate compacted and quieted) via a shared `LabeledField(compact=True)` variant, consistent in EN + Dari with one-screen 1366×768 preserved. Backend unchanged. 90 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 | 2026-08-12 | 0.9 | Print-only legibility pass: Dari/English secondary print text darkened to a stronger secondary ink at Medium weight with tiny size nudges; amount-in-words de-italicized. Vazirmatn, A4/A5 layouts and pagination unchanged; verified single-page with no wrapping/clipping/collision. 90 passing tests. |
 | 2026-08-12 | 1.0 | **Stage 01 — Project Foundation declared LOCKED (owner-approved).** Public contracts frozen and recorded in §8 (core, database infrastructure, security, UI design system, search-selector architecture, print engine, and locked principles). No business tables. Stage 02 — Database is now the next authorized step. |
+| 2026-08-13 | 1.2 | **Stage 02 — Final technical audit & hardening (READY FOR OWNER FINAL REVIEW; not locked, not merged).** 7-pass production audit. Fixed at the service layer (no Stage 01 contract touched): unbalanced journals can no longer commit (added journal-balance guard + `FinancialService.post_entry`); sales can no longer oversell into negative stock (warehouse + stock enforcement, `InsufficientStockError`, explicit `allow_backorder`); negative price / negative discount / discount>line rejected via shared `compute_line`; stockable-item-without-warehouse rejected; added atomic `InventoryService.transfer`. Added reporting indexes (account ledger, journal-by-document, audit-by-entity) to migration 0001. Verified: Decimal exactness on edge values, journal balancing, inventory conservation, RBAC below UI, lockout, migration failure isolation, backup/restore roundtrip, `integrity_check=ok` + `foreign_key_check=0` after complex work and after restore. **Tests: 191 pass** (+47). See §13H.9. |
 | 2026-08-13 | 1.1 | **Stage 02 — Production Database, Authentication & Login (READY FOR REVIEW; not locked, not merged).** Added Decimal-safe money + UTC clock; production schema (29 tables) with versioned atomic migrations + production-safe baseline seed (schema v2); repository + service layers (composition root `ApplicationContext`); RBAC with service-layer permission enforcement; PBKDF2 authentication with lockout + rehash; **Initial-Administrator setup + bilingual Login Page** (EN/Dari, RTL, Show/Hide) and a startup auth gate (no direct dashboard, no default admin); atomic sales/purchase posting (header+lines+signed inventory+balanced double-entry ledger+audit, rollback-safe) with transaction-safe document numbering; audit log; backup/restore foundation. Locked Stage 01 UI extended additively only (`MainWindow`/`HeaderBar` optional identity + logout). Full architecture in §13H. **144 tests pass** (90 Stage 01 + 54 new; one Stage 01 test repurposed for the migrated schema). Six required screenshots self-inspected. Not locked; Stage 03 not started. |
 
 ---

@@ -346,3 +346,13 @@ class FinancialRepository(BaseRepository):
             "SELECT debit, credit FROM financial_entry_lines WHERE account_id = ?", (account_id,))
         total = sum((D(r["debit"]) - D(r["credit"]) for r in rows), D(0))
         return money_to_db(total)
+
+    def entry_balance(self, entry_id: int) -> str:
+        """Net (debit − credit) across all lines of one entry (Decimal-exact).
+
+        Zero means the entry balances. Used by the posting guard (§29).
+        """
+        rows = self._all(
+            "SELECT debit, credit FROM financial_entry_lines WHERE entry_id = ?", (entry_id,))
+        total = sum((D(r["debit"]) - D(r["credit"]) for r in rows), D(0))
+        return money_to_db(total)

@@ -35,3 +35,32 @@ def test_permission_enforced_even_bypassing_ui(admin_context) -> None:
     with pytest.raises(AuthorizationError):
         admin_context.users.create_user(
             username="x", password="Xy12345!", full_name="X", role_codes=["VIEWER"])
+
+
+import pytest  # noqa: E402
+
+
+ROLE_EXPECTATIONS = [
+    ("MANAGER", "sales.post", True),
+    ("MANAGER", "users.manage", False),
+    ("CASHIER", "sales.create", True),
+    ("CASHIER", "inventory.adjust", False),
+    ("ACCOUNTANT", "accounts.pay", True),
+    ("ACCOUNTANT", "sales.create", False),
+    ("WAREHOUSE", "inventory.transfer", True),
+    ("WAREHOUSE", "sales.post", False),
+    ("VIEWER", "sales.view", True),
+    ("VIEWER", "sales.create", False),
+]
+
+
+@pytest.mark.parametrize("role,perm,expected", ROLE_EXPECTATIONS)
+def test_role_permission_matrix(admin_context, role, perm, expected) -> None:
+    uname = f"user_{role.lower()}"
+    admin_context.users.create_user(
+        username=uname, password="R0leTest!!", full_name=role, role_codes=[role])
+    admin_context.auth.logout()
+    admin_context.auth.login(uname, "R0leTest!!")
+    assert admin_context.authz.can(perm) is expected
+    # Re-login as admin for fixture teardown symmetry.
+    admin_context.auth.logout()

@@ -49,6 +49,7 @@ from zenith_business.services.audit_service import AuditService
 from zenith_business.services.authentication import AuthenticationService
 from zenith_business.services.authorization import AuthorizationService
 from zenith_business.services.backup import BackupService
+from zenith_business.services.financial import FinancialService
 from zenith_business.services.inventory import InventoryService
 from zenith_business.services.numbering import DocumentNumberService
 from zenith_business.services.purchases import PurchaseService
@@ -96,6 +97,8 @@ class ApplicationContext:
         self.authz = AuthorizationService(self.session)
         self.audit = AuditService(self.audit_repo, self.session)
         self.numbering = DocumentNumberService(db, self.sequences_repo)
+        self.financial = FinancialService(
+            db, self.financial_repo, self.numbering, self.session)
         self.auth = AuthenticationService(db, self.users_repo, self.audit_repo, self.session)
         self.setup = InitialSetupService(
             db, self.users_repo, self.roles_repo, self.audit_repo, self.settings_repo)
@@ -103,12 +106,12 @@ class ApplicationContext:
             db, self.users_repo, self.roles_repo, self.audit_repo, self.session, self.authz)
         self.sales = SalesService(
             db, self.sales_repo, self.inventory_repo, self.financial_repo,
-            self.accounts_repo, self.currencies_repo, self.numbering, self.audit_repo,
-            self.session, self.authz)
+            self.accounts_repo, self.currencies_repo, self.items_repo, self.numbering,
+            self.audit_repo, self.session, self.authz)
         self.purchases = PurchaseService(
             db, self.purchases_repo, self.inventory_repo, self.financial_repo,
-            self.accounts_repo, self.currencies_repo, self.numbering, self.audit_repo,
-            self.session, self.authz)
+            self.accounts_repo, self.currencies_repo, self.items_repo, self.numbering,
+            self.audit_repo, self.session, self.authz)
         self.inventory = InventoryService(
             db, self.inventory_repo, self.audit_repo, self.session, self.authz)
         self.backup = BackupService(

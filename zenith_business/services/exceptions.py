@@ -41,6 +41,18 @@ class ValidationError(ZenithError):
     default_user_message = "Some information is missing or invalid."
 
 
+class InsufficientStockError(ValidationError):
+    """A stock-reducing operation would drive on-hand quantity negative."""
+
+    default_user_message = "There is not enough stock to complete this operation."
+
+
+class InvalidJournalError(ZenithError):
+    """A financial journal entry does not balance (debit != credit)."""
+
+    default_user_message = "The accounting entry is not balanced and was rejected."
+
+
 class SetupError(ZenithError):
     """Initial-setup preconditions were violated (e.g. setup already done)."""
 

@@ -285,10 +285,13 @@ class MainWindow(QMainWindow):
         self.header.set_identity(self._current_user.full_name, self._role_label())
         company = None
         if self._database is not None:
+            import sqlite3
+
             try:
                 from zenith_business.repositories.system import AppSettingsRepository
                 company = AppSettingsRepository(self._database).get("company.name")
-            except Exception:  # pragma: no cover - status text is non-critical
+            except sqlite3.Error as exc:  # non-critical status text only
+                _logger.warning("Could not read company name for header: %s", exc)
                 company = None
         if company:
             self._status_company.setText(company)

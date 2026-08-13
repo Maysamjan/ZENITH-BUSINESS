@@ -86,3 +86,24 @@ def test_audit_never_contains_password(context) -> None:
     context.auth.login("owner", "Str0ngPass!")
     for entry in context.audit.recent(100):
         assert "Str0ngPass!" not in (entry.get("details") or "")
+
+
+def test_malformed_login_inputs_are_rejected(context) -> None:
+    context.setup.create_administrator(
+        username="owner", password="Str0ngPass!", full_name="Owner")
+    for uname, pwd in [("", "x"), ("   ", "Str0ngPass!"), ("owner", ""),
+                       ("owner", "   ")]:
+        with pytest.raises(AuthenticationError):
+            context.auth.authenticate(uname, pwd)
+
+
+def test_successful_login_resets_failure_counter(context) -> None:
+    context.setup.create_administrator(
+        username="owner", password="Str0ngPass!", full_name="Owner")
+    for _ in range(3):
+        with pytest.raises(AuthenticationError):
+            context.auth.authenticate("owner", "wrong")
+    context.auth.authenticate("owner", "Str0ngPass!")
+    row = context.users_repo.get_by_username("owner")
+    assert row["failed_login_attempts"] == 0
+    assert not row["is_locked"]
