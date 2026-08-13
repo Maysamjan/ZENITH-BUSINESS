@@ -15,17 +15,25 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 1.0 |
-| Current Stage | **01 — PROJECT FOUNDATION — ✅ LOCKED (owner-approved)** |
-| Database Schema Version | none (infrastructure only; **no tables created**) |
-| Last Updated | 2026-08-12 |
+| PROJECT_MASTER.md Version | 1.1 |
+| Current Stage | **02 — PRODUCTION DATABASE, AUTH & LOGIN — 🟡 READY FOR REVIEW (not locked)** |
+| Database Schema Version | **2** (migrations 0001 initial_schema, 0002 baseline_seed) |
+| Last Updated | 2026-08-13 |
 
 **Stage gate:** Stage 00 (constitution) and **Stage 01 (foundation, incl.
-01B–01G refinements + typography)** are both owner-approved. Stage 01 is now
-**LOCKED** (Master Spec §33): its public architecture/contracts (see §8) are
-stable and must not be renamed/removed/refactored without explicit owner
-authorization. No business modules and no database tables were created
-(Prompt 01 §31). The next authorized step is **PROMPT 02 — DATABASE**.
+01B–01G refinements + typography)** are owner-approved and **LOCKED** (Master
+Spec §33): their public architecture/contracts (see §8) are stable and must not
+be renamed/removed/refactored without explicit owner authorization.
+
+**Stage 02** (production database, schema/migrations, repository + service
+layers, RBAC, authentication, **Login Page + Initial Administrator setup**,
+master data, sales/purchase/inventory/ledger foundations, audit, document
+numbering, backup/restore) is **implemented and READY FOR REVIEW**. It is **not
+locked** and **not merged**. Stage 02 was built on the Stage 01 baseline; it
+extended two locked UI files **additively only** (optional params / new
+methods, no existing contract changed) — `MainWindow` and `HeaderBar` gained
+optional authenticated-identity + logout support. See §13H for the full Stage 02
+architecture record.
 
 ---
 
@@ -174,7 +182,7 @@ requested module is implemented.
 |---|--------|--------|
 | 00 | MASTER (constitution) | ✅ Ratified (on `main`) |
 | 01 | Project Foundation (+01B–01G premium UI + typography) | ✅ **LOCKED** (owner-approved) |
-| 02 | Database | ⏳ Next — authorized |
+| 02 | Production Database, Auth & Login Foundation | 🟡 **READY FOR REVIEW** (not locked, not merged) |
 | 03 | Company & Financial Year | ⛔ Not started |
 | 04 | Chart of Accounts | ⛔ Not started |
 | 05 | Persons | ⛔ Not started |
@@ -926,6 +934,111 @@ keyboard workflow, alignment, RTL/LTR and EN/Dari consistency all preserved.
 
 ---
 
+## 13H. Stage 02 — Production Database, Authentication & Login (READY FOR REVIEW)
+
+Stage 02 turns the Stage 01 database *infrastructure* into a real production
+data platform and adds the authentication foundation, including the Login Page
+and Initial-Administrator setup. **Not locked, not merged.** Built strictly on
+the Stage 01 `main` baseline; the only touches to locked UI files are additive
+(optional constructor params / new methods on `MainWindow` and `HeaderBar`) — no
+existing Stage 01 public contract was renamed, removed, or behaviorally changed.
+
+### 13H.1 Database architecture (§3, §24, §35, §38)
+- **Money/quantity/rate are Decimal, never float** (`core/money.py`): stored as
+  canonical TEXT (`money` 2dp, `quantity` 3dp, `rate` 4dp), `ROUND_HALF_UP`,
+  floats routed through `str`. All aggregates (stock, ledger balance) are summed
+  with `Decimal` in Python — never a float SQL aggregate.
+- **Timestamps are canonical UTC ISO-8601 TEXT**, dates `YYYY-MM-DD`
+  (`core/clock.py`); Jalali is display-only.
+- **Schema (`database/schema.py`, migration 0001)** — 29 production tables:
+  currencies, users, roles, permissions, user_roles, role_permissions,
+  exchange_rates, units, categories, warehouses, companies, items, customers,
+  suppliers, accounts, financial_entries, financial_entry_lines, sales,
+  sales_lines, purchases, purchase_lines, inventory_movements, receipts,
+  payments, expense_categories, expenses, document_sequences, audit_log,
+  app_settings (+ `schema_migrations` created by the runner).
+- **FK policy:** `RESTRICT` protects business/financial history; `CASCADE` only
+  for pure mapping/child rows (user_roles, role_permissions, *_lines).
+- **Inventory is a signed ledger:** on-hand = SUM(movements.quantity).
+- **Migrations (`database/migrations.py`)** — integer-versioned, each applied
+  once inside an atomic transaction (rollback on failure), tracked in
+  `schema_migrations`. 0001 initial_schema, 0002 baseline_seed. Idempotent.
+- **Baseline seed (migration 0002)** — production-safe system data only: 34
+  permission codes, 7 roles (Administrator = all), role→permission grants, 4
+  currencies (AFN base), 8 units, 10-account chart, 6 document sequences. **No
+  fake customers/items/sales.**
+
+### 13H.2 Layered data access (§4, §47, §48)
+- **Repositories** (`repositories/`, own all SQL, parameterized): base, users
+  (User/Role/Permission), master (Unit/Category/Warehouse/Currency/ExchangeRate/
+  Item/Customer/Supplier/Account/Company), documents (Sales/Purchase/Inventory/
+  Receipt/Payment/Expense/Financial), system (Audit/DocumentSequence/AppSettings).
+- **Services** (`services/`, own transactions + authorization): SessionContext +
+  CurrentUser, AuthorizationService, AuditService, DocumentNumberService,
+  AuthenticationService, InitialSetupService, UserService, SalesService,
+  PurchaseService, InventoryService, BackupService. `ApplicationContext`
+  (`services/context.py`) is the composition root; `open_application_context`
+  migrates then wires everything. **The UI never executes SQL.**
+
+### 13H.3 Authentication, RBAC & sessions (§10–§16)
+- PBKDF2 verification (reuses Stage 01 `security/passwords.py`), transparent
+  rehash-on-login when parameters strengthen. **No plaintext passwords/secrets
+  in logs or audit.**
+- Failed-attempt lockout: 5 attempts → 15-minute lock; auto-unlock after window.
+  Inactive accounts refused. Generic error messages (never reveal which field).
+- Permissions enforced at the **service layer** (`AuthorizationService.require`),
+  not only in the UI — verified by tests that call services directly.
+- Language-neutral permission codes; behavior driven by permissions, not role
+  names. Roles: Administrator/Manager/Cashier/Salesperson/Accountant/Warehouse/
+  Viewer.
+
+### 13H.4 Startup gate, Login & Initial Setup (§2, §11)
+- Production startup: APP START → LICENSE → DB OPEN + MIGRATIONS + HEALTH →
+  INITIAL-SETUP CHECK → **AUTH GATE (setup/login)** → load user/roles/perms →
+  MainWindow. Production never opens straight into the Dashboard.
+- **Initial Administrator setup** (first run only, empty user table): owner types
+  a real username + policy-compliant password. **No insecure default admin**
+  (`admin`/`admin` is forbidden by the password policy).
+- **Login Page** and setup are built entirely from the Stage 01 design system
+  (tokens, Vazirmatn typography, components), genuinely bilingual (EN LTR / Dari
+  RTL), with Show/Hide password and an EN/دری switch. Sign-out returns to the
+  gate without restarting the process.
+- Non-breaking UI extension: `MainWindow`/`HeaderBar` show the signed-in user +
+  role and a Sign Out action, and the status bar shows the configured company
+  name — all via optional params, defaulting to the unchanged Stage 01 behavior.
+
+### 13H.5 Transactional integrity (§29, §32, §34)
+- `SalesService.create_and_post` / `PurchaseService.create_and_post` post header
+  + lines + inventory movements + **balanced double-entry ledger** + audit in
+  ONE atomic transaction; any failure rolls back everything and reclaims the
+  document number. Verified: debit == credit; failed post leaves zero rows and
+  an unchanged next number.
+- Document numbering (`document_sequences`) is transaction-safe (read+increment
+  inside the caller's transaction; nested via SAVEPOINTs).
+
+### 13H.6 Audit, backup, settings (§36, §41)
+- Every business-significant action is audited with attribution (never secrets).
+- Backup uses SQLite's online backup API to a timestamped file; restore validates
+  integrity + expected schema before replacing the live DB.
+
+### 13H.7 Tests & delivery
+- **144 tests pass** (90 Stage 01 unchanged + 54 new): money/Decimal, clock,
+  migrations/seed, auth + lockout + setup, authorization, users service, sales &
+  purchase posting (totals/inventory/ledger/rollback/permission), numbering,
+  backup/restore, master data, and the auth UI flow (setup→login, error state,
+  RTL). One Stage 01 test (`no business tables`) was repurposed to assert the
+  Stage 02 migrated schema — a deliberate, documented supersession.
+- Required screenshots self-inspected: Login EN/Dari, Initial Admin EN/Dari,
+  Login error state, Main Window after auth (EN/Dari) — all correct, RTL genuine.
+
+### 13H.8 Known items for later stages (not blockers)
+- Dashboard/Sales-Invoice screens still render Stage 01 demonstration data; wiring
+  them to live repositories is a later-stage UI task.
+- Receipts/payments/expenses have repositories + schema; dedicated posting
+  services beyond the sales/purchase flagship are deferred to their modules.
+
+---
+
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
@@ -941,6 +1054,7 @@ keyboard workflow, alignment, RTL/LTR and EN/Dari consistency all preserved.
 | 2026-08-11 | 0.9 | Stage 01 refinements (header hierarchy + global typography) on the same feature branch: bundled **Vazirmatn (OFL)** Persian/Dari + Latin font with a centralized loader (`core/fonts.py`) and a single `Typography.FAMILY` token driving the whole app **and** print — Dari now renders as a polished, native UI/document; and the Sales Invoice **header hierarchy** (Customer promoted/prominent; Warehouse/Salesperson/Currency/Rate compacted and quieted) via a shared `LabeledField(compact=True)` variant, consistent in EN + Dari with one-screen 1366×768 preserved. Backend unchanged. 90 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 | 2026-08-12 | 0.9 | Print-only legibility pass: Dari/English secondary print text darkened to a stronger secondary ink at Medium weight with tiny size nudges; amount-in-words de-italicized. Vazirmatn, A4/A5 layouts and pagination unchanged; verified single-page with no wrapping/clipping/collision. 90 passing tests. |
 | 2026-08-12 | 1.0 | **Stage 01 — Project Foundation declared LOCKED (owner-approved).** Public contracts frozen and recorded in §8 (core, database infrastructure, security, UI design system, search-selector architecture, print engine, and locked principles). No business tables. Stage 02 — Database is now the next authorized step. |
+| 2026-08-13 | 1.1 | **Stage 02 — Production Database, Authentication & Login (READY FOR REVIEW; not locked, not merged).** Added Decimal-safe money + UTC clock; production schema (29 tables) with versioned atomic migrations + production-safe baseline seed (schema v2); repository + service layers (composition root `ApplicationContext`); RBAC with service-layer permission enforcement; PBKDF2 authentication with lockout + rehash; **Initial-Administrator setup + bilingual Login Page** (EN/Dari, RTL, Show/Hide) and a startup auth gate (no direct dashboard, no default admin); atomic sales/purchase posting (header+lines+signed inventory+balanced double-entry ledger+audit, rollback-safe) with transaction-safe document numbering; audit log; backup/restore foundation. Locked Stage 01 UI extended additively only (`MainWindow`/`HeaderBar` optional identity + logout). Full architecture in §13H. **144 tests pass** (90 Stage 01 + 54 new; one Stage 01 test repurposed for the migrated schema). Six required screenshots self-inspected. Not locked; Stage 03 not started. |
 
 ---
 

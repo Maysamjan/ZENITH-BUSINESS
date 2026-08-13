@@ -24,18 +24,29 @@ def test_bootstrap_initialize(data_home: Path) -> None:
         boot.shutdown()
 
 
-def test_bootstrap_creates_no_business_tables(data_home: Path) -> None:
+def test_bootstrap_migrates_production_schema(data_home: Path) -> None:
+    """Stage 02: bootstrap opens the DB and applies the production migrations.
+
+    (Stage 01 previously asserted an empty database; Stage 02 deliberately
+    creates and migrates the production schema at startup.)
+    """
     boot = Bootstrap()
     boot.initialize()
     try:
         conn = boot.database.connection()
-        tables = [
+        tables = {
             r[0]
             for r in conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()
-        ]
-        # Stage 01 must not create ANY tables (business or otherwise).
-        assert tables == []
+        }
+        # Migrations have run and core business tables now exist.
+        assert "schema_migrations" in tables
+        for expected in ("users", "roles", "permissions", "sales", "items", "audit_log"):
+            assert expected in tables
+        # Baseline seed is present, but no user account yet → initial setup is required.
+        assert boot.context is not None
+        assert boot.context.is_setup_required is True
+        assert conn.execute("SELECT COUNT(*) FROM permissions").fetchone()[0] > 0
     finally:
         boot.shutdown()

@@ -54,11 +54,16 @@ class HeaderBar(QFrame):
         *,
         on_language: Callable[[str], None],
         on_home: Callable[[], None],
+        on_logout: Callable[[], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._t = translator
         self._on_language = on_language
+        self._on_logout = on_logout
+        # Optional authenticated identity (Stage 02). When unset, the header
+        # shows the Stage 01 "Guest · Development" text unchanged.
+        self._identity: tuple[str, str] | None = None
         self.setObjectName("HeaderBar")
         self.setFixedHeight(ControlSize.HEADER_HEIGHT)
 
@@ -103,14 +108,34 @@ class HeaderBar(QFrame):
         row.addWidget(self._seg_en)
         row.addWidget(self._seg_dari)
 
+        # Optional sign-out control (Stage 02) — only shown when a handler is set.
+        self._logout_btn = QPushButton()
+        self._logout_btn.setProperty("segment", "true")
+        self._logout_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._logout_btn.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self._logout_btn.clicked.connect(lambda: self._on_logout() if self._on_logout else None)
+        self._logout_btn.setVisible(self._on_logout is not None)
+        row.addWidget(vertical_line())
+        row.addWidget(self._logout_btn)
+
         self.retranslate(translator)
+
+    def set_identity(self, full_name: str, role_label: str) -> None:
+        """Show the authenticated user's name + role in the header (Stage 02)."""
+        self._identity = (full_name, role_label)
+        self.retranslate(self._t)
 
     def retranslate(self, translator: Translator) -> None:
         self._t = translator
-        self._user.setText(
-            f"{translator.gettext('header.user_guest')}  ·  "
-            f"{translator.gettext('header.channel_dev')}"
-        )
+        if self._identity is not None:
+            name, role = self._identity
+            self._user.setText(f"{name}  ·  {role}")
+        else:
+            self._user.setText(
+                f"{translator.gettext('header.user_guest')}  ·  "
+                f"{translator.gettext('header.channel_dev')}"
+            )
+        self._logout_btn.setText(translator.gettext("app.logout"))
         selected = translator.language
         self._seg_en.setProperty("selected", "true" if selected == "en" else "false")
         self._seg_dari.setProperty(

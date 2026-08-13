@@ -363,6 +363,72 @@ _CATALOG: dict[str, dict[str, str]] = {
         LANG_ENGLISH: "Demonstration document — company details are placeholders and configurable.",
         LANG_DARI: "سند نمایشی — مشخصات شرکت نمونه و قابل تنظیم است.",
     },
+    # ---- authentication: login & initial setup (Stage 02) -------------
+    "auth.brand_tagline": {
+        LANG_ENGLISH: "Business Management & Accounting System",
+        LANG_DARI: "سیستم مدیریت تجارت و حسابداری",
+    },
+    "auth.lang_en": {LANG_ENGLISH: "EN", LANG_DARI: "EN"},
+    "auth.lang_fa": {LANG_ENGLISH: "دری", LANG_DARI: "دری"},
+    "login.title": {LANG_ENGLISH: "Sign In", LANG_DARI: "ورود به سیستم"},
+    "login.subtitle": {
+        LANG_ENGLISH: "Enter your credentials to continue.",
+        LANG_DARI: "برای ادامه، اطلاعات کاربری خود را وارد کنید.",
+    },
+    "login.username": {LANG_ENGLISH: "Username", LANG_DARI: "نام کاربری"},
+    "login.password": {LANG_ENGLISH: "Password", LANG_DARI: "رمز عبور"},
+    "login.username_ph": {
+        LANG_ENGLISH: "Enter your username", LANG_DARI: "نام کاربری خود را وارد کنید",
+    },
+    "login.password_ph": {
+        LANG_ENGLISH: "Enter your password", LANG_DARI: "رمز عبور خود را وارد کنید",
+    },
+    "login.show": {LANG_ENGLISH: "Show", LANG_DARI: "نمایش"},
+    "login.hide": {LANG_ENGLISH: "Hide", LANG_DARI: "پنهان"},
+    "login.signin": {LANG_ENGLISH: "Sign In", LANG_DARI: "ورود"},
+    "login.signing_in": {LANG_ENGLISH: "Signing in…", LANG_DARI: "در حال ورود…"},
+    "login.error_invalid": {
+        LANG_ENGLISH: "Incorrect username or password.",
+        LANG_DARI: "نام کاربری یا رمز عبور نادرست است.",
+    },
+    "login.error_required": {
+        LANG_ENGLISH: "Please enter your username and password.",
+        LANG_DARI: "لطفاً نام کاربری و رمز عبور را وارد کنید.",
+    },
+    "login.footer": {
+        LANG_ENGLISH: "Zenith Soft · Secure offline access",
+        LANG_DARI: "زینت سافت · دسترسی امن آفلاین",
+    },
+    # initial administrator setup
+    "setup.title": {LANG_ENGLISH: "Welcome — Create Administrator",
+                    LANG_DARI: "خوش آمدید — ایجاد مدیر سیستم"},
+    "setup.subtitle": {
+        LANG_ENGLISH: "This is the first run. Create the administrator account to secure the system.",
+        LANG_DARI: "این نخستین اجرا است. برای ایمن‌سازی سیستم، حساب مدیر را بسازید.",
+    },
+    "setup.company": {LANG_ENGLISH: "Business Name", LANG_DARI: "نام تجارت"},
+    "setup.company_ph": {LANG_ENGLISH: "e.g. Zenith Trading Co.", LANG_DARI: "مثال: شرکت تجارتی زینت"},
+    "setup.fullname": {LANG_ENGLISH: "Your Full Name", LANG_DARI: "نام کامل شما"},
+    "setup.fullname_ph": {LANG_ENGLISH: "e.g. Ahmad Zahir", LANG_DARI: "مثال: احمد ظاهر"},
+    "setup.username": {LANG_ENGLISH: "Administrator Username", LANG_DARI: "نام کاربری مدیر"},
+    "setup.password": {LANG_ENGLISH: "Password", LANG_DARI: "رمز عبور"},
+    "setup.confirm": {LANG_ENGLISH: "Confirm Password", LANG_DARI: "تکرار رمز عبور"},
+    "setup.password_hint": {
+        LANG_ENGLISH: "At least 8 characters. Avoid common words.",
+        LANG_DARI: "حداقل ۸ حرف. از کلمات عمومی خودداری کنید.",
+    },
+    "setup.create": {LANG_ENGLISH: "Create Administrator", LANG_DARI: "ایجاد مدیر"},
+    "setup.created": {
+        LANG_ENGLISH: "Administrator created. Please sign in.",
+        LANG_DARI: "مدیر ساخته شد. لطفاً وارد شوید.",
+    },
+    "setup.error_mismatch": {
+        LANG_ENGLISH: "The two passwords do not match.",
+        LANG_DARI: "دو رمز عبور یکسان نیستند.",
+    },
+    # main window identity / logout (Stage 02)
+    "app.logout": {LANG_ENGLISH: "Sign Out", LANG_DARI: "خروج از حساب"},
+    "app.role": {LANG_ENGLISH: "Role", LANG_DARI: "نقش"},
 }
 
 

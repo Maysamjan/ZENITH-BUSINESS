@@ -118,6 +118,8 @@ class MainWindow(QMainWindow):
         *,
         database: Database | None = None,
         license_provider: LicenseProvider | None = None,
+        current_user=None,
+        on_logout: Callable[[], None] | None = None,
     ) -> None:
         super().__init__()
         self._config = config
@@ -125,6 +127,10 @@ class MainWindow(QMainWindow):
         self._license = license_provider or DevelopmentLicenseProvider()
         self._translator = Translator(config.ui.language)
         self._current_category: str | None = None
+        # Optional authenticated identity (Stage 02). When None, the shell keeps
+        # its Stage 01 guest behavior unchanged.
+        self._current_user = current_user
+        self._on_logout = on_logout
 
         self.setWindowTitle(IDENTITY.title)
         self.setMinimumSize(1024, 640)  # usable on 1366×768 and up (§16)
@@ -134,6 +140,7 @@ class MainWindow(QMainWindow):
         self._apply_direction()
         self.show_home()
         self._refresh_status()
+        self._apply_identity()
 
     # ---- shell assembly --------------------------------------------------
 
@@ -147,6 +154,7 @@ class MainWindow(QMainWindow):
             self._translator,
             on_language=self._switch_language,
             on_home=self.show_home,
+            on_logout=self._on_logout,
         )
         self.primary_nav = PrimaryNav(
             self._translator,
@@ -270,6 +278,27 @@ class MainWindow(QMainWindow):
         state = self._license.current_state()
         self._status_license.setText(state.summary or t.gettext("status.unlicensed"))
 
+    def _apply_identity(self) -> None:
+        """Reflect the signed-in user in the header + status bar (Stage 02)."""
+        if self._current_user is None:
+            return
+        self.header.set_identity(self._current_user.full_name, self._role_label())
+        company = None
+        if self._database is not None:
+            try:
+                from zenith_business.repositories.system import AppSettingsRepository
+                company = AppSettingsRepository(self._database).get("company.name")
+            except Exception:  # pragma: no cover - status text is non-critical
+                company = None
+        if company:
+            self._status_company.setText(company)
+
+    def _role_label(self) -> str:
+        codes = getattr(self._current_user, "role_codes", ())
+        if not codes:
+            return self._translator.gettext("app.role")
+        return codes[0].replace("_", " ").title()
+
     # ---- language / direction --------------------------------------------
 
     def _switch_language(self, code: str) -> None:
@@ -293,6 +322,7 @@ class MainWindow(QMainWindow):
             self._translator.gettext("empty.unavailable_sub"),
         )
         self._refresh_status()
+        self._apply_identity()
         # Restore the contextual command state for the active view.
         if self._current_category is None:
             self.context_bar.show_hint()
