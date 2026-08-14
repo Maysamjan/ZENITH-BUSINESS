@@ -140,6 +140,7 @@ def run(argv: list[str] | None = None) -> int:
                 license_provider=boot.license_provider,
                 current_user=gate.authenticated_user,
                 on_logout=_logout,
+                context=context,
             )
             if config.ui.start_maximized:
                 window.showMaximized()

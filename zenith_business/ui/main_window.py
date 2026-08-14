@@ -120,6 +120,7 @@ class MainWindow(QMainWindow):
         license_provider: LicenseProvider | None = None,
         current_user=None,
         on_logout: Callable[[], None] | None = None,
+        context=None,
     ) -> None:
         super().__init__()
         self._config = config
@@ -131,6 +132,11 @@ class MainWindow(QMainWindow):
         # its Stage 01 guest behavior unchanged.
         self._current_user = current_user
         self._on_logout = on_logout
+        # Optional Stage 03 application context enabling real master-data screens.
+        self._context = context
+        self._stage03_pages: dict[str, QWidget] = {}
+        self._stage03_commands: dict[str, list[tuple[str, bool, str | None]]] = {}
+        self._stage03_actions: dict[str, Callable[[], None]] = {}
 
         self.setWindowTitle(IDENTITY.title)
         self.setMinimumSize(1024, 640)  # usable on 1366×768 and up (§16)
@@ -188,9 +194,67 @@ class MainWindow(QMainWindow):
         for page in (self.home_page, self.unavailable_page, self.form_page,
                      self.table_page, self.sales_invoice_page, self.print_preview_page):
             self.content.addWidget(page)
+
+        if self._context is not None:
+            self._build_stage03_pages()
+
         layout.addWidget(self.content, stretch=1)
 
         self.setCentralWidget(container)
+
+    def _build_stage03_pages(self) -> None:
+        """Register real Stage 03 master-data screens + enable their nav commands."""
+        from zenith_business.ui.master.pages import (
+            CategoriesPage,
+            CompanyPage,
+            FinancialYearsPage,
+            ItemsPage,
+            PersonsPage,
+            RolesPage,
+            UnitsPage,
+            UsersPage,
+            WarehousesPage,
+        )
+
+        specs = [
+            ("items", ItemsPage, "items.title"),
+            ("persons", PersonsPage, "persons.title"),
+            ("warehouses", WarehousesPage, "wh.title"),
+            ("categories", CategoriesPage, "cat.title"),
+            ("units", UnitsPage, "unit.title"),
+            ("company", CompanyPage, "co.title"),
+            ("financial_years", FinancialYearsPage, "fy.title"),
+            ("users", UsersPage, "usr.title"),
+            ("roles", RolesPage, "role.title"),
+        ]
+        for name, page_cls, _label in specs:
+            page = page_cls(self._context, self._translator)
+            self._stage03_pages[name] = page
+            self.content.addWidget(page)
+            self._stage03_actions[name] = lambda n=name: self._show_stage03(n)
+
+        # Enabled contextual commands for the master-data and system categories.
+        self._stage03_commands["menu.base_data"] = [
+            ("items.title", True, "items"),
+            ("persons.title", True, "persons"),
+            ("wh.title", True, "warehouses"),
+            ("cat.title", True, "categories"),
+            ("unit.title", True, "units"),
+        ]
+        self._stage03_commands["menu.tools"] = [
+            ("co.title", True, "company"),
+            ("fy.title", True, "financial_years"),
+            ("usr.title", True, "users"),
+            ("role.title", True, "roles"),
+        ] + _COMMANDS["menu.tools"]
+
+    def _show_stage03(self, name: str) -> None:
+        page = self._stage03_pages.get(name)
+        if page is None:
+            return
+        if hasattr(page, "reload"):
+            page.reload()
+        self.content.setCurrentWidget(page)
 
     def _build_status_bar(self) -> None:
         bar = QStatusBar()
@@ -220,12 +284,15 @@ class MainWindow(QMainWindow):
         self._current_category = key
         self.primary_nav.set_selected(key)
 
-        specs = _COMMANDS.get(key, [])
+        # Stage 03 (when a context is wired) overrides placeholder commands with
+        # real enabled master-data screens; otherwise the Stage 01 specs are used.
+        specs = self._stage03_commands.get(key) or _COMMANDS.get(key, [])
         actions: dict[str, Callable[[], None]] = {
             "form": self.show_form_demo,
             "table": self.show_table_demo,
             "sales_invoice": self.show_sales_invoice,
             "print_preview": self.show_print_preview,
+            **self._stage03_actions,
         }
         commands = [
             (
@@ -236,6 +303,15 @@ class MainWindow(QMainWindow):
             for text_key, enabled, action in specs
         ]
         self.context_bar.set_commands(commands)
+
+        # Stage 03: a category with real screens opens its first screen directly
+        # instead of the "unavailable" placeholder.
+        stage03 = self._stage03_commands.get(key)
+        if stage03:
+            first_action = next((a for _k, en, a in stage03 if en and a), None)
+            if first_action and first_action in self._stage03_actions:
+                self._stage03_actions[first_action]()
+            return
 
         if key == "menu.tools":
             # Tools keeps the current content; user picks a preview command.
@@ -324,6 +400,9 @@ class MainWindow(QMainWindow):
             self._translator.gettext("empty.unavailable_title"),
             self._translator.gettext("empty.unavailable_sub"),
         )
+        for page in self._stage03_pages.values():
+            if hasattr(page, "retranslate"):
+                page.retranslate(self._translator)
         self._refresh_status()
         self._apply_identity()
         # Restore the contextual command state for the active view.

@@ -14,6 +14,7 @@ def test_failed_migration_is_not_marked_applied(monkeypatch) -> None:
         conn.execute("CREATE TABLE will_rollback (id INTEGER)")
         raise RuntimeError("simulated migration failure")
 
+    last_good = mig.MIGRATIONS[-1].version  # highest real migration version
     patched = list(mig.MIGRATIONS) + [Migration(999, "boom", boom)]
     monkeypatch.setattr(mig, "MIGRATIONS", patched)
 
@@ -23,7 +24,7 @@ def test_failed_migration_is_not_marked_applied(monkeypatch) -> None:
         runner.migrate()
 
     # Good migrations committed; the failed one did NOT record a version…
-    assert runner.current_version() == 2
+    assert runner.current_version() == last_good
     applied = [r[0] for r in db.connection().execute(
         "SELECT version FROM schema_migrations").fetchall()]
     assert 999 not in applied
