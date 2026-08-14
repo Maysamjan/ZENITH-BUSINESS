@@ -56,6 +56,26 @@ class UserRepository(BaseRepository):
             sql += " WHERE is_active = 1"
         return self._all(sql + " ORDER BY full_name")
 
+    def search(self, term: str, *, limit: int = 50) -> list[dict]:
+        like = f"%{term.strip()}%"
+        return self._all(
+            "SELECT id, username, full_name, email, phone, is_active, is_locked, last_login_at"
+            " FROM users WHERE username LIKE ? OR full_name LIKE ? OR email LIKE ?"
+            " ORDER BY full_name LIMIT ?", (like, like, like, limit))
+
+    def count_active_with_role(self, role_code: str) -> int:
+        """Active users holding a given role (for last-administrator protection)."""
+        return int(self._scalar(
+            "SELECT COUNT(DISTINCT u.id) FROM users u"
+            " JOIN user_roles ur ON ur.user_id = u.id"
+            " JOIN roles r ON r.id = ur.role_id"
+            " WHERE u.is_active = 1 AND r.code = ?", (role_code,)) or 0)
+
+    def has_role(self, user_id: int, role_code: str) -> bool:
+        return self._scalar(
+            "SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id"
+            " WHERE ur.user_id = ? AND r.code = ?", (user_id, role_code)) is not None
+
     # ---- authentication metadata ----
 
     def record_login_success(self, user_id: int) -> None:

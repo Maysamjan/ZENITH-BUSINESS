@@ -71,7 +71,8 @@ class Bootstrap:
         # 6. open the production database, run migrations, health-check
         self.database = Database(paths.database_file)
         self.context = open_application_context(
-            self.database, backups_dir=paths.backups_dir
+            self.database, backups_dir=paths.backups_dir,
+            logo_dir=paths.data_dir / "company",
         )
         health = check_health(self.database)
         if health.ok:
@@ -140,6 +141,7 @@ def run(argv: list[str] | None = None) -> int:
                 license_provider=boot.license_provider,
                 current_user=gate.authenticated_user,
                 on_logout=_logout,
+                context=context,
             )
             if config.ui.start_maximized:
                 window.showMaximized()

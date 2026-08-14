@@ -113,6 +113,12 @@ class UserService:
 
     def set_active(self, user_id: int, active: bool) -> None:
         self._authz.require("users.manage")
+        # Administrator self-lockout protection (Stage 03 §21): never deactivate
+        # the last active administrator.
+        if not active and self._is_last_active_admin(user_id):
+            raise ValidationError(
+                "Cannot deactivate the last active administrator.",
+                user_message="You cannot deactivate the only remaining administrator.")
         with self._db.transaction():
             self._users.set_active(user_id, active)
             self._audit.record(
@@ -121,6 +127,7 @@ class UserService:
                 entity_type="user", entity_id=user_id)
 
     def change_password(self, user_id: int, new_password: str) -> None:
+        """Administrative password reset — sets a NEW password (never reveals old)."""
         self._authz.require("users.manage")
         target = self._users.get_by_id(user_id)
         if target is None:
@@ -132,6 +139,65 @@ class UserService:
                 action="users.password_reset", user_id=self._session.user_id,
                 username=self._session.username, entity_type="user", entity_id=user_id)
 
+    # Explicit alias mirroring the §18 vocabulary.
+    reset_password = change_password
+
+    def update_profile(self, user_id: int, *, full_name: str, email: str | None = None,
+                       phone: str | None = None) -> None:
+        self._authz.require("users.manage")
+        full_name = (full_name or "").strip()
+        if not full_name:
+            raise ValidationError("Full name is required.",
+                                  user_message="Full name is required.")
+        with self._db.transaction():
+            self._users.update_profile(user_id, full_name=full_name, email=email, phone=phone)
+            self._audit.record(action="users.update_profile", user_id=self._session.user_id,
+                               username=self._session.username, entity_type="user",
+                               entity_id=user_id)
+
+    def set_roles(self, user_id: int, role_codes: list[str]) -> None:
+        """Replace a user's roles, protecting against removing the last admin."""
+        self._authz.require("users.manage")
+        if self._users.get_by_id(user_id) is None:
+            raise ValidationError("No such user.")
+        if not role_codes:
+            raise ValidationError("At least one role is required.",
+                                  user_message="Please assign at least one role.")
+        # If this user is the last active admin, the new roles must keep admin.
+        losing_admin = ("ADMINISTRATOR" not in role_codes
+                        and self._users.has_role(user_id, "ADMINISTRATOR")
+                        and self._is_last_active_admin(user_id))
+        if losing_admin:
+            raise ValidationError(
+                "Cannot remove the administrator role from the last administrator.",
+                user_message="You cannot remove admin rights from the only administrator.")
+        role_ids = []
+        for code in role_codes:
+            rid = self._roles.id_by_code(code)
+            if rid is None:
+                raise ValidationError(f"Unknown role {code!r}.")
+            role_ids.append((code, rid))
+        with self._db.transaction():
+            for existing in self._users.roles_for_user(user_id):
+                self._users.remove_role(user_id, existing["id"])
+            for _code, rid in role_ids:
+                self._users.assign_role(user_id, rid)
+            self._audit.record(action="users.set_roles", user_id=self._session.user_id,
+                               username=self._session.username, entity_type="user",
+                               entity_id=user_id, details=f"roles={role_codes}")
+
     def list_users(self, *, include_inactive: bool = True) -> list[dict]:
         self._authz.require("users.view")
         return self._users.list_all(include_inactive=include_inactive)
+
+    def search_users(self, term: str, *, limit: int = 50) -> list[dict]:
+        self._authz.require("users.view")
+        return self._users.search(term, limit=limit)
+
+    def roles_for(self, user_id: int) -> list[dict]:
+        self._authz.require("users.view")
+        return self._users.roles_for_user(user_id)
+
+    def _is_last_active_admin(self, user_id: int) -> bool:
+        return (self._users.has_role(user_id, "ADMINISTRATOR")
+                and self._users.count_active_with_role("ADMINISTRATOR") <= 1)

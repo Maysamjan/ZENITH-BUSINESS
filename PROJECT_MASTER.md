@@ -15,9 +15,9 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 1.4 |
-| Current Stage | **02 — DATABASE / AUTH / RBAC / SERVICE FOUNDATION — ✅ LOCKED (owner-approved) + merged to main** |
-| Database Schema Version | **2** (migrations 0001 initial_schema, 0002 baseline_seed) |
+| PROJECT_MASTER.md Version | 1.7 |
+| Current Stage | **03 — MASTER DATA & BUSINESS SETUP — ✅ LOCKED (owner-approved) + merged to main** |
+| Database Schema Version | **3** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data) |
 | Last Updated | 2026-08-14 |
 
 **Stage gate:** Stage 00 (constitution) and **Stage 01 (foundation, incl.
@@ -184,7 +184,8 @@ requested module is implemented.
 | 00 | MASTER (constitution) | ✅ Ratified (on `main`) |
 | 01 | Project Foundation (+01B–01G premium UI + typography) | ✅ **LOCKED** (owner-approved) |
 | 02 | Database / Auth / RBAC / Service Foundation | ✅ **LOCKED** (owner-approved, merged to main) |
-| 03 | Company & Financial Year | ⛔ **NOT STARTED** |
+| 03 | Master Data & Business Setup | ✅ **LOCKED** (owner-approved, merged to main) |
+| 04 | (next module) | ⛔ **NOT STARTED** |
 | 04 | Chart of Accounts | ⛔ Not started |
 | 05 | Persons | ⛔ Not started |
 | 06 | Currencies | ⛔ Not started |
@@ -334,6 +335,65 @@ logout options (backward-compatible — Stage 01 default behavior preserved).
 production Sales-Invoice UI, and the Sales/Purchase/Receipt/Payment/Expense/
 reports/inventory-management/master-data management modules. Stage 02 locks the
 **foundation and its contracts**, not these unbuilt modules.
+
+### 🔒 Stage 03 — Master Data & Business Setup — LOCKED (2026-08-14, owner-approved)
+
+Owner-approved after the Final Owner Acceptance Test (**PASS WITH FIXES**;
+accepted ending commit `12670e7`, **277 tests**, `integrity_check=ok`,
+`foreign_key_check=0`, schema **v3**). Built additively on locked main `b6e633d`;
+**no Stage 01/02 locked contract was changed**. The following public
+architecture/contracts are **frozen**; Stage 04+ must respect them and use the
+§33 STOP procedure to change any of them.
+
+**A. Schema (migration 0003, schema v3) — frozen, additive-only forward.**
+`parties` (unified party: party_code UNIQUE, is_customer/is_supplier with DB
+`CHECK` requiring ≥1 role, contact/credit/opening/active); `financial_years`
+(name UNIQUE, DB `CHECK` start<end, partial unique index = one active year,
+status OPEN/CLOSED); additive columns on `companies` (display_name,
+registration_number, default_warehouse_id, is_active), `items` (alternate_name),
+`units` (decimal_allowed), `warehouses` (notes); indexes for party name/company/
+phone/roles and item alternate_name. The locked `customers`/`suppliers` tables
+and their FKs remain intact. **Stage 04 consumes `parties` additively** (e.g. new
+nullable `party_id` FKs on documents) — it must not repoint or drop locked tables.
+
+**B. Repositories.** `PartyRepository`, `FinancialYearRepository`; the additive
+methods added to locked master/user repositories (item alternate_name + broadened
+search, unit/warehouse/category update + code_exists, company Stage-03 fields,
+user search + `count_active_with_role` + `has_role`).
+
+**C. Services (RBAC + validation + audit + transactions).** `CompanyService`
+(single company record; logo stored in the app data dir, never an external path;
+default-warehouse reference validated), `FinancialYearService` (valid range,
+single active, close/reopen, and the **`is_postable`/`assert_postable` posting
+guard** — the sanctioned way future transaction modules enforce open-year
+posting), `WarehouseService`, `UnitService`, `CategoryService` (parent supported,
+self-parent rejected), `ItemService` (code + optional-unique barcode; strict
+non-negative Decimal prices; non-finite/oversized numeric input rejected),
+`PartyService` (≥1 role, dup code, non-negative credit), `RoleService` (grouped
+human-readable permissions; Administrator keeps all), extended `UserService`
+(reset password, set_roles, search) with **last-active-administrator protection**.
+
+**D. Numeric write-path safety.** `document_math.parse_money_input` rejects
+malformed, non-finite (NaN/Infinity), and absurdly-large numeric input as
+`ValidationError` on every business write path.
+
+**E. Search providers.** `ItemSearchProvider` (name/alternate/code/barcode) and
+`PartySearchProvider` (name/company/code/phone, role-filtered) implement the
+locked `SearchProvider` Protocol with rich payloads for Stage 04 Sales/Purchases.
+
+**F. RBAC.** The 14 Stage 03 permission codes (company.manage, financialyear.*,
+warehouses.*, units.*, categories.*, persons.*, items.create/edit) and their
+seeded role grants — enforced below the UI.
+
+**G. UI contracts.** Reusable `ManagementPage` + `FormDialog` framework and the
+screens Items, Persons, Warehouses, Categories, Units, Company (incl. logo),
+Financial Years, Users, Roles & Permissions; bilingual EN/Dari with genuine RTL;
+additive `MainWindow(context=…)` wiring. UI executes no SQL.
+
+**Not locked by Stage 03 (deferred to Stage 04+):** wiring the financial-year
+posting guard into transaction posting; the Sales/Purchase/Receipt/Payment/Expense
+production modules; live Dashboard data. Stage 03 locks the **master-data
+foundation and its contracts**, not these unbuilt modules.
 
 ---
 
@@ -1208,6 +1268,105 @@ Not locked, not merged — owner decision only.
 
 ---
 
+## 13I. Stage 03 — Master Data & Business Setup (READY FOR OWNER REVIEW)
+
+Converts the locked foundation into the first operational master-data layer.
+**Not locked, not merged.** Built on locked main (`b6e633d`); the 212-test gate
+passed before implementation. Owner-approved architectural decision: parties use
+an **additive unified `parties` table** (Option A) — no locked Stage 02 contract
+touched.
+
+**Database (migration 0003, schema v3, forward/idempotent):** adds `parties`
+(unified customer/supplier, DB CHECK requires ≥1 role) and `financial_years`
+(DB CHECK start<end, partial unique index = one active year); additive columns on
+`companies` (display_name, registration_number, default_warehouse_id, is_active),
+`items` (alternate_name), `units` (decimal_allowed), `warehouses` (notes); 14 new
+permission codes granted to Administrator + relevant roles; indexes for parties
+name/company/phone/roles and items.alternate_name. Locked `customers`/`suppliers`
+tables untouched (vestigial; a future stage will additively reference `parties`).
+
+**Repositories:** new `PartyRepository`, `FinancialYearRepository`; additive
+methods on locked master/user repos (item alternate_name + broadened search,
+unit/warehouse/category update + code_exists, company new fields, user search +
+`count_active_with_role` + `has_role`).
+
+**Services (RBAC + validation + audit + transactions):** `CompanyService`
+(logo copied into app data dir, never an absolute dev path), `FinancialYearService`
+(valid range, single active, close/reopen, `is_postable` guard exposed for future
+transaction modules — NOT retrofitted into locked Stage 02 posting), `WarehouseService`,
+`UnitService`, `CategoryService`, `ItemService` (code/barcode uniqueness, strict
+non-negative Decimal prices), `PartyService` (≥1 role, dup code, non-negative
+credit), `RoleService` (grouped human-readable permissions, Administrator keeps all),
+extended `UserService` (reset password, set_roles, search, **last-administrator
+protection**).
+
+**Search providers (reusable, decoupled):** `ItemSearchProvider` (name/alt/code/
+barcode) and `PartySearchProvider` (name/company/code/phone, role-filtered)
+implement the locked `SearchProvider` Protocol with rich payloads for future
+Sales/Purchases — indexed SQL + limited results (§31).
+
+**UI (bilingual EN/Dari, RTL, on the locked shell):** reusable `ManagementPage` +
+`FormDialog` framework; screens for Items, Persons, Warehouses, Categories, Units,
+Company, Financial Years, Users, Roles & Permissions, wired additively into
+`MainWindow` (optional `context` param; nav commands enabled when present). No SQL
+in UI; services surface `user_message` errors.
+
+**Verification:** **261 tests** (was 212; +49 Stage 03). On-disk acceptance
+workflow (§37): admin→company→FY→warehouses→units/categories→10 items→customer/
+supplier/both→item & person search→salesperson RBAC→deactivate→**restart
+persistence**→`integrity_check=ok`, `foreign_key_check=0`, schema v3 — all pass.
+Self-inspected screenshots (Items EN/Dari, Item form EN/Dari, Persons, Person form
+EN/Dari, Warehouses, Company, Financial Years, Users, Roles matrix, Units,
+Categories). No Stage 01/02 locked contract changed (only additive extensions;
+three Stage 02 migration tests updated to the new latest schema version).
+
+**Known limitations (deferred, intentional):** financial-year posting enforcement
+is exposed (`assert_postable`) but not wired into the LOCKED Stage 02 posting
+(will be integrated when the production Sales/Purchase modules are built).
+
+### 13I.1 Final Owner Acceptance Test & hardening (2026-08-14)
+Full production-readiness gate on a fresh **on-disk** database (not in-memory).
+Starting commit `8342f2d`; baseline 261 tests re-verified; no locked core file
+modified (diff-audited). Two defects found by adversarial probing and **fixed at
+the service layer** (no locked contract changed):
+
+- *NaN / Infinity / 1e999 as a numeric business input raised an uncaught
+  `InvalidOperation`* instead of a clean error (would crash the UI). **Fixed** in
+  `document_math.parse_money_input`: reject non-finite and absurdly-large
+  (`adjusted() > 30`) values as `ValidationError`. Covers items, parties, journals,
+  inventory. Severity Medium.
+- *`company.default_warehouse_id` accepted a non-existent warehouse* (DB rejected
+  it with a raw `IntegrityError`). **Fixed:** `CompanyService.save` validates the
+  reference → clean `ValidationError`; no dangling default. Severity Low.
+
+**Two owner-review items completed (were listed as deferred):** the Company screen
+now has a **logo picker** (choose/preview/remove; PNG/JPG validated; stored in the
+app data dir, not an external path) and the Category form now has a **parent-
+category selector** (with self-parent guard).
+
+**Acceptance results (all pass):** migrations 0001→0003 + idempotent + failure
+isolation; locked customers/suppliers/sales/purchases/receipts/payments intact;
+company profile persistence + multi-update single record; financial year
+create/activate/close/reopen + single-active + posting guard; warehouses/units/
+categories CRUD + FK protection; 20 items with exact Decimal edge values +
+dup-code/barcode + negative/malformed/NaN/Infinity rejection; item search
+(code/partial/alt/barcode); unified persons (customer/supplier/both, role
+transitions, ≥1-role DB+service guard); party search + role filters; users
+(create/roles/reset-password/deactivate) with **last-administrator protection**;
+role/permission edit persists + takes effect in a fresh session; **RBAC matrix**
+(Administrator/Manager/Salesperson) via direct service calls; audit (no secrets);
+rollback leaves no partial state; **restart persistence** of every entity;
+**backup/restore with Stage 03 data** (post-backup rows roll back, pre-backup
+intact); `integrity_check=ok`, `foreign_key_check=0` throughout. **Tests: 277 pass**
+(was 261; +16). Static scan clean; index review confirms equality/code/phone/role/
+username/active-FY lookups are index-backed (substring search is a bounded LIMITed
+scan, acceptable for the target dataset — no over-engineering).
+
+**Recommendation:** *STAGE 03 IS TECHNICALLY READY FOR OWNER APPROVAL TO LOCK AND
+MERGE.* Not locked, not merged — owner decision only.
+
+---
+
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
@@ -1223,6 +1382,9 @@ Not locked, not merged — owner decision only.
 | 2026-08-11 | 0.9 | Stage 01 refinements (header hierarchy + global typography) on the same feature branch: bundled **Vazirmatn (OFL)** Persian/Dari + Latin font with a centralized loader (`core/fonts.py`) and a single `Typography.FAMILY` token driving the whole app **and** print — Dari now renders as a polished, native UI/document; and the Sales Invoice **header hierarchy** (Customer promoted/prominent; Warehouse/Salesperson/Currency/Rate compacted and quieted) via a shared `LabeledField(compact=True)` variant, consistent in EN + Dari with one-screen 1366×768 preserved. Backend unchanged. 90 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 | 2026-08-12 | 0.9 | Print-only legibility pass: Dari/English secondary print text darkened to a stronger secondary ink at Medium weight with tiny size nudges; amount-in-words de-italicized. Vazirmatn, A4/A5 layouts and pagination unchanged; verified single-page with no wrapping/clipping/collision. 90 passing tests. |
 | 2026-08-12 | 1.0 | **Stage 01 — Project Foundation declared LOCKED (owner-approved).** Public contracts frozen and recorded in §8 (core, database infrastructure, security, UI design system, search-selector architecture, print engine, and locked principles). No business tables. Stage 02 — Database is now the next authorized step. |
+| 2026-08-14 | 1.7 | **Stage 03 — LOCKED (owner-approved) and MERGED into `main`.** Owner approved the Final Acceptance Test (PASS WITH FIXES; accepted ending commit `12670e7`, 277 tests, `integrity_check=ok`, `foreign_key_check=0`, schema v3). Stage 03 public contracts frozen in §8 (migration 0003 additive schema, unified `parties`, `financial_years`, additive company/item/unit/warehouse fields, Company/FinancialYear/Warehouse/Unit/Category/Item/Party/Role services, extended User + last-admin protection, strict numeric write-path safety, Item/Party search providers, 14 RBAC permissions, master-data UI, logo & parent-category). Stage 01/02 lock records unchanged. Stage 04 NOT STARTED. |
+| 2026-08-14 | 1.6 | **Stage 03 — Final Owner Acceptance Test PASSED WITH FIXES (READY FOR OWNER FINAL REVIEW; not locked, not merged).** On-disk acceptance gate: migrations/idempotency/failure isolation, company/FY/warehouse/unit/category/item/person/user/role CRUD + validation, RBAC matrix + last-admin protection via direct service calls, audit (no secrets), rollback, restart persistence, backup/restore with Stage 03 data, integrity_check=ok / foreign_key_check=0. Fixed 2 defects (non-finite/oversized numeric input -> ValidationError; company default-warehouse validation). Completed logo picker + parent-category UI. Tests: 277 pass (+16). See §13I.1. |
+| 2026-08-14 | 1.5 | **Stage 03 — Master Data & Business Setup implemented (READY FOR OWNER REVIEW; not locked, not merged).** Fresh branch from locked main `b6e633d`; 212-test gate passed first. Owner-approved additive unified `parties` model (Option A) — no locked contract touched. Migration 0003 (schema v3, forward/idempotent): parties + financial_years tables, additive columns (company/items/units/warehouses), 14 permissions, indexes. New repos/services for Company, Financial Year, Warehouse, Unit, Category, Item, Party, Role, extended User (last-admin protection); reusable Item/Party search providers; bilingual EN/Dari management UI (Items, Persons, Warehouses, Categories, Units, Company, Financial Years, Users, Roles) on the locked shell. **261 tests pass** (+49). On-disk acceptance workflow + integrity all pass. See §13I. |
 | 2026-08-14 | 1.4 | **Stage 02 — LOCKED (owner-approved) and MERGED into `main`.** Owner reviewed the Final Acceptance Test (PASS WITH FIXES; acceptance ending commit `eda3d84`, 212 tests, `integrity_check=ok`, `foreign_key_check=0`, schema v2) and approved LOCK + MERGE. Stage 02 public contracts frozen in §8 (database/migrations, Decimal/strict-numeric safety, repository boundary, service/transaction boundaries, authentication, RBAC, double-entry financial safety + `FinancialService`, inventory movement-ledger, atomic document posting, audit, backup/restore, startup/login gate, Stage 02 UI). Stage 01 records unchanged. Stage 03 NOT STARTED. |
 | 2026-08-13 | 1.3 | **Stage 02 — Final Owner Acceptance Test PASSED WITH FIXES (awaiting owner LOCK/MERGE; not locked, not merged).** Full production-readiness gate on a fresh on-disk DB: admin→master data→purchase→sale→transfer→second sale, with close/reopen between steps and direct persisted-data verification. One defect found & root-caused: malformed numeric input (e.g. price `"12x3"`) was silently coerced to 0.00 on the write path — fixed by strict `money.parse_decimal` + `document_math.parse_money_input` on all service write inputs (lines, amount_paid, journal amounts, inventory quantities); malformed input now rejected, `D()` stays lenient for display only. Verified: exact Decimal totals, all journals balance, inventory==SUM(signed movements), oversell/invalid-input rollback with unconsumed numbers, auth+lockout, RBAC via direct service calls, FK RESTRICT on referenced master data, backup/restore disaster recovery, `integrity_check=ok` + `foreign_key_check=0` after full workflow and after restore. **Tests: 212 pass** (+21). See §13H.10. |
 | 2026-08-13 | 1.2 | **Stage 02 — Final technical audit & hardening (READY FOR OWNER FINAL REVIEW; not locked, not merged).** 7-pass production audit. Fixed at the service layer (no Stage 01 contract touched): unbalanced journals can no longer commit (added journal-balance guard + `FinancialService.post_entry`); sales can no longer oversell into negative stock (warehouse + stock enforcement, `InsufficientStockError`, explicit `allow_backorder`); negative price / negative discount / discount>line rejected via shared `compute_line`; stockable-item-without-warehouse rejected; added atomic `InventoryService.transfer`. Added reporting indexes (account ledger, journal-by-document, audit-by-entity) to migration 0001. Verified: Decimal exactness on edge values, journal balancing, inventory conservation, RBAC below UI, lockout, migration failure isolation, backup/restore roundtrip, `integrity_check=ok` + `foreign_key_check=0` after complex work and after restore. **Tests: 191 pass** (+47). See §13H.9. |

@@ -17,6 +17,7 @@ from zenith_business.core.clock import now_iso
 from zenith_business.core.logging_setup import get_logger
 from zenith_business.database.connection import Database
 from zenith_business.database.schema import create_schema, seed_baseline
+from zenith_business.database.schema_stage03 import migrate_stage03
 
 _logger = get_logger("database.migrations")
 
@@ -33,6 +34,7 @@ class Migration:
 MIGRATIONS: list[Migration] = [
     Migration(1, "initial_schema", create_schema),
     Migration(2, "baseline_seed", seed_baseline),
+    Migration(3, "stage03_master_data", migrate_stage03),
 ]
 
 

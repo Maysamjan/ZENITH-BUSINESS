@@ -5,6 +5,10 @@ from __future__ import annotations
 from zenith_business.database.connection import MEMORY, Database
 from zenith_business.database.migrations import MigrationRunner
 from zenith_business.database.schema import PERMISSIONS, ROLES
+from zenith_business.database.schema_stage03 import STAGE03_PERMISSIONS
+
+# Total permission codes after all forward migrations (Stage 02 baseline + Stage 03).
+_ALL_PERMISSIONS = len(PERMISSIONS) + len(STAGE03_PERMISSIONS)
 
 
 def _tables(db: Database) -> set[str]:
@@ -21,11 +25,12 @@ def test_migrate_applies_all_pending() -> None:
     runner = MigrationRunner(db)
     assert runner.current_version() == 0
     applied = runner.migrate()
-    assert applied == [1, 2]
+    assert applied == [1, 2, 3]  # Stage 02 baseline + Stage 03 master data
     assert runner.current_version() == runner.latest_version()
     tables = _tables(db)
     for expected in ("users", "roles", "permissions", "sales", "purchases",
-                     "inventory_movements", "audit_log", "schema_migrations"):
+                     "inventory_movements", "audit_log", "schema_migrations",
+                     "parties", "financial_years"):
         assert expected in tables
     db.close()
 
@@ -44,13 +49,13 @@ def test_baseline_seed_counts() -> None:
     db = Database(MEMORY)
     MigrationRunner(db).migrate()
     conn = db.connection()
-    assert conn.execute("SELECT COUNT(*) FROM permissions").fetchone()[0] == len(PERMISSIONS)
+    assert conn.execute("SELECT COUNT(*) FROM permissions").fetchone()[0] == _ALL_PERMISSIONS
     assert conn.execute("SELECT COUNT(*) FROM roles").fetchone()[0] == len(ROLES)
-    # Administrator holds every permission.
+    # Administrator holds every permission (Stage 02 + Stage 03).
     admin_perms = conn.execute(
         "SELECT COUNT(*) FROM role_permissions rp JOIN roles r ON r.id = rp.role_id"
         " WHERE r.code = 'ADMINISTRATOR'").fetchone()[0]
-    assert admin_perms == len(PERMISSIONS)
+    assert admin_perms == _ALL_PERMISSIONS
     # Currencies include a single base currency.
     base = conn.execute("SELECT code FROM currencies WHERE is_base = 1").fetchall()
     assert [r[0] for r in base] == ["AFN"]

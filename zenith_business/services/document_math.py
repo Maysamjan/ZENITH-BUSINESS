@@ -16,13 +16,30 @@ from zenith_business.services.exceptions import InvalidJournalError, ValidationE
 
 
 def parse_money_input(value, *, field: str = "value"):
-    """Strictly parse a money/quantity input for a write; reject malformed input."""
+    """Strictly parse a money/quantity input for a write; reject malformed input.
+
+    Rejects both unparseable text (``"12x3"``) and non-finite Decimals
+    (``NaN``/``Infinity``) — the latter parse as valid Decimals but are not valid
+    business amounts and would otherwise crash the quantizer downstream (§11).
+    """
     try:
-        return parse_decimal(value)
+        parsed = parse_decimal(value)
     except ValueError:
         raise ValidationError(
             f"Malformed numeric input for {field}: {value!r}",
             user_message="A number you entered is not valid.") from None
+    if not parsed.is_finite():
+        raise ValidationError(
+            f"Non-finite numeric input for {field}: {value!r}",
+            user_message="A number you entered is not valid.")
+    # Reject absurd magnitudes that would overflow Decimal quantization (prec 34).
+    # 1e30 is astronomically larger than any real business amount, and the bound
+    # leaves ample headroom for the largest realistic values.
+    if parsed != 0 and parsed.adjusted() > 30:
+        raise ValidationError(
+            f"Numeric input too large for {field}: {value!r}",
+            user_message="That number is too large.")
+    return parsed
 
 
 class ComputedLine(NamedTuple):

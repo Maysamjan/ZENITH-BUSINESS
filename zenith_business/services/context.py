@@ -35,6 +35,8 @@ from zenith_business.repositories.master import (
     UnitRepository,
     WarehouseRepository,
 )
+from zenith_business.repositories.financial_years import FinancialYearRepository
+from zenith_business.repositories.parties import PartyRepository
 from zenith_business.repositories.system import (
     AppSettingsRepository,
     AuditRepository,
@@ -49,11 +51,22 @@ from zenith_business.services.audit_service import AuditService
 from zenith_business.services.authentication import AuthenticationService
 from zenith_business.services.authorization import AuthorizationService
 from zenith_business.services.backup import BackupService
+from zenith_business.services.company import CompanyService
 from zenith_business.services.financial import FinancialService
+from zenith_business.services.financial_year import FinancialYearService
 from zenith_business.services.inventory import InventoryService
+from zenith_business.services.items import ItemService
+from zenith_business.services.master_data import (
+    CategoryService,
+    UnitService,
+    WarehouseService,
+)
 from zenith_business.services.numbering import DocumentNumberService
+from zenith_business.services.parties import PartyService
 from zenith_business.services.purchases import PurchaseService
+from zenith_business.services.roles import RoleService
 from zenith_business.services.sales import SalesService
+from zenith_business.services.search_providers import ItemSearchProvider, PartySearchProvider
 from zenith_business.services.session import SessionContext
 from zenith_business.services.setup import InitialSetupService
 from zenith_business.services.users import UserService
@@ -64,7 +77,8 @@ _logger = get_logger("services.context")
 class ApplicationContext:
     """Composition root holding all repositories and services for one database."""
 
-    def __init__(self, db: Database, *, backups_dir: Path | None = None) -> None:
+    def __init__(self, db: Database, *, backups_dir: Path | None = None,
+                 logo_dir: Path | None = None) -> None:
         self.db = db
         self.session = SessionContext()
 
@@ -92,6 +106,9 @@ class ApplicationContext:
         self.audit_repo = AuditRepository(db)
         self.sequences_repo = DocumentSequenceRepository(db)
         self.settings_repo = AppSettingsRepository(db)
+        # Stage 03 repositories
+        self.parties_repo = PartyRepository(db)
+        self.financial_years_repo = FinancialYearRepository(db)
 
         # ---- services ----
         self.authz = AuthorizationService(self.session)
@@ -117,6 +134,32 @@ class ApplicationContext:
         self.backup = BackupService(
             db, backups_dir or Path("."), self.audit_repo, self.session, self.authz)
 
+        # ---- Stage 03 master-data services ----
+        self.company = CompanyService(
+            db, self.company_repo, self.currencies_repo, self.audit_repo, self.session,
+            self.authz, logo_dir=logo_dir, warehouses=self.warehouses_repo)
+        self.financial_years = FinancialYearService(
+            db, self.financial_years_repo, self.audit_repo, self.session, self.authz)
+        self.warehouses = WarehouseService(
+            db, self.warehouses_repo, self.audit_repo, self.session, self.authz)
+        self.units = UnitService(
+            db, self.units_repo, self.audit_repo, self.session, self.authz)
+        self.categories = CategoryService(
+            db, self.categories_repo, self.audit_repo, self.session, self.authz)
+        self.items = ItemService(
+            db, self.items_repo, self.audit_repo, self.session, self.authz)
+        self.parties = PartyService(
+            db, self.parties_repo, self.audit_repo, self.session, self.authz)
+        self.roles = RoleService(
+            db, self.roles_repo, self.permissions_repo, self.audit_repo, self.session,
+            self.authz)
+
+        # ---- reusable search providers (§12, §16) ----
+        self.item_search = ItemSearchProvider(self.items_repo)
+        self.customer_search = PartySearchProvider(self.parties_repo, role="customer")
+        self.supplier_search = PartySearchProvider(self.parties_repo, role="supplier")
+        self.party_search = PartySearchProvider(self.parties_repo)
+
     # ---- convenience ----
     @property
     def is_setup_required(self) -> bool:
@@ -128,7 +171,7 @@ class ApplicationContext:
 
 
 def open_application_context(
-    db: Database, *, backups_dir: Path | None = None
+    db: Database, *, backups_dir: Path | None = None, logo_dir: Path | None = None
 ) -> ApplicationContext:
     """Run pending migrations, then build the application context.
 
@@ -139,4 +182,4 @@ def open_application_context(
     applied = MigrationRunner(db).migrate()
     if applied:
         _logger.info("Database migrated to schema (applied %s).", applied)
-    return ApplicationContext(db, backups_dir=backups_dir)
+    return ApplicationContext(db, backups_dir=backups_dir, logo_dir=logo_dir)
