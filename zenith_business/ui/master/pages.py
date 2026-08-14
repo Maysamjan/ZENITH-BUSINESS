@@ -7,6 +7,7 @@ Pages are bilingual and inherit RTL/LTR from the shell.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Callable
 
 from PyQt6.QtCore import Qt
@@ -16,6 +17,7 @@ from PyQt6.QtWidgets import (
     QDialog,
     QGridLayout,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QScrollArea,
     QVBoxLayout,
@@ -606,19 +608,27 @@ class CategoriesPage(_BasePage):
         dlg = FormDialog(t, _t(t, "cat.new"), parent=self.window())
         g = dlg.add_section(_t(t, "cat.title"))
         code = QLineEdit(); en = QLineEdit(); fa = QLineEdit()
+        parent = QComboBox(); parent.addItem(_t(t, "cat.parent_none"), None)
+        for cparent in self._ctx.categories_repo.list_active():
+            if not existing or cparent["id"] != existing["id"]:  # can't parent to self
+                parent.addItem(cparent["name_en"], cparent["id"])
         dlg.add_field(g, 0, 0, _t(t, "cat.col_code"), code, width=FieldWidth.SM)
+        dlg.add_field(g, 0, 1, _t(t, "cat.col_parent"), parent, width=FieldWidth.MD)
         dlg.add_field(g, 1, 0, _t(t, "cat.col_en"), en, width=FieldWidth.MD)
         dlg.add_field(g, 1, 1, _t(t, "cat.col_fa"), fa, width=FieldWidth.MD)
         if existing:
             code.setText(existing["code"]); code.setEnabled(False)
             en.setText(existing["name_en"]); fa.setText(existing["name_fa"])
+            _select(parent, existing.get("parent_id"))
 
         def submit() -> None:
             try:
                 if existing:
-                    self._ctx.categories.update(existing["id"], name_en=en.text(), name_fa=fa.text())
+                    self._ctx.categories.update(existing["id"], name_en=en.text(),
+                                                name_fa=fa.text(), parent_id=parent.currentData())
                 else:
-                    self._ctx.categories.create(code=code.text(), name_en=en.text(), name_fa=fa.text())
+                    self._ctx.categories.create(code=code.text(), name_en=en.text(),
+                                                name_fa=fa.text(), parent_id=parent.currentData())
             except ZenithError as exc:
                 dlg.set_error(exc.user_message); return
             dlg.accept(); self.reload()
@@ -758,9 +768,38 @@ class CompanyPage(_BasePage):
         self.currency = QComboBox()
         for cur in self._ctx.currencies_repo.list_active():
             self.currency.addItem(f"{cur['code']} — {cur['name']}", cur["id"])
+        self.warehouse = QComboBox()
+        self.warehouse.addItem(_t(t, "md.all"), None)
+        for wh in self._ctx.warehouses_repo.list_active():
+            self.warehouse.addItem(f"{wh['name']} ({wh['code']})", wh["id"])
         self.footer = QLineEdit()
         add(g3, 0, 0, "co.currency", self.currency, FieldWidth.MD)
+        add(g3, 0, 1, "wh.title", self.warehouse, FieldWidth.MD)
         add(g3, 1, 0, "co.footer", self.footer, FieldWidth.XL)
+
+        # ---- logo (§5, §6) ----
+        card.body.addWidget(section_title(_t(t, "co.sec_logo")))
+        logo_row = QHBoxLayout(); logo_row.setSpacing(Spacing.MD)
+        from PyQt6.QtWidgets import QFrame
+        self._logo_preview = QLabel()
+        self._logo_preview.setFixedSize(96, 96)
+        self._logo_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._logo_preview.setFrameShape(QFrame.Shape.StyledPanel)
+        logo_row.addWidget(self._logo_preview)
+        logo_btns = QVBoxLayout(); logo_btns.setSpacing(Spacing.XS)
+        from zenith_business.ui.components import muted, secondary_button
+        self._choose_logo = secondary_button(_t(t, "co.choose_logo"))
+        self._choose_logo.clicked.connect(self._pick_logo)
+        self._remove_logo = ghost_button(_t(t, "co.remove_logo"))
+        self._remove_logo.clicked.connect(self._clear_logo)
+        logo_btns.addWidget(self._choose_logo)
+        logo_btns.addWidget(self._remove_logo)
+        logo_btns.addWidget(muted(_t(t, "co.logo_hint")))
+        logo_btns.addStretch(1)
+        logo_row.addLayout(logo_btns)
+        logo_row.addStretch(1)
+        card.body.addLayout(logo_row)
+        self._logo_path: str | None = None
 
         save = primary_button(_t(t, "action.save"))
         save.clicked.connect(self._save)
@@ -784,10 +823,39 @@ class CompanyPage(_BasePage):
         self.email.setText(row.get("email") or "")
         self.website.setText(row.get("website") or "")
         self.footer.setText(row.get("invoice_footer") or "")
-        if row.get("default_currency_id"):
-            for i in range(self.currency.count()):
-                if self.currency.itemData(i) == row["default_currency_id"]:
-                    self.currency.setCurrentIndex(i); break
+        _select(self.currency, row.get("default_currency_id"))
+        _select(self.warehouse, row.get("default_warehouse_id"))
+        self._logo_path = row.get("logo_path")
+        self._render_logo()
+
+    def _render_logo(self) -> None:
+        from PyQt6.QtGui import QPixmap
+        if self._logo_path and Path(self._logo_path).exists():
+            pix = QPixmap(self._logo_path)
+            if not pix.isNull():
+                self._logo_preview.setPixmap(pix.scaled(
+                    92, 92, Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation))
+                return
+        self._logo_preview.setPixmap(QPixmap())
+        self._logo_preview.setText(_t(self._t, "co.no_logo"))
+        self._logo_preview.setWordWrap(True)
+
+    def _pick_logo(self) -> None:
+        from PyQt6.QtWidgets import QFileDialog
+        path, _f = QFileDialog.getOpenFileName(
+            self, _t(self._t, "co.choose_logo"), "", "Images (*.png *.jpg *.jpeg)")
+        if not path:
+            return
+        try:
+            self._logo_path = self._ctx.company.import_logo(path)
+        except ZenithError as exc:
+            self._error.setText(exc.user_message); self._error.setVisible(True); return
+        self._render_logo()
+
+    def _clear_logo(self) -> None:
+        self._logo_path = None
+        self._render_logo()
 
     def _save(self) -> None:
         self._error.setVisible(False)
@@ -798,6 +866,8 @@ class CompanyPage(_BasePage):
                 address=self.address.text(), city=self.city.text(), phone=self.phone.text(),
                 email=self.email.text(), website=self.website.text(),
                 default_currency_id=self.currency.currentData(),
+                default_warehouse_id=self.warehouse.currentData(),
+                logo_path=self._logo_path,
                 invoice_footer=self.footer.text())
         except ZenithError as exc:
             self._error.setText(exc.user_message); self._error.setVisible(True); return

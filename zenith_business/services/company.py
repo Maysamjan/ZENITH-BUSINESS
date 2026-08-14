@@ -12,7 +12,11 @@ from pathlib import Path
 
 from zenith_business.core.logging_setup import get_logger
 from zenith_business.database.connection import Database
-from zenith_business.repositories.master import CompanyRepository, CurrencyRepository
+from zenith_business.repositories.master import (
+    CompanyRepository,
+    CurrencyRepository,
+    WarehouseRepository,
+)
 from zenith_business.repositories.system import AuditRepository
 from zenith_business.services.authorization import AuthorizationService
 from zenith_business.services.exceptions import ValidationError
@@ -25,10 +29,12 @@ class CompanyService:
     def __init__(self, db: Database, company: CompanyRepository,
                  currencies: CurrencyRepository, audit: AuditRepository,
                  session: SessionContext, authz: AuthorizationService,
-                 logo_dir: Path | None = None) -> None:
+                 logo_dir: Path | None = None,
+                 warehouses: WarehouseRepository | None = None) -> None:
         self._db = db
         self._company = company
         self._currencies = currencies
+        self._warehouses = warehouses
         self._audit = audit
         self._session = session
         self._authz = authz
@@ -54,6 +60,12 @@ class CompanyService:
                                   user_message="Business name is required.")
         if default_currency_id is not None and self._currencies.get(default_currency_id) is None:
             raise ValidationError("Unknown base currency.")
+        # Never store a dangling default warehouse reference (§8).
+        if (default_warehouse_id is not None and self._warehouses is not None
+                and self._warehouses.get(default_warehouse_id) is None):
+            raise ValidationError(
+                "Unknown default warehouse.",
+                user_message="The selected default warehouse does not exist.")
         with self._db.transaction():
             cid = self._company.upsert(
                 legal_name=legal_name, display_name=display_name, trade_name=trade_name,
@@ -78,6 +90,10 @@ class CompanyService:
         if not src.exists() or not src.is_file():
             raise ValidationError("Logo file not found.",
                                   user_message="The selected logo file could not be found.")
+        if src.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+            raise ValidationError(
+                f"Unsupported logo type: {src.suffix}",
+                user_message="Please choose a valid PNG or JPG image.")
         if self._logo_dir is None:
             raise ValidationError("No logo storage location configured.")
         self._logo_dir.mkdir(parents=True, exist_ok=True)

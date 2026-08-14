@@ -15,7 +15,7 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 1.5 |
+| PROJECT_MASTER.md Version | 1.6 |
 | Current Stage | **03 — MASTER DATA & BUSINESS SETUP — 🟡 READY FOR OWNER REVIEW (implemented; not locked, not merged)** |
 | Database Schema Version | **3** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data) |
 | Last Updated | 2026-08-14 |
@@ -1263,10 +1263,48 @@ three Stage 02 migration tests updated to the new latest schema version).
 
 **Known limitations (deferred, intentional):** financial-year posting enforcement
 is exposed (`assert_postable`) but not wired into the LOCKED Stage 02 posting
-(will be integrated when the production Sales/Purchase modules are built);
-logo file-picker UI is backend-ready (`import_logo`) but the settings screen does
-not yet include the picker widget; parent-category selection is supported by the
-schema/service but the category form keeps a flat list for now.
+(will be integrated when the production Sales/Purchase modules are built).
+
+### 13I.1 Final Owner Acceptance Test & hardening (2026-08-14)
+Full production-readiness gate on a fresh **on-disk** database (not in-memory).
+Starting commit `8342f2d`; baseline 261 tests re-verified; no locked core file
+modified (diff-audited). Two defects found by adversarial probing and **fixed at
+the service layer** (no locked contract changed):
+
+- *NaN / Infinity / 1e999 as a numeric business input raised an uncaught
+  `InvalidOperation`* instead of a clean error (would crash the UI). **Fixed** in
+  `document_math.parse_money_input`: reject non-finite and absurdly-large
+  (`adjusted() > 30`) values as `ValidationError`. Covers items, parties, journals,
+  inventory. Severity Medium.
+- *`company.default_warehouse_id` accepted a non-existent warehouse* (DB rejected
+  it with a raw `IntegrityError`). **Fixed:** `CompanyService.save` validates the
+  reference → clean `ValidationError`; no dangling default. Severity Low.
+
+**Two owner-review items completed (were listed as deferred):** the Company screen
+now has a **logo picker** (choose/preview/remove; PNG/JPG validated; stored in the
+app data dir, not an external path) and the Category form now has a **parent-
+category selector** (with self-parent guard).
+
+**Acceptance results (all pass):** migrations 0001→0003 + idempotent + failure
+isolation; locked customers/suppliers/sales/purchases/receipts/payments intact;
+company profile persistence + multi-update single record; financial year
+create/activate/close/reopen + single-active + posting guard; warehouses/units/
+categories CRUD + FK protection; 20 items with exact Decimal edge values +
+dup-code/barcode + negative/malformed/NaN/Infinity rejection; item search
+(code/partial/alt/barcode); unified persons (customer/supplier/both, role
+transitions, ≥1-role DB+service guard); party search + role filters; users
+(create/roles/reset-password/deactivate) with **last-administrator protection**;
+role/permission edit persists + takes effect in a fresh session; **RBAC matrix**
+(Administrator/Manager/Salesperson) via direct service calls; audit (no secrets);
+rollback leaves no partial state; **restart persistence** of every entity;
+**backup/restore with Stage 03 data** (post-backup rows roll back, pre-backup
+intact); `integrity_check=ok`, `foreign_key_check=0` throughout. **Tests: 277 pass**
+(was 261; +16). Static scan clean; index review confirms equality/code/phone/role/
+username/active-FY lookups are index-backed (substring search is a bounded LIMITed
+scan, acceptable for the target dataset — no over-engineering).
+
+**Recommendation:** *STAGE 03 IS TECHNICALLY READY FOR OWNER APPROVAL TO LOCK AND
+MERGE.* Not locked, not merged — owner decision only.
 
 ---
 
@@ -1285,6 +1323,7 @@ schema/service but the category form keeps a flat list for now.
 | 2026-08-11 | 0.9 | Stage 01 refinements (header hierarchy + global typography) on the same feature branch: bundled **Vazirmatn (OFL)** Persian/Dari + Latin font with a centralized loader (`core/fonts.py`) and a single `Typography.FAMILY` token driving the whole app **and** print — Dari now renders as a polished, native UI/document; and the Sales Invoice **header hierarchy** (Customer promoted/prominent; Warehouse/Salesperson/Currency/Rate compacted and quieted) via a shared `LabeledField(compact=True)` variant, consistent in EN + Dari with one-screen 1366×768 preserved. Backend unchanged. 90 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 | 2026-08-12 | 0.9 | Print-only legibility pass: Dari/English secondary print text darkened to a stronger secondary ink at Medium weight with tiny size nudges; amount-in-words de-italicized. Vazirmatn, A4/A5 layouts and pagination unchanged; verified single-page with no wrapping/clipping/collision. 90 passing tests. |
 | 2026-08-12 | 1.0 | **Stage 01 — Project Foundation declared LOCKED (owner-approved).** Public contracts frozen and recorded in §8 (core, database infrastructure, security, UI design system, search-selector architecture, print engine, and locked principles). No business tables. Stage 02 — Database is now the next authorized step. |
+| 2026-08-14 | 1.6 | **Stage 03 — Final Owner Acceptance Test PASSED WITH FIXES (READY FOR OWNER FINAL REVIEW; not locked, not merged).** On-disk acceptance gate: migrations/idempotency/failure isolation, company/FY/warehouse/unit/category/item/person/user/role CRUD + validation, RBAC matrix + last-admin protection via direct service calls, audit (no secrets), rollback, restart persistence, backup/restore with Stage 03 data, integrity_check=ok / foreign_key_check=0. Fixed 2 defects (non-finite/oversized numeric input -> ValidationError; company default-warehouse validation). Completed logo picker + parent-category UI. Tests: 277 pass (+16). See §13I.1. |
 | 2026-08-14 | 1.5 | **Stage 03 — Master Data & Business Setup implemented (READY FOR OWNER REVIEW; not locked, not merged).** Fresh branch from locked main `b6e633d`; 212-test gate passed first. Owner-approved additive unified `parties` model (Option A) — no locked contract touched. Migration 0003 (schema v3, forward/idempotent): parties + financial_years tables, additive columns (company/items/units/warehouses), 14 permissions, indexes. New repos/services for Company, Financial Year, Warehouse, Unit, Category, Item, Party, Role, extended User (last-admin protection); reusable Item/Party search providers; bilingual EN/Dari management UI (Items, Persons, Warehouses, Categories, Units, Company, Financial Years, Users, Roles) on the locked shell. **261 tests pass** (+49). On-disk acceptance workflow + integrity all pass. See §13I. |
 | 2026-08-14 | 1.4 | **Stage 02 — LOCKED (owner-approved) and MERGED into `main`.** Owner reviewed the Final Acceptance Test (PASS WITH FIXES; acceptance ending commit `eda3d84`, 212 tests, `integrity_check=ok`, `foreign_key_check=0`, schema v2) and approved LOCK + MERGE. Stage 02 public contracts frozen in §8 (database/migrations, Decimal/strict-numeric safety, repository boundary, service/transaction boundaries, authentication, RBAC, double-entry financial safety + `FinancialService`, inventory movement-ledger, atomic document posting, audit, backup/restore, startup/login gate, Stage 02 UI). Stage 01 records unchanged. Stage 03 NOT STARTED. |
 | 2026-08-13 | 1.3 | **Stage 02 — Final Owner Acceptance Test PASSED WITH FIXES (awaiting owner LOCK/MERGE; not locked, not merged).** Full production-readiness gate on a fresh on-disk DB: admin→master data→purchase→sale→transfer→second sale, with close/reopen between steps and direct persisted-data verification. One defect found & root-caused: malformed numeric input (e.g. price `"12x3"`) was silently coerced to 0.00 on the write path — fixed by strict `money.parse_decimal` + `document_math.parse_money_input` on all service write inputs (lines, amount_paid, journal amounts, inventory quantities); malformed input now rejected, `D()` stays lenient for display only. Verified: exact Decimal totals, all journals balance, inventory==SUM(signed movements), oversell/invalid-input rollback with unconsumed numbers, auth+lockout, RBAC via direct service calls, FK RESTRICT on referenced master data, backup/restore disaster recovery, `integrity_check=ok` + `foreign_key_check=0` after full workflow and after restore. **Tests: 212 pass** (+21). See §13H.10. |

@@ -137,7 +137,7 @@ class ApplicationContext:
         # ---- Stage 03 master-data services ----
         self.company = CompanyService(
             db, self.company_repo, self.currencies_repo, self.audit_repo, self.session,
-            self.authz, logo_dir=logo_dir)
+            self.authz, logo_dir=logo_dir, warehouses=self.warehouses_repo)
         self.financial_years = FinancialYearService(
             db, self.financial_years_repo, self.audit_repo, self.session, self.authz)
         self.warehouses = WarehouseService(

@@ -71,7 +71,8 @@ class Bootstrap:
         # 6. open the production database, run migrations, health-check
         self.database = Database(paths.database_file)
         self.context = open_application_context(
-            self.database, backups_dir=paths.backups_dir
+            self.database, backups_dir=paths.backups_dir,
+            logo_dir=paths.data_dir / "company",
         )
         health = check_health(self.database)
         if health.ok:

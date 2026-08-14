@@ -514,6 +514,18 @@ _CATALOG: dict[str, dict[str, str]] = {
     "co.currency": {LANG_ENGLISH: "Base Currency", LANG_DARI: "اسعار پایه"},
     "co.language": {LANG_ENGLISH: "Default Language", LANG_DARI: "زبان پیش‌فرض"},
     "co.footer": {LANG_ENGLISH: "Invoice Footer", LANG_DARI: "پاورقی بل"},
+    "co.sec_logo": {LANG_ENGLISH: "Business Logo", LANG_DARI: "لوگوی تجارت"},
+    "co.choose_logo": {LANG_ENGLISH: "Choose Logo…", LANG_DARI: "انتخاب لوگو…"},
+    "co.remove_logo": {LANG_ENGLISH: "Remove", LANG_DARI: "حذف"},
+    "co.no_logo": {LANG_ENGLISH: "No logo selected", LANG_DARI: "لوگویی انتخاب نشده"},
+    "co.logo_hint": {
+        LANG_ENGLISH: "PNG or JPG. Used on invoices and reports.",
+        LANG_DARI: "PNG یا JPG. در بل‌ها و گزارش‌ها استفاده می‌شود.",
+    },
+    "co.logo_invalid": {
+        LANG_ENGLISH: "Please choose a valid PNG or JPG image.",
+        LANG_DARI: "لطفاً یک تصویر معتبر PNG یا JPG انتخاب کنید.",
+    },
     # ---- financial years ----------------------------------------------
     "fy.title": {LANG_ENGLISH: "Financial Years", LANG_DARI: "سال‌های مالی"},
     "fy.new": {LANG_ENGLISH: "New Financial Year", LANG_DARI: "سال مالی جدید"},
@@ -561,6 +573,8 @@ _CATALOG: dict[str, dict[str, str]] = {
     "cat.col_code": {LANG_ENGLISH: "Code", LANG_DARI: "کود"},
     "cat.col_en": {LANG_ENGLISH: "Name (EN)", LANG_DARI: "نام (انگلیسی)"},
     "cat.col_fa": {LANG_ENGLISH: "Name (Dari)", LANG_DARI: "نام (دری)"},
+    "cat.col_parent": {LANG_ENGLISH: "Parent", LANG_DARI: "دسته والد"},
+    "cat.parent_none": {LANG_ENGLISH: "(Top level)", LANG_DARI: "(سطح اول)"},
     "role.title": {LANG_ENGLISH: "Roles & Permissions", LANG_DARI: "نقش‌ها و مجوزها"},
     "role.col_name": {LANG_ENGLISH: "Role", LANG_DARI: "نقش"},
     "role.col_code": {LANG_ENGLISH: "Code", LANG_DARI: "کود"},
