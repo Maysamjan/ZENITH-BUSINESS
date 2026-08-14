@@ -42,3 +42,30 @@ def qapp() -> Iterator[object]:
 
     app = QApplication.instance() or QApplication([])
     yield app
+
+
+# ---- Stage 02 fixtures --------------------------------------------------
+
+
+@pytest.fixture
+def context(tmp_path: Path):
+    """A fully-migrated in-memory ApplicationContext (Stage 02)."""
+    from zenith_business.database.connection import Database, MEMORY
+    from zenith_business.services.context import open_application_context
+
+    db = Database(MEMORY)
+    ctx = open_application_context(db, backups_dir=tmp_path / "backups")
+    try:
+        yield ctx
+    finally:
+        db.close()
+
+
+@pytest.fixture
+def admin_context(context):
+    """Context with a signed-in administrator (setup completed)."""
+    context.setup.create_administrator(
+        username="admin", password="Str0ngPass!", full_name="System Admin",
+        company_name="Test Co.")
+    context.auth.login("admin", "Str0ngPass!")
+    return context
