@@ -160,11 +160,17 @@ class InvoicePrintDocument(QWidget):
         translator: Translator,
         paper: PaperSize = A4,
         parent: QWidget | None = None,
+        *,
+        title_key: str = "print.title",
     ) -> None:
         super().__init__(parent)
         self._d = data
         self._t = translator
         self._p = paper
+        # Additive (Stage 04): the document title is overridable so the same
+        # engine composes Purchase Invoices and Return notes. Default preserves
+        # the LOCKED Stage 01 "SALES INVOICE" behaviour.
+        self._title_key = title_key
         self._rtl = translator.direction == Direction.RTL
         self.setLayoutDirection(
             Qt.LayoutDirection.RightToLeft if self._rtl else Qt.LayoutDirection.LeftToRight
@@ -259,7 +265,7 @@ class InvoicePrintDocument(QWidget):
         panel = QFrame(); panel.setProperty("p", "ident")
         panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         v = QVBoxLayout(panel); v.setContentsMargins(14, 10, 14, 10); v.setSpacing(4)
-        title = QLabel(self._t.gettext("print.title")); title.setProperty("p", "title")
+        title = QLabel(self._t.gettext(self._title_key)); title.setProperty("p", "title")
         title.setAlignment(self._start())
         v.addWidget(title)
         line = QFrame(); line.setProperty("p", "thin"); v.addWidget(line)
@@ -287,7 +293,7 @@ class InvoicePrintDocument(QWidget):
         nm = QLabel(self._d.company.name); nm.setProperty("p", "company"); nm.setWordWrap(True)
         row.addWidget(nm, 1, Qt.AlignmentFlag.AlignVCenter)
         ident = QVBoxLayout(); ident.setSpacing(0)
-        title = QLabel(self._t.gettext("print.title")); title.setProperty("p", "title")
+        title = QLabel(self._t.gettext(self._title_key)); title.setProperty("p", "title")
         title.setAlignment(self._end())
         no = QLabel(f"{self._d.number} · {self._d.date}"); no.setProperty("p", "meta-value")
         no.setAlignment(self._end())
@@ -305,7 +311,7 @@ class InvoicePrintDocument(QWidget):
         v = QVBoxLayout(wrap); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(3)
         row = QHBoxLayout()
         nm = QLabel(self._d.company.name); nm.setProperty("p", "run-title")
-        info = QLabel(f"{self._t.gettext('print.title')} · {self._d.number}")
+        info = QLabel(f"{self._t.gettext(self._title_key)} · {self._d.number}")
         info.setProperty("p", "meta-value")
         row.addWidget(nm); row.addStretch(1); row.addWidget(info)
         v.addLayout(row)

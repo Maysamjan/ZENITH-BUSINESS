@@ -15,9 +15,9 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 1.7 |
-| Current Stage | **03 — MASTER DATA & BUSINESS SETUP — ✅ LOCKED (owner-approved) + merged to main** |
-| Database Schema Version | **3** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data) |
+| PROJECT_MASTER.md Version | 1.8 |
+| Current Stage | **04 — SALES, PURCHASES & RETURNS — 🧪 READY FOR OWNER REVIEW (NOT locked, NOT merged)** |
+| Database Schema Version | **4** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data, 0004 stage04_sales_purchases_returns) |
 | Last Updated | 2026-08-14 |
 
 **Stage gate:** Stage 00 (constitution) and **Stage 01 (foundation, incl.
@@ -185,7 +185,7 @@ requested module is implemented.
 | 01 | Project Foundation (+01B–01G premium UI + typography) | ✅ **LOCKED** (owner-approved) |
 | 02 | Database / Auth / RBAC / Service Foundation | ✅ **LOCKED** (owner-approved, merged to main) |
 | 03 | Master Data & Business Setup | ✅ **LOCKED** (owner-approved, merged to main) |
-| 04 | (next module) | ⛔ **NOT STARTED** |
+| 04 | Sales, Purchases & Returns | 🧪 **READY FOR OWNER REVIEW** (NOT locked, NOT merged) |
 | 04 | Chart of Accounts | ⛔ Not started |
 | 05 | Persons | ⛔ Not started |
 | 06 | Currencies | ⛔ Not started |
@@ -1367,10 +1367,77 @@ MERGE.* Not locked, not merged — owner decision only.
 
 ---
 
+## 13J. Stage 04 — Sales, Purchases & Returns (READY FOR OWNER REVIEW)
+
+Built additively on locked `main` (`184ae4a`, 277 tests) — no Stage 01/02/03
+locked contract altered. Delivers the four real production documents that replace
+the Stage 01 mock invoice: **Sales, Purchases, Sales Returns, Purchase Returns**,
+each an atomic transaction across header + lines + inventory + double-entry ledger
++ party balance + document number + audit (all commit or all roll back).
+
+**A. Database (migration 0004, schema v4, forward/idempotent).** New tables
+`sales_returns` / `sales_return_lines` / `purchase_returns` / `purchase_return_lines`
+(own `DRAFT/POSTED/CANCELLED` status CHECK, `document_no` UNIQUE, RESTRICT refs to
+source doc / party / warehouse, Decimal-text money). Additive nullable party links
+`sales.party_id` and `purchases.party_id` → `parties` (RESTRICT), plus
+`purchases.supplier_reference`; the locked `customer_id`/`supplier_id` FKs are left
+intact. New `SRET`/`PRET` numbering sequences; 4 new permissions
+(`sales.return`, `sales.print`, `purchases.return`, `purchases.print`) with role
+grants. Never edits a shipped migration.
+
+**B. Engine.** `documents_s4.py` repositories (party link, returns, returned-qty
+queries, party-aware list joins, Decimal party balances derived from the LOCKED
+ledger where `party_type IN ('CUSTOMER','SUPPLIER')`). `SalesDocumentService` /
+`PurchaseDocumentService` compose the LOCKED Stage 02 repositories and add: **FY
+enforcement at the service layer** (`assert_postable` before every post — the
+Stage 03 deferred item, now wired), the unified `parties` model (writes
+`customer_id/supplier_id = NULL` + sets `party_id`), stock checks, no-overpayment,
+proportional return discounts, over-return + return-more-than-on-hand guards, and
+the reversing ledger entries. Money/quantities are Decimal end to end.
+
+**C. UI (real, service-backed, on the locked shell).** One keyboard-first
+`DocumentEntryPage` (sale/purchase) — party + item autocomplete via the locked
+`SearchSelector` + Stage 03 providers, live Decimal totals, payment, Save / Save &
+Print; `DocumentListPage` (sales/purchases/returns) with search, status filter and
+per-row Print/Return; `ReturnEntryPage` (from-original, editable return qty). Wired
+into the **Buy & Sell** top-nav category; the Stage 01 mock invoice is no longer in
+the production navigation. The Home **dashboard is now live** — real Today's Sales/
+Purchases, real Recent Sales, real Low-Stock (reorder level), truthful `—` for
+KPIs without a computed source (no mock data on a production screen).
+
+**D. Printing.** `print_builder.py` converts each persisted document into the
+LOCKED print `InvoiceData` (screen == print; float only at the display boundary).
+The locked A4/A5 reflow engine and preview were extended **additively** with an
+optional `title_key` (default preserves Stage 01 "SALES INVOICE"), so the same
+engine composes Purchase Invoices and Return notes in English + Dari.
+
+**E. Verification.** **311 tests** (was 277; +34: 20 engine + 14 UI). On-disk
+acceptance workflow (22 checks): admin→company→FY→warehouses→items(+reorder)→
+customer/supplier→purchase(stock in)→cash/credit/partial sales→sales & purchase
+returns→over-return rejected→**global ledger balanced (Dr==Cr)**→`check_health`
+ok→**backup + restore** (restored DB carries the sales). Self-inspected screenshots
+(dashboard, sales entry, sales list, purchase entry, purchase list, sales return,
+purchase return, print preview — EN + Dari) and A4/A5 EN/Dari prints for all four
+document types; fixed a list cell-widget redraw defect and null party-field print
+rendering during self-inspection. No locked contract changed (only additive
+extensions; the Stage 04 migration test asserts schema v4).
+
+**Known limitations (deferred, intentional):** documents post directly to
+`POSTED` (no separate DRAFT editing screen yet); the locked print engine's
+"Bill To"/"Salesperson" labels are reused as-is for purchases (title is
+overridden, side labels are not); receipts/payments settlement of remaining
+balances is a later module.
+
+**Recommendation:** *STAGE 04 IS TECHNICALLY READY FOR OWNER REVIEW.* Not locked,
+not merged, Stage 05 not started — owner decision only.
+
+---
+
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-08-14 | 1.8 | **Stage 04 — Sales, Purchases & Returns implemented (READY FOR OWNER REVIEW; not locked, not merged).** Fresh branch from locked `main` `184ae4a`; 277-test gate re-verified first. Migration 0004 (schema v4, forward/idempotent): sales/purchase return tables, additive `sales.party_id`/`purchases.party_id`/`purchases.supplier_reference`, SRET/PRET numbering, 4 permissions + role grants. New `documents_s4` repos and `SalesDocumentService`/`PurchaseDocumentService` (atomic post across header+lines+inventory+balanced ledger+party balance+numbering+audit; **financial-year enforcement now wired**; unified `parties` via additive party links; over-return/stock guards). Real keyboard-first entry, list and from-original return screens wired into Buy & Sell; **live dashboard** (real today totals, recent sales, low stock; no mock data). Per-document print via `print_builder` reusing the locked A4/A5 engine + preview extended additively with an optional `title_key`. **311 tests pass** (+34). 22-step on-disk acceptance (ledger balanced, health ok, backup/restore) + self-inspected EN/Dari screenshots & prints. No Stage 01/02/03 locked contract changed. See §13J. |
 | 2026-08-11 | 0.1 | Initial constitution captured from Master Spec v1.0 at Stage 00. No production code or schema created. Awaiting Prompt 01 — Project Foundation. |
 | 2026-08-11 | 0.2 | Stage 01 (Project Foundation) implemented on feature branch: project structure, config, identity, logging, exceptions/global handler, SQLite infrastructure (connection + transactions + health, FK on, WAL), i18n/RTL-LTR, centralized UI design system, top-nav shell + branded home + status bar, security readiness (PBKDF2 passwords, licensing boundary), 60 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 | 2026-08-11 | 0.3 | Stage 01B (UI/UX refinement) on the same feature branch: three-tier top chrome (navy HeaderBar + white PrimaryNav + contextual ContextBar), redesigned composed home (hero + readiness + reserved quick-access), expanded semantic design system (colors, typography hierarchy, control dims, FieldWidth XS–XL, reusable components), form + table + dialog + empty-state standards, RTL/LTR visual pass. Backend foundation unchanged. 70 passing tests. **No business tables.** Ready for owner review; not LOCKED. |

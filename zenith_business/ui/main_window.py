@@ -197,6 +197,7 @@ class MainWindow(QMainWindow):
 
         if self._context is not None:
             self._build_stage03_pages()
+            self._build_stage04_pages()
 
         layout.addWidget(self.content, stretch=1)
 
@@ -256,6 +257,104 @@ class MainWindow(QMainWindow):
             page.reload()
         self.content.setCurrentWidget(page)
 
+    # ---- Stage 04: real Sales / Purchases / Returns ----------------------
+
+    def _build_stage04_pages(self) -> None:
+        """Register the real Stage 04 document screens under Buy & Sell."""
+        from zenith_business.ui.documents.entry_page import DocumentEntryPage
+        from zenith_business.ui.documents.list_page import DocumentListPage
+        from zenith_business.ui.documents.return_page import ReturnEntryPage
+        from zenith_business.ui.pages.print_preview import PrintPreviewPage
+
+        ctx, t = self._context, self._translator
+
+        # Shared document print preview (real persisted data, overridable title).
+        self._doc_preview = PrintPreviewPage(t, on_back=lambda: self._doc_print_back())
+        self._doc_print_back = self.show_home  # reassigned per navigation
+
+        self._s4_sales_entry = DocumentEntryPage(
+            ctx, t, mode="sale", on_close=self.show_home,
+            on_print=self._doc_printer("sale"))
+        self._s4_purchase_entry = DocumentEntryPage(
+            ctx, t, mode="purchase", on_close=self.show_home,
+            on_print=self._doc_printer("purchase"))
+        self._s4_sales_return = ReturnEntryPage(
+            ctx, t, mode="sales_return", on_close=self.show_home,
+            on_print=self._doc_printer("sales_return"))
+        self._s4_purchase_return = ReturnEntryPage(
+            ctx, t, mode="purchase_return", on_close=self.show_home,
+            on_print=self._doc_printer("purchase_return"))
+        self._s4_sales_list = DocumentListPage(
+            ctx, t, mode="sale", on_new=lambda: self._show_s4("s4_sale_new"),
+            on_print=self._doc_printer("sale"),
+            on_return=lambda i: self._open_return("sales_return", i))
+        self._s4_purchase_list = DocumentListPage(
+            ctx, t, mode="purchase", on_new=lambda: self._show_s4("s4_purchase_new"),
+            on_print=self._doc_printer("purchase"),
+            on_return=lambda i: self._open_return("purchase_return", i))
+
+        self._stage04_pages = {
+            "s4_sale_new": self._s4_sales_entry,
+            "s4_purchase_new": self._s4_purchase_entry,
+            "s4_sale_list": self._s4_sales_list,
+            "s4_purchase_list": self._s4_purchase_list,
+            "s4_sale_return": self._s4_sales_return,
+            "s4_purchase_return": self._s4_purchase_return,
+        }
+        for page in list(self._stage04_pages.values()) + [self._doc_preview]:
+            self.content.addWidget(page)
+        for name in self._stage04_pages:
+            self._stage03_actions[name] = lambda n=name: self._show_s4(n)
+
+        # Real enabled Buy & Sell commands replace the Stage 01 placeholders.
+        self._stage03_commands["menu.buy_sell"] = [
+            ("s4.sale_new", True, "s4_sale_new"),
+            ("s4.sale_list", True, "s4_sale_list"),
+            ("s4.purchase_new", True, "s4_purchase_new"),
+            ("s4.purchase_list", True, "s4_purchase_list"),
+            ("s4.sale_return", True, "s4_sale_return"),
+            ("s4.purchase_return", True, "s4_purchase_return"),
+        ]
+
+        # The dashboard's "New Sale" quick action now opens the real invoice.
+        self.home_page._on_new_sale = lambda: self._show_s4("s4_sale_new")
+        if hasattr(self.home_page, "bind_context"):
+            self.home_page.bind_context(ctx)
+
+    def _show_s4(self, name: str) -> None:
+        page = self._stage04_pages.get(name)
+        if page is None:
+            return
+        if hasattr(page, "reload"):
+            page.reload()
+        self.content.setCurrentWidget(page)
+
+    def _doc_printer(self, kind: str):
+        """Return an ``on_print(doc_id)`` handler for a document kind."""
+        return lambda doc_id: self._open_doc_print(kind, doc_id)
+
+    def _open_doc_print(self, kind: str, doc_id: int) -> None:
+        from zenith_business.ui.documents import print_builder as pb
+        builders = {
+            "sale": pb.build_sale_invoice, "purchase": pb.build_purchase_invoice,
+            "sales_return": pb.build_sales_return, "purchase_return": pb.build_purchase_return,
+        }
+        back_pages = {
+            "sale": self._s4_sales_list, "purchase": self._s4_purchase_list,
+            "sales_return": self._s4_sales_return, "purchase_return": self._s4_purchase_return,
+        }
+        data, title_key = builders[kind](self._context, doc_id)
+        back = back_pages[kind]
+        self._doc_print_back = lambda w=back: self.content.setCurrentWidget(w)
+        self._doc_preview.show_invoice(data, title_key=title_key)
+        self.content.setCurrentWidget(self._doc_preview)
+
+    def _open_return(self, mode: str, source_id: int) -> None:
+        page = (self._s4_sales_return if mode == "sales_return"
+                else self._s4_purchase_return)
+        page.open_source(source_id)
+        self.content.setCurrentWidget(page)
+
     def _build_status_bar(self) -> None:
         bar = QStatusBar()
         bar.setSizeGripEnabled(True)
@@ -278,6 +377,9 @@ class MainWindow(QMainWindow):
         self._current_category = None
         self.primary_nav.set_selected(None)
         self.context_bar.show_hint()
+        # Refresh live dashboard figures each time Home is shown (Stage 04).
+        if self._context is not None and hasattr(self.home_page, "bind_context"):
+            self.home_page.bind_context(self._context)
         self.content.setCurrentWidget(self.home_page)
 
     def select_category(self, key: str) -> None:
@@ -403,6 +505,11 @@ class MainWindow(QMainWindow):
         for page in self._stage03_pages.values():
             if hasattr(page, "retranslate"):
                 page.retranslate(self._translator)
+        for page in getattr(self, "_stage04_pages", {}).values():
+            if hasattr(page, "retranslate"):
+                page.retranslate(self._translator)
+        if hasattr(self, "_doc_preview"):
+            self._doc_preview.retranslate(self._translator)
         self._refresh_status()
         self._apply_identity()
         # Restore the contextual command state for the active view.

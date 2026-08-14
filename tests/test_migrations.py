@@ -6,9 +6,10 @@ from zenith_business.database.connection import MEMORY, Database
 from zenith_business.database.migrations import MigrationRunner
 from zenith_business.database.schema import PERMISSIONS, ROLES
 from zenith_business.database.schema_stage03 import STAGE03_PERMISSIONS
+from zenith_business.database.schema_stage04 import STAGE04_PERMISSIONS
 
-# Total permission codes after all forward migrations (Stage 02 baseline + Stage 03).
-_ALL_PERMISSIONS = len(PERMISSIONS) + len(STAGE03_PERMISSIONS)
+# Total permission codes after all forward migrations (Stage 02 baseline + 03 + 04).
+_ALL_PERMISSIONS = len(PERMISSIONS) + len(STAGE03_PERMISSIONS) + len(STAGE04_PERMISSIONS)
 
 
 def _tables(db: Database) -> set[str]:
@@ -25,12 +26,12 @@ def test_migrate_applies_all_pending() -> None:
     runner = MigrationRunner(db)
     assert runner.current_version() == 0
     applied = runner.migrate()
-    assert applied == [1, 2, 3]  # Stage 02 baseline + Stage 03 master data
+    assert applied == [1, 2, 3, 4]  # Stage 02 baseline + Stage 03 + Stage 04
     assert runner.current_version() == runner.latest_version()
     tables = _tables(db)
     for expected in ("users", "roles", "permissions", "sales", "purchases",
                      "inventory_movements", "audit_log", "schema_migrations",
-                     "parties", "financial_years"):
+                     "parties", "financial_years", "sales_returns", "purchase_returns"):
         assert expected in tables
     db.close()
 

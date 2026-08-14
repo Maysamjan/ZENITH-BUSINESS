@@ -35,6 +35,13 @@ from zenith_business.repositories.master import (
     UnitRepository,
     WarehouseRepository,
 )
+from zenith_business.repositories.documents_s4 import (
+    PartyBalanceRepository,
+    PurchaseExtRepository,
+    PurchaseReturnRepository,
+    SalesExtRepository,
+    SalesReturnRepository,
+)
 from zenith_business.repositories.financial_years import FinancialYearRepository
 from zenith_business.repositories.parties import PartyRepository
 from zenith_business.repositories.system import (
@@ -63,7 +70,9 @@ from zenith_business.services.master_data import (
 )
 from zenith_business.services.numbering import DocumentNumberService
 from zenith_business.services.parties import PartyService
+from zenith_business.services.purchase_documents import PurchaseDocumentService
 from zenith_business.services.purchases import PurchaseService
+from zenith_business.services.sales_documents import SalesDocumentService
 from zenith_business.services.roles import RoleService
 from zenith_business.services.sales import SalesService
 from zenith_business.services.search_providers import ItemSearchProvider, PartySearchProvider
@@ -109,6 +118,12 @@ class ApplicationContext:
         # Stage 03 repositories
         self.parties_repo = PartyRepository(db)
         self.financial_years_repo = FinancialYearRepository(db)
+        # Stage 04 repositories
+        self.sales_ext_repo = SalesExtRepository(db)
+        self.purchases_ext_repo = PurchaseExtRepository(db)
+        self.sales_returns_repo = SalesReturnRepository(db)
+        self.purchase_returns_repo = PurchaseReturnRepository(db)
+        self.party_balances_repo = PartyBalanceRepository(db)
 
         # ---- services ----
         self.authz = AuthorizationService(self.session)
@@ -153,6 +168,18 @@ class ApplicationContext:
         self.roles = RoleService(
             db, self.roles_repo, self.permissions_repo, self.audit_repo, self.session,
             self.authz)
+
+        # ---- Stage 04 document services ----
+        self.sales_documents = SalesDocumentService(
+            db, self.sales_repo, self.sales_ext_repo, self.sales_returns_repo,
+            self.inventory_repo, self.financial_repo, self.accounts_repo, self.currencies_repo,
+            self.items_repo, self.warehouses_repo, self.parties_repo, self.party_balances_repo,
+            self.numbering, self.audit_repo, self.session, self.authz, self.financial_years)
+        self.purchase_documents = PurchaseDocumentService(
+            db, self.purchases_repo, self.purchases_ext_repo, self.purchase_returns_repo,
+            self.inventory_repo, self.financial_repo, self.accounts_repo, self.currencies_repo,
+            self.items_repo, self.warehouses_repo, self.parties_repo, self.party_balances_repo,
+            self.numbering, self.audit_repo, self.session, self.authz, self.financial_years)
 
         # ---- reusable search providers (§12, §16) ----
         self.item_search = ItemSearchProvider(self.items_repo)

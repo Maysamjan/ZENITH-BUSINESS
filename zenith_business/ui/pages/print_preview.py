@@ -39,6 +39,9 @@ class PrintPreviewPage(QWidget):
         self._t = translator
         self._on_back = on_back
         self._data: InvoiceData = build_demo_invoice()
+        # Additive (Stage 04): the printed title is overridable so real Purchase
+        # Invoices / Return notes reuse this preview. Default keeps Stage 01.
+        self._title_key = "print.title"
         self._paper_key = "A4"
         self._lang = translator.language
         self._zoom = 0.8
@@ -122,8 +125,9 @@ class PrintPreviewPage(QWidget):
 
     # ---- public ----------------------------------------------------------
 
-    def show_invoice(self, data: InvoiceData) -> None:
+    def show_invoice(self, data: InvoiceData, *, title_key: str = "print.title") -> None:
         self._data = data
+        self._title_key = title_key
         self._render_base(); self._apply_zoom()
 
     def set_paper(self, key: str) -> None:
@@ -163,7 +167,8 @@ class PrintPreviewPage(QWidget):
     # ---- rendering -------------------------------------------------------
 
     def _render_base(self) -> None:
-        doc = InvoicePrintDocument(self._data, Translator(self._lang), PAPERS[self._paper_key])
+        doc = InvoicePrintDocument(self._data, Translator(self._lang), PAPERS[self._paper_key],
+                                   title_key=self._title_key)
         doc.show()
         # Let the layout settle before grabbing.
         from PyQt6.QtWidgets import QApplication
