@@ -10,9 +10,19 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import NamedTuple
 
-from zenith_business.core.money import D, money, quantity
+from zenith_business.core.money import D, money, parse_decimal, quantity
 from zenith_business.repositories.documents import FinancialRepository
 from zenith_business.services.exceptions import InvalidJournalError, ValidationError
+
+
+def parse_money_input(value, *, field: str = "value"):
+    """Strictly parse a money/quantity input for a write; reject malformed input."""
+    try:
+        return parse_decimal(value)
+    except ValueError:
+        raise ValidationError(
+            f"Malformed numeric input for {field}: {value!r}",
+            user_message="A number you entered is not valid.") from None
 
 
 class ComputedLine(NamedTuple):
@@ -26,12 +36,13 @@ class ComputedLine(NamedTuple):
 def compute_line(raw_quantity, raw_unit_price, raw_discount=0) -> ComputedLine:
     """Validate and compute one document line with exact Decimal math.
 
-    Rules enforced (§24): quantity > 0, unit_price >= 0, discount >= 0, and the
-    discount may not exceed the line's gross (a line total can never be negative).
+    Rules enforced (§24): inputs must be well-formed numbers (malformed input is
+    rejected, never coerced to 0), quantity > 0, unit_price >= 0, discount >= 0,
+    and the discount may not exceed the line's gross (line total never negative).
     """
-    qty = quantity(raw_quantity)
-    price = money(raw_unit_price)
-    disc = money(raw_discount)
+    qty = quantity(parse_money_input(raw_quantity, field="quantity"))
+    price = money(parse_money_input(raw_unit_price, field="unit price"))
+    disc = money(parse_money_input(raw_discount, field="discount"))
     if qty <= 0:
         raise ValidationError("Line quantity must be greater than zero.",
                               user_message="Each line must have a quantity above zero.")

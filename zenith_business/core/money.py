@@ -41,6 +41,33 @@ def D(value: Number | None) -> Decimal:
         return Decimal(0)
 
 
+def parse_decimal(value: Number | None) -> Decimal:
+    """Strictly parse a caller-supplied numeric value; raise on malformed input.
+
+    Unlike :func:`D` (which is lenient — garbage becomes 0 — for safe *display*
+    formatting), this is the parser for the *write* path: a value like ``"12x3"``
+    or ``None`` must be rejected, never silently turned into 0 and posted. Service
+    validators use this so malformed numbers can never corrupt a document (§24).
+    """
+    if value is None:
+        raise ValueError("A numeric value is required.")
+    if isinstance(value, bool):  # guard: bool is an int subclass
+        raise ValueError(f"Invalid numeric value: {value!r}")
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, int):
+        return Decimal(value)
+    if isinstance(value, float):
+        return Decimal(str(value))
+    text = str(value).replace(",", "").strip()
+    if text == "":
+        raise ValueError("A numeric value is required.")
+    try:
+        return Decimal(text)
+    except InvalidOperation:
+        raise ValueError(f"Invalid numeric value: {value!r}") from None
+
+
 def money(value: Number | None) -> Decimal:
     """Quantize to money precision (2 places, half-up)."""
     return D(value).quantize(MONEY_PLACES, rounding=ROUND_HALF_UP)

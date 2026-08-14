@@ -154,3 +154,46 @@ def test_sale_and_purchase_journals_balance(admin_context) -> None:
     rows = admin_context.db.connection().execute(
         "SELECT debit, credit FROM financial_entry_lines").fetchall()
     assert sum(Decimal(r[0]) for r in rows) == sum(Decimal(r[1]) for r in rows)
+
+
+# ---- malformed numeric input is rejected, never coerced to zero (§11.F) ----
+
+@pytest.mark.parametrize("bad", ["12x3", "abc", "1.2.3", "", "  ", "1e", None])
+def test_malformed_price_rejected_not_zeroed(admin_context, bad) -> None:
+    unit, wh, item, cust = _seed(admin_context)
+    conn = admin_context.db.connection()
+    before = conn.execute("SELECT COUNT(*) FROM sales").fetchone()[0]
+    next_no = admin_context.numbering.peek("SALE")
+    with pytest.raises(ValidationError):
+        admin_context.sales.create_and_post(
+            currency_code="AFN", warehouse_id=wh,
+            lines=[SaleLineInput(item_id=item, unit_id=unit, quantity="1", unit_price=bad)])
+    assert conn.execute("SELECT COUNT(*) FROM sales").fetchone()[0] == before
+    assert admin_context.numbering.peek("SALE") == next_no
+
+
+def test_malformed_amount_paid_rejected(admin_context) -> None:
+    unit, wh, item, cust = _seed(admin_context)
+    with pytest.raises(ValidationError):
+        admin_context.sales.create_and_post(
+            currency_code="AFN", warehouse_id=wh, amount_paid="lots",
+            lines=[SaleLineInput(item_id=item, unit_id=unit, quantity="1", unit_price="100")])
+
+
+def test_malformed_journal_amount_rejected(admin_context) -> None:
+    from zenith_business.services.financial import JournalLine
+    cash = admin_context.accounts_repo.id_by_code("1000")
+    rev = admin_context.accounts_repo.id_by_code("4000")
+    with pytest.raises(ValidationError):
+        admin_context.financial.post_entry(
+            source_type="MANUAL",
+            lines=[JournalLine(account_id=cash, debit="ten"),
+                   JournalLine(account_id=rev, credit="100")])
+
+
+def test_malformed_transfer_quantity_rejected(admin_context) -> None:
+    unit, wh, item, cust = _seed(admin_context, opening="10")
+    wh2 = admin_context.warehouses_repo.create(code="W2", name="W2")
+    with pytest.raises(ValidationError):
+        admin_context.inventory.transfer(
+            item_id=item, from_warehouse_id=wh, to_warehouse_id=wh2, quantity_moved="5x")

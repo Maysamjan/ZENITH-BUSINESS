@@ -15,8 +15,8 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 1.2 |
-| Current Stage | **02 — PRODUCTION DATABASE, AUTH & LOGIN — 🟡 READY FOR OWNER FINAL REVIEW (audited; not locked)** |
+| PROJECT_MASTER.md Version | 1.3 |
+| Current Stage | **02 — PRODUCTION DATABASE, AUTH & LOGIN — 🟢 PASSED FINAL OWNER ACCEPTANCE TEST (awaiting owner LOCK/MERGE decision)** |
 | Database Schema Version | **2** (migrations 0001 initial_schema, 0002 baseline_seed) |
 | Last Updated | 2026-08-13 |
 
@@ -1087,6 +1087,49 @@ account-ledger, journal-by-document, and barcode lookups.
 tests). Stage 01 contracts unchanged. Status remains **READY FOR OWNER FINAL REVIEW —
 not locked, not merged.**
 
+### 13H.10 Final Owner Acceptance Test (2026-08-13)
+A full production-readiness gate was executed against a **fresh on-disk SQLite
+database** (not in-memory), driving the real services end to end and verifying
+persisted data directly, with DB close/reopen between steps.
+
+- **Acceptance date:** 2026-08-13 · **Branch:** `claude/zenith-business-architecture-ywcgpe`
+- **Starting commit:** `b0e7420` · **Ending commit:** recorded in the change log below
+- **Schema version:** 2 · **Migrations:** 0001+0002 applied · **Tables:** 29 (+`schema_migrations`)
+- **Baseline tests:** 191 → **Final tests: 212** (+21)
+
+**Real business workflow (all verified against persisted rows, across restarts):**
+Admin setup → login → master data (2 warehouses, 3 stockable items, customer,
+supplier) → **purchase** (Rice 100 / Oil 50 / Sugar 40; total 245,000.00; balanced
+journal) → **sale** (Rice 25 @1980 −50, Oil 10 @320, Sugar 8 @2600; total 73,450.00;
+stock → 75/40/32) → **transfer** 20 Rice Main→Showroom (55 / 20; company 75 conserved)
+→ **second sale** 5 Rice from Showroom (Showroom 15, Main 55, company 70).
+
+**Defect found & fixed during acceptance (root cause, not test patch):**
+- *Malformed numeric input silently coerced to 0.00* (e.g. price `"12x3"`) — the
+  lenient display helper `D()` was on the write path, so a garbage price would post
+  a zero-value line. **Fixed** by adding a strict `money.parse_decimal` and routing
+  all service write inputs (document lines, `amount_paid`, journal debit/credit,
+  inventory quantities) through `document_math.parse_money_input`, which **rejects**
+  malformed input (`ValidationError`) instead of zeroing it. Regression tests added.
+  `D()` stays lenient for display only. Severity: Medium.
+
+**Adversarial results:** oversell rejected with zero partial state and unconsumed
+document number; negative/zero qty, negative price, negative discount, discount>line,
+malformed decimal, and stockable-without-warehouse all rejected pre-write; unbalanced
+manual journal (`FinancialService.post_entry`) rejected + rolled back, balanced posts.
+Auth: wrong/blank user+password, inactive, and lockout (blocks even the correct
+password) all rejected; logout clears session; protected op after logout fails; relogin
+fresh. RBAC via direct service calls: Salesperson blocked from admin-user creation,
+backup, cost visibility, settings. Setup cannot re-run. FK RESTRICT blocks deleting a
+customer/item/warehouse referenced by history; duplicate username/item_code rejected.
+Backup→mutate→restore rolls back post-backup data, keeps pre-backup data, auth+schema
+intact; invalid restore file safely rejected. `integrity_check=ok` and
+`foreign_key_check=0` after the full workflow and after restore. Every journal balances;
+inventory == SUM(signed movements) for every item×warehouse.
+
+**Recommendation:** *STAGE 02 IS TECHNICALLY READY FOR OWNER APPROVAL TO LOCK AND MERGE.*
+Not locked, not merged — owner decision only.
+
 ---
 
 ## 14. Change Log
@@ -1104,6 +1147,7 @@ not locked, not merged.**
 | 2026-08-11 | 0.9 | Stage 01 refinements (header hierarchy + global typography) on the same feature branch: bundled **Vazirmatn (OFL)** Persian/Dari + Latin font with a centralized loader (`core/fonts.py`) and a single `Typography.FAMILY` token driving the whole app **and** print — Dari now renders as a polished, native UI/document; and the Sales Invoice **header hierarchy** (Customer promoted/prominent; Warehouse/Salesperson/Currency/Rate compacted and quieted) via a shared `LabeledField(compact=True)` variant, consistent in EN + Dari with one-screen 1366×768 preserved. Backend unchanged. 90 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 | 2026-08-12 | 0.9 | Print-only legibility pass: Dari/English secondary print text darkened to a stronger secondary ink at Medium weight with tiny size nudges; amount-in-words de-italicized. Vazirmatn, A4/A5 layouts and pagination unchanged; verified single-page with no wrapping/clipping/collision. 90 passing tests. |
 | 2026-08-12 | 1.0 | **Stage 01 — Project Foundation declared LOCKED (owner-approved).** Public contracts frozen and recorded in §8 (core, database infrastructure, security, UI design system, search-selector architecture, print engine, and locked principles). No business tables. Stage 02 — Database is now the next authorized step. |
+| 2026-08-13 | 1.3 | **Stage 02 — Final Owner Acceptance Test PASSED WITH FIXES (awaiting owner LOCK/MERGE; not locked, not merged).** Full production-readiness gate on a fresh on-disk DB: admin→master data→purchase→sale→transfer→second sale, with close/reopen between steps and direct persisted-data verification. One defect found & root-caused: malformed numeric input (e.g. price `"12x3"`) was silently coerced to 0.00 on the write path — fixed by strict `money.parse_decimal` + `document_math.parse_money_input` on all service write inputs (lines, amount_paid, journal amounts, inventory quantities); malformed input now rejected, `D()` stays lenient for display only. Verified: exact Decimal totals, all journals balance, inventory==SUM(signed movements), oversell/invalid-input rollback with unconsumed numbers, auth+lockout, RBAC via direct service calls, FK RESTRICT on referenced master data, backup/restore disaster recovery, `integrity_check=ok` + `foreign_key_check=0` after full workflow and after restore. **Tests: 212 pass** (+21). See §13H.10. |
 | 2026-08-13 | 1.2 | **Stage 02 — Final technical audit & hardening (READY FOR OWNER FINAL REVIEW; not locked, not merged).** 7-pass production audit. Fixed at the service layer (no Stage 01 contract touched): unbalanced journals can no longer commit (added journal-balance guard + `FinancialService.post_entry`); sales can no longer oversell into negative stock (warehouse + stock enforcement, `InsufficientStockError`, explicit `allow_backorder`); negative price / negative discount / discount>line rejected via shared `compute_line`; stockable-item-without-warehouse rejected; added atomic `InventoryService.transfer`. Added reporting indexes (account ledger, journal-by-document, audit-by-entity) to migration 0001. Verified: Decimal exactness on edge values, journal balancing, inventory conservation, RBAC below UI, lockout, migration failure isolation, backup/restore roundtrip, `integrity_check=ok` + `foreign_key_check=0` after complex work and after restore. **Tests: 191 pass** (+47). See §13H.9. |
 | 2026-08-13 | 1.1 | **Stage 02 — Production Database, Authentication & Login (READY FOR REVIEW; not locked, not merged).** Added Decimal-safe money + UTC clock; production schema (29 tables) with versioned atomic migrations + production-safe baseline seed (schema v2); repository + service layers (composition root `ApplicationContext`); RBAC with service-layer permission enforcement; PBKDF2 authentication with lockout + rehash; **Initial-Administrator setup + bilingual Login Page** (EN/Dari, RTL, Show/Hide) and a startup auth gate (no direct dashboard, no default admin); atomic sales/purchase posting (header+lines+signed inventory+balanced double-entry ledger+audit, rollback-safe) with transaction-safe document numbering; audit log; backup/restore foundation. Locked Stage 01 UI extended additively only (`MainWindow`/`HeaderBar` optional identity + logout). Full architecture in §13H. **144 tests pass** (90 Stage 01 + 54 new; one Stage 01 test repurposed for the migrated schema). Six required screenshots self-inspected. Not locked; Stage 03 not started. |
 

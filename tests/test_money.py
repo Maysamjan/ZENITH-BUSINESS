@@ -80,3 +80,16 @@ def test_exchange_rate_conversion_exact() -> None:
     # 100 USD at rate 73.5 -> 7350.00 AFN, no float drift.
     afn = m.money(m.D("100") * m.rate("73.5"))
     assert str(afn) == "7350.00"
+
+
+@pytest.mark.parametrize("bad", ["12x3", "abc", "1.2.3", "", "   ", "1e", None])
+def test_parse_decimal_rejects_malformed(bad) -> None:
+    with pytest.raises(ValueError):
+        m.parse_decimal(bad)
+
+
+@pytest.mark.parametrize("good,expected", [
+    ("12.5", "12.5"), ("1,000.50", "1000.50"), (5, "5"), (2.5, "2.5"),
+])
+def test_parse_decimal_accepts_valid(good, expected) -> None:
+    assert m.parse_decimal(good) == Decimal(expected)

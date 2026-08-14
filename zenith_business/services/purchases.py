@@ -25,7 +25,11 @@ from zenith_business.repositories.master import (
 )
 from zenith_business.repositories.system import AuditRepository
 from zenith_business.services.authorization import AuthorizationService
-from zenith_business.services.document_math import assert_journal_balanced, compute_line
+from zenith_business.services.document_math import (
+    assert_journal_balanced,
+    compute_line,
+    parse_money_input,
+)
 from zenith_business.services.exceptions import ValidationError
 from zenith_business.services.numbering import DocumentNumberService
 from zenith_business.services.session import SessionContext
@@ -100,7 +104,8 @@ class PurchaseService:
         if not lines:
             raise ValidationError("A purchase needs at least one line.",
                                   user_message="Add at least one item to the purchase.")
-        if money(amount_paid) < 0:
+        paid = money(parse_money_input(amount_paid, field="amount paid"))
+        if paid < 0:
             raise ValidationError("Amount paid cannot be negative.",
                                   user_message="Amount paid cannot be negative.")
         currency = self._currencies.get_by_code(currency_code)
@@ -126,7 +131,6 @@ class PurchaseService:
             discount_total += c.discount
             computed.append((ln, c, wh, stockable))
         grand_total = money(subtotal - discount_total)
-        paid = money(amount_paid)
         remaining = money(grand_total - paid)
 
         user_id = self._session.user_id

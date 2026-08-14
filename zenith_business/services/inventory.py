@@ -13,6 +13,7 @@ from zenith_business.database.connection import Database
 from zenith_business.repositories.documents import InventoryRepository
 from zenith_business.repositories.system import AuditRepository
 from zenith_business.services.authorization import AuthorizationService
+from zenith_business.services.document_math import parse_money_input
 from zenith_business.services.exceptions import InsufficientStockError, ValidationError
 from zenith_business.services.session import SessionContext
 
@@ -37,7 +38,7 @@ class InventoryService:
         movement_date: str | None = None,
     ) -> int:
         self._authz.require("inventory.adjust")
-        qty = quantity(quantity_on_hand)
+        qty = quantity(parse_money_input(quantity_on_hand, field="opening quantity"))
         with self._db.transaction():
             mid = self._inventory.add_movement(
                 item_id=item_id, warehouse_id=warehouse_id, movement_type="OPENING",
@@ -55,7 +56,7 @@ class InventoryService:
     ) -> int:
         """Apply a signed stock adjustment (positive = in, negative = out)."""
         self._authz.require("inventory.adjust")
-        qty = quantity(delta)
+        qty = quantity(parse_money_input(delta, field="adjustment"))
         if qty == 0:
             raise ValidationError("Adjustment quantity cannot be zero.",
                                   user_message="Enter a non-zero adjustment quantity.")
@@ -82,7 +83,7 @@ class InventoryService:
         both places or in neither. Source stock is checked unless ``allow_backorder``.
         """
         self._authz.require("inventory.transfer")
-        qty = quantity(quantity_moved)
+        qty = quantity(parse_money_input(quantity_moved, field="transfer quantity"))
         if qty <= 0:
             raise ValidationError("Transfer quantity must be positive.",
                                   user_message="Enter a transfer quantity above zero.")
