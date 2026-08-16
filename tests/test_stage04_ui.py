@@ -84,6 +84,14 @@ def test_entry_rejects_bad_quantity_inline(qapp, biz):
     assert not page._error.isHidden()
 
 
+def test_entry_grid_keeps_minimum_height(qapp, biz):
+    """The line grid must keep a usable minimum height so it never collapses to
+    zero rows under the fixed panels at 1366x768 (responsiveness regression)."""
+    from zenith_business.ui.documents.entry_page import DocumentEntryPage
+    page = DocumentEntryPage(biz, _en(), mode="sale")
+    assert page._table.minimumHeight() >= 120
+
+
 def test_entry_empty_post_shows_error(qapp, biz):
     from zenith_business.ui.documents.entry_page import DocumentEntryPage
     page = DocumentEntryPage(biz, _en(), mode="sale")

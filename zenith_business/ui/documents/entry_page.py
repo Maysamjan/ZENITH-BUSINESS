@@ -23,7 +23,6 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -86,7 +85,7 @@ class DocumentEntryPage(QWidget):
         self.setProperty("role", "workspace")
         root = QVBoxLayout(self)
         root.setContentsMargins(Spacing.MD, Spacing.SM, Spacing.MD, Spacing.SM)
-        root.setSpacing(Spacing.SM)
+        root.setSpacing(Spacing.XS)
 
         root.addLayout(self._build_titlebar())
         root.addWidget(self._build_header())
@@ -111,13 +110,16 @@ class DocumentEntryPage(QWidget):
         self._status_msg = QLabel("")
         self._status_msg.setProperty("role", "secondary")
         row.addWidget(self._status_msg)
+        self._kbd_note = muted(self._t.gettext("s4.keyboard_hint"))
+        row.addWidget(self._kbd_note)
         return row
 
     # ---- header (party + meta) ------------------------------------------
 
     def _build_header(self) -> QWidget:
         card = Card(role="section"); card.setProperty("accent", "navy"); apply_shadow(card)
-        card.body.setSpacing(Spacing.SM)
+        card.body.setContentsMargins(Spacing.CARD_PAD_H, Spacing.SM, Spacing.CARD_PAD_H, Spacing.SM)
+        card.body.setSpacing(Spacing.XS)
         t = self._t
 
         party_key = "s4.customer" if self._mode == "sale" else "s4.supplier"
@@ -252,6 +254,9 @@ class DocumentEntryPage(QWidget):
         self._table.setAlternatingRowColors(True)
         self._table.setShowGrid(False)
         self._table.verticalHeader().setDefaultSectionSize(ControlSize.TABLE_ROW_HEIGHT + 2)
+        # Floor the line grid so it always shows several rows and never collapses
+        # under the fixed panels at 1366×768 (matches the Stage 01 invoice grid).
+        self._table.setMinimumHeight(140)
         from PyQt6.QtWidgets import QHeaderView
         header = self._table.horizontalHeader()
         header.setHighlightSections(False)
@@ -263,79 +268,57 @@ class DocumentEntryPage(QWidget):
         card.body.addWidget(self._table)
         return card
 
-    # ---- bottom band (totals + payment) ---------------------------------
+    # ---- bottom totals strip (compact, always visible) ------------------
+
+    def _inline(self, key: str) -> tuple[QLabel, QLabel, QWidget]:
+        """An inline ``label: value`` metric (keeps the totals strip one row)."""
+        lab = field_label(self._t.gettext(key))
+        val = QLabel("—"); val.setProperty("role", "total-value")
+        h = QHBoxLayout(); h.setContentsMargins(0, 0, 0, 0); h.setSpacing(Spacing.XS)
+        h.addWidget(lab); h.addWidget(val)
+        holder = QWidget(); holder.setLayout(h); holder.setStyleSheet("background: transparent;")
+        return lab, val, holder
 
     def _build_bottom_band(self) -> QHBoxLayout:
-        band = QHBoxLayout(); band.setSpacing(Spacing.SECTION_GAP)
-        band.addWidget(self._build_summary(), stretch=3)
-        band.addWidget(self._build_payment(), stretch=2)
-        return band
-
-    def _total_row(self, key: str, *, strong: bool = False) -> tuple[QLabel, QLabel]:
-        lab = QLabel(self._t.gettext(key)); lab.setProperty("role", "total-label")
-        val = QLabel("—"); val.setProperty("role", "total-value")
-        val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        return lab, val
-
-    def _build_summary(self) -> QWidget:
-        card = Card(role="section"); card.setProperty("accent", "navy"); apply_shadow(card)
+        """A single compact totals/payment strip so the line grid keeps the
+        vertical space (fits 1366×768, grows the grid on larger screens)."""
         t = self._t
-        self._summary_title = QLabel(t.gettext("s4.summary"))
-        self._summary_title.setProperty("role", "card-title")
-        card.body.addWidget(self._summary_title)
-
-        grid = QGridLayout(); grid.setHorizontalSpacing(Spacing.LG); grid.setVerticalSpacing(Spacing.XS)
-        self._items_label, self._items_value = self._total_row("s4.items")
-        self._sub_label, self._sub_value = self._total_row("si.subtotal")
-        self._disc_label, self._disc_value = self._total_row("si.discount")
-        grid.addWidget(self._items_label, 0, 0); grid.addWidget(self._items_value, 0, 1)
-        grid.addWidget(self._sub_label, 1, 0); grid.addWidget(self._sub_value, 1, 1)
-        grid.addWidget(self._disc_label, 2, 0); grid.addWidget(self._disc_value, 2, 1)
-        grid.setColumnStretch(1, 1)
-        card.body.addLayout(grid)
-        card.body.addWidget(horizontal_divider())
-        self._kbd_note = muted(t.gettext("s4.keyboard_hint"))
-        self._kbd_note.setWordWrap(True)
-        card.body.addWidget(self._kbd_note)
-        card.body.addStretch(1)
-        return card
-
-    def _build_payment(self) -> QWidget:
         card = Card(role="section"); card.setProperty("accent", "brand"); apply_shadow(card)
-        t = self._t
+        card.body.setContentsMargins(Spacing.CARD_PAD_H, Spacing.SM, Spacing.CARD_PAD_H, Spacing.SM)
+        row = QHBoxLayout(); row.setSpacing(Spacing.XL)
 
-        head = QHBoxLayout(); head.setSpacing(Spacing.SM)
-        self._payment_title = QLabel(t.gettext("si.payment"))
-        self._payment_title.setProperty("role", "card-title"); self._payment_title.setProperty("accent", "brand")
-        head.addWidget(self._payment_title); head.addStretch(1)
+        self._items_label, self._items_value, items_w = self._inline("s4.items")
+        self._sub_label, self._sub_value, sub_w = self._inline("si.subtotal")
+        self._disc_label, self._disc_value, disc_w = self._inline("si.discount")
+        for w in (items_w, sub_w, disc_w):
+            row.addWidget(w)
+        row.addStretch(1)
+
         self._seg_cash = chip(t.gettext("si.pay_cash"), "success")
         self._seg_credit = chip(t.gettext("si.pay_credit"), "neutral")
-        head.addWidget(self._seg_cash); head.addWidget(self._seg_credit)
-        card.body.addLayout(head)
+        row.addWidget(self._seg_cash); row.addWidget(self._seg_credit)
 
         gt = QFrame(); gt.setProperty("role", "grand-total-strong")
-        gtl = QHBoxLayout(gt); gtl.setContentsMargins(Spacing.LG, Spacing.SM, Spacing.LG, Spacing.SM)
-        self._grand_label = QLabel(t.gettext("si.grand_total"))
-        self._grand_label.setProperty("role", "gts-label")
+        gtl = QHBoxLayout(gt); gtl.setContentsMargins(Spacing.LG, Spacing.XS, Spacing.LG, Spacing.XS)
+        gtl.setSpacing(Spacing.MD)
+        self._grand_label = QLabel(t.gettext("si.grand_total")); self._grand_label.setProperty("role", "gts-label")
         self._grand_value = QLabel("—"); self._grand_value.setProperty("role", "gts-value")
-        self._grand_value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        gtl.addWidget(self._grand_label); gtl.addStretch(1); gtl.addWidget(self._grand_value)
-        card.body.addWidget(gt)
+        gtl.addWidget(self._grand_label); gtl.addWidget(self._grand_value)
+        row.addWidget(gt)
 
-        pay = QGridLayout(); pay.setHorizontalSpacing(Spacing.LG); pay.setVerticalSpacing(Spacing.SM)
         self._recv_label = QLabel(t.gettext("s4.amount_paid")); self._recv_label.setProperty("role", "total-label")
-        self._recv_edit = self._num_edit("0.00")
-        self._recv_edit.setFixedWidth(int(FieldWidth.MD))
+        self._recv_edit = self._num_edit("0.00"); self._recv_edit.setFixedWidth(int(FieldWidth.SM))
         self._recv_edit.textEdited.connect(self._recompute_totals)
+        row.addWidget(self._recv_label); row.addWidget(self._recv_edit)
+
         self._rem_label = QLabel(t.gettext("si.remaining")); self._rem_label.setProperty("role", "total-label")
         self._rem_value = QLabel("—"); self._rem_value.setProperty("role", "total-value")
         self._rem_value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        pay.addWidget(self._recv_label, 0, 0)
-        pay.addWidget(self._recv_edit, 0, 1, Qt.AlignmentFlag.AlignRight)
-        pay.addWidget(self._rem_label, 1, 0); pay.addWidget(self._rem_value, 1, 1)
-        pay.setColumnStretch(1, 1)
-        card.body.addLayout(pay)
-        return card
+        row.addWidget(self._rem_label); row.addWidget(self._rem_value)
+
+        card.body.addLayout(row)
+        band = QHBoxLayout(); band.addWidget(card)
+        return band
 
     # ---- action bar ------------------------------------------------------
 
@@ -605,8 +588,6 @@ class DocumentEntryPage(QWidget):
         self._table.setHorizontalHeaderLabels([translator.gettext(k) for k in self._grid_headers()])
         self._lines_title.setText(translator.gettext("s4.add_item"))
         self._btn_delete.setText(escape_amp(translator.gettext("s4.delete_line")))
-        self._summary_title.setText(translator.gettext("s4.summary"))
-        self._payment_title.setText(translator.gettext("si.payment"))
         self._items_label.setText(translator.gettext("s4.items"))
         self._grand_label.setText(translator.gettext("si.grand_total"))
         self._sub_label.setText(translator.gettext("si.subtotal"))

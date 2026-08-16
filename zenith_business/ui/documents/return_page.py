@@ -36,7 +36,6 @@ from zenith_business.ui.components import (
     apply_shadow,
     chip,
     escape_amp,
-    horizontal_divider,
     muted,
     page_title,
     primary_button,
@@ -99,11 +98,12 @@ class ReturnEntryPage(QWidget):
 
     def _build_source_card(self) -> QWidget:
         card = Card(role="section"); card.setProperty("accent", "navy"); apply_shadow(card)
-        card.body.setSpacing(Spacing.SM)
-        self._source_title = QLabel(self._t.gettext("s4.source_doc"))
-        self._source_title.setProperty("role", "card-title")
-        card.body.addWidget(self._source_title)
+        card.body.setContentsMargins(Spacing.CARD_PAD_H, Spacing.SM,
+                                     Spacing.CARD_PAD_H, Spacing.SM)
+        card.body.setSpacing(Spacing.XS)
 
+        # Single compact row: source field + Load + reason, with the loaded-source
+        # summary trailing on the right (no duplicate card title, no divider).
         row = QHBoxLayout(); row.setSpacing(Spacing.MD)
         self._src_edit = QLineEdit()
         self._src_edit.setPlaceholderText(self._t.gettext("s4.source_ph"))
@@ -122,10 +122,9 @@ class ReturnEntryPage(QWidget):
                                           width=FieldWidth.LG)
         row.addWidget(self._reason_field)
         row.addStretch(1)
-        card.body.addLayout(row)
-        card.body.addWidget(horizontal_divider())
         self._summary = muted("")
-        card.body.addWidget(self._summary)
+        row.addWidget(self._summary, alignment=Qt.AlignmentFlag.AlignBottom)
+        card.body.addLayout(row)
         return card
 
     def _build_grid_card(self) -> QWidget:
@@ -339,7 +338,6 @@ class ReturnEntryPage(QWidget):
         self._t = translator
         self._title.setText(translator.gettext(self._title_key()))
         self._mode_badge.setText(translator.gettext("s4.act_return"))
-        self._source_title.setText(translator.gettext("s4.source_doc"))
         self._src_field.set_label(translator.gettext("s4.source_doc"))
         self._src_edit.setPlaceholderText(translator.gettext("s4.source_ph"))
         self._reason_field.set_label(translator.gettext("s4.reason"))
