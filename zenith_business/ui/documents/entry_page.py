@@ -41,6 +41,7 @@ from zenith_business.services.purchase_documents import PurchaseLine
 from zenith_business.services.sales_documents import SaleLine
 from zenith_business.ui.components import (
     Card,
+    LabeledField,
     apply_shadow,
     chip,
     escape_amp,
@@ -50,6 +51,7 @@ from zenith_business.ui.components import (
     muted,
     primary_button,
     secondary_button,
+    standard_icon,
 )
 from zenith_business.ui.design.tokens import ControlSize, FieldWidth, Spacing
 from zenith_business.ui.widgets.search_selector import SearchRow, SearchSelector
@@ -88,8 +90,7 @@ class DocumentEntryPage(QWidget):
 
         root.addLayout(self._build_titlebar())
         root.addWidget(self._build_header())
-        root.addWidget(self._build_entry_strip())
-        root.addWidget(self._build_grid_card(), stretch=1)
+        root.addWidget(self._build_grid_card(), stretch=1)  # entry row + line grid
         root.addLayout(self._build_bottom_band())
         root.addWidget(self._build_action_bar())
 
@@ -107,10 +108,9 @@ class DocumentEntryPage(QWidget):
         self._title.setProperty("role", "page-title")
         row.addWidget(self._title)
         row.addStretch(1)
-        self._status_msg = muted("")
+        self._status_msg = QLabel("")
+        self._status_msg.setProperty("role", "secondary")
         row.addWidget(self._status_msg)
-        self._kbd_hint = muted(self._t.gettext("s4.keyboard_hint"))
-        row.addWidget(self._kbd_hint)
         return row
 
     # ---- header (party + meta) ------------------------------------------
@@ -147,28 +147,26 @@ class DocumentEntryPage(QWidget):
 
         card.body.addWidget(horizontal_divider())
 
+        # Secondary metadata strip — quieter compact fields (Stage 01 §8 hierarchy).
         meta = QHBoxLayout(); meta.setSpacing(Spacing.LG)
-        self._invoice_no = QLabel(t.gettext("s4.auto")); self._invoice_no.setProperty("role", "stat-value")
+        self._invoice_no = QLineEdit(t.gettext("s4.auto")); self._invoice_no.setReadOnly(True)
         self._date_edit = QLineEdit(self._ctx_today())
         self._wh_combo = QComboBox()
         self._currency_combo = QComboBox()
         self._rate_edit = QLineEdit("1")
         self._rate_edit.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._meta_labels: list[tuple[str, QLabel]] = []
+        self._meta_fields: list[tuple[str, LabeledField]] = []
         specs = [
             ("si.invoice_no", self._invoice_no, FieldWidth.SM),
             ("si.date", self._date_edit, FieldWidth.SM),
             ("si.warehouse", self._wh_combo, FieldWidth.MD),
             ("si.currency", self._currency_combo, FieldWidth.SM),
-            ("si.rate", self._rate_edit, FieldWidth.SM),
+            ("si.rate", self._rate_edit, FieldWidth.XS),
         ]
         for key, ctrl, width in specs:
-            ctrl.setMinimumWidth(int(width))
-            cell = QVBoxLayout(); cell.setSpacing(Spacing.XXS)
-            lab = field_label(t.gettext(key)); self._meta_labels.append((key, lab))
-            cell.addWidget(lab); cell.addWidget(ctrl)
-            holder = QWidget(); holder.setLayout(cell); holder.setStyleSheet("background: transparent;")
-            meta.addWidget(holder)
+            lf = LabeledField(t.gettext(key), ctrl, width=width, compact=True)
+            self._meta_fields.append((key, lf))
+            meta.addWidget(lf)
         meta.addStretch(1)
         card.body.addLayout(meta)
         return card
@@ -192,59 +190,58 @@ class DocumentEntryPage(QWidget):
 
     # ---- entry strip -----------------------------------------------------
 
-    def _build_entry_strip(self) -> QWidget:
-        card = Card(role="section"); card.setProperty("accent", "teal")
-        card.body.setContentsMargins(Spacing.MD, Spacing.SM, Spacing.MD, Spacing.SM)
-        row = QHBoxLayout(); row.setSpacing(Spacing.SM)
-
-        self._item_selector = SearchSelector(
-            self._ctx.item_search, placeholder=self._t.gettext("s4.item_search_ph"),
-            display_index=1, panel_width=520)
-        self._item_selector.rowSelected.connect(self._on_item_selected)
-        row.addWidget(self._item_selector, 3)
-
-        self._qty_edit = self._num_edit("0")
-        self._price_edit = self._num_edit("0.00")
-        self._disc_edit = self._num_edit("0.00")
-        for w in (self._qty_edit, self._price_edit, self._disc_edit):
-            w.setMaximumWidth(110)
-            row.addWidget(w, 1)
-
-        self._add_btn = primary_button(self._t.gettext("s4.act_new"))
-        self._add_btn.setText("＋")
-        self._add_btn.clicked.connect(self._commit_line)
-        row.addWidget(self._add_btn)
-
-        # keyboard chain: item Enter handled in _on_item_selected → qty focus
-        self._qty_edit.returnPressed.connect(self._price_edit.setFocus)
-        self._price_edit.returnPressed.connect(self._disc_edit.setFocus)
-        self._disc_edit.returnPressed.connect(self._commit_line)
-        card.body.addLayout(row)
-        return card
-
     def _num_edit(self, ph: str) -> QLineEdit:
         e = QLineEdit(); e.setPlaceholderText(ph)
         e.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         return e
 
-    # ---- grid ------------------------------------------------------------
+    # ---- grid (entry row + committed lines) ------------------------------
 
     def _grid_headers(self) -> list[str]:
         return ["si.col_row", "si.col_item_code", "si.col_item_name", "si.col_unit",
                 "si.col_qty", "si.col_price", "si.col_discount", "si.col_total",
                 "si.col_warehouse"]
 
+    def _build_entry_row(self) -> QHBoxLayout:
+        """A single compact add-line row; the grid headers below are the guide."""
+        row = QHBoxLayout(); row.setSpacing(Spacing.SM)
+        self._item_selector = SearchSelector(
+            self._ctx.item_search, placeholder=self._t.gettext("s4.item_search_ph"),
+            display_index=1, panel_width=520)
+        self._item_selector.rowSelected.connect(self._on_item_selected)
+        row.addWidget(self._item_selector, 1)
+
+        self._qty_edit = self._num_edit(self._t.gettext("si.col_qty"))
+        self._price_edit = self._num_edit(self._t.gettext("si.col_price"))
+        self._disc_edit = self._num_edit(self._t.gettext("si.col_discount"))
+        for ctrl, width in ((self._qty_edit, FieldWidth.XS), (self._price_edit, FieldWidth.SM),
+                            (self._disc_edit, FieldWidth.XS)):
+            ctrl.setFixedWidth(int(width)); row.addWidget(ctrl)
+
+        self._add_btn = secondary_button(self._t.gettext("s4.add_line"))
+        self._add_btn.setProperty("variant", "accent")
+        self._add_btn.setIcon(standard_icon("next"))
+        self._add_btn.clicked.connect(self._commit_line)
+        row.addWidget(self._add_btn)
+
+        self._qty_edit.returnPressed.connect(self._price_edit.setFocus)
+        self._price_edit.returnPressed.connect(self._disc_edit.setFocus)
+        self._disc_edit.returnPressed.connect(self._commit_line)
+        return row
+
     def _build_grid_card(self) -> QWidget:
         card = Card(role="section"); card.setProperty("accent", "brand"); apply_shadow(card)
+        card.body.setSpacing(Spacing.SM)
         bar = QHBoxLayout(); bar.setSpacing(Spacing.SM)
-        self._lines_title = QLabel(self._t.gettext("si.lines"))
-        self._lines_title.setProperty("role", "card-title")
+        self._lines_title = QLabel(self._t.gettext("s4.add_item"))
+        self._lines_title.setProperty("role", "card-title"); self._lines_title.setProperty("accent", "brand")
         bar.addWidget(self._lines_title); bar.addStretch(1)
         self._btn_delete = secondary_button(self._t.gettext("s4.delete_line"))
         self._btn_delete.setProperty("variant", "danger")
         self._btn_delete.clicked.connect(self._delete_selected)
         bar.addWidget(self._btn_delete)
         card.body.addLayout(bar)
+        card.body.addLayout(self._build_entry_row())
 
         self._table = QTableWidget(0, 9)
         self._table.setHorizontalHeaderLabels([self._t.gettext(k) for k in self._grid_headers()])
@@ -270,13 +267,51 @@ class DocumentEntryPage(QWidget):
 
     def _build_bottom_band(self) -> QHBoxLayout:
         band = QHBoxLayout(); band.setSpacing(Spacing.SECTION_GAP)
-        band.addStretch(1)
+        band.addWidget(self._build_summary(), stretch=3)
         band.addWidget(self._build_payment(), stretch=2)
         return band
+
+    def _total_row(self, key: str, *, strong: bool = False) -> tuple[QLabel, QLabel]:
+        lab = QLabel(self._t.gettext(key)); lab.setProperty("role", "total-label")
+        val = QLabel("—"); val.setProperty("role", "total-value")
+        val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        return lab, val
+
+    def _build_summary(self) -> QWidget:
+        card = Card(role="section"); card.setProperty("accent", "navy"); apply_shadow(card)
+        t = self._t
+        self._summary_title = QLabel(t.gettext("s4.summary"))
+        self._summary_title.setProperty("role", "card-title")
+        card.body.addWidget(self._summary_title)
+
+        grid = QGridLayout(); grid.setHorizontalSpacing(Spacing.LG); grid.setVerticalSpacing(Spacing.XS)
+        self._items_label, self._items_value = self._total_row("s4.items")
+        self._sub_label, self._sub_value = self._total_row("si.subtotal")
+        self._disc_label, self._disc_value = self._total_row("si.discount")
+        grid.addWidget(self._items_label, 0, 0); grid.addWidget(self._items_value, 0, 1)
+        grid.addWidget(self._sub_label, 1, 0); grid.addWidget(self._sub_value, 1, 1)
+        grid.addWidget(self._disc_label, 2, 0); grid.addWidget(self._disc_value, 2, 1)
+        grid.setColumnStretch(1, 1)
+        card.body.addLayout(grid)
+        card.body.addWidget(horizontal_divider())
+        self._kbd_note = muted(t.gettext("s4.keyboard_hint"))
+        self._kbd_note.setWordWrap(True)
+        card.body.addWidget(self._kbd_note)
+        card.body.addStretch(1)
+        return card
 
     def _build_payment(self) -> QWidget:
         card = Card(role="section"); card.setProperty("accent", "brand"); apply_shadow(card)
         t = self._t
+
+        head = QHBoxLayout(); head.setSpacing(Spacing.SM)
+        self._payment_title = QLabel(t.gettext("si.payment"))
+        self._payment_title.setProperty("role", "card-title"); self._payment_title.setProperty("accent", "brand")
+        head.addWidget(self._payment_title); head.addStretch(1)
+        self._seg_cash = chip(t.gettext("si.pay_cash"), "success")
+        self._seg_credit = chip(t.gettext("si.pay_credit"), "neutral")
+        head.addWidget(self._seg_cash); head.addWidget(self._seg_credit)
+        card.body.addLayout(head)
 
         gt = QFrame(); gt.setProperty("role", "grand-total-strong")
         gtl = QHBoxLayout(gt); gtl.setContentsMargins(Spacing.LG, Spacing.SM, Spacing.LG, Spacing.SM)
@@ -287,24 +322,17 @@ class DocumentEntryPage(QWidget):
         gtl.addWidget(self._grand_label); gtl.addStretch(1); gtl.addWidget(self._grand_value)
         card.body.addWidget(gt)
 
-        pay = QGridLayout(); pay.setHorizontalSpacing(Spacing.LG); pay.setVerticalSpacing(Spacing.XS)
-        self._sub_label = QLabel(t.gettext("si.subtotal")); self._sub_label.setProperty("role", "total-label")
-        self._sub_value = QLabel("—"); self._sub_value.setProperty("role", "total-value")
-        self._sub_value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._disc_label = QLabel(t.gettext("si.discount")); self._disc_label.setProperty("role", "total-label")
-        self._disc_value = QLabel("—"); self._disc_value.setProperty("role", "total-value")
-        self._disc_value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        pay = QGridLayout(); pay.setHorizontalSpacing(Spacing.LG); pay.setVerticalSpacing(Spacing.SM)
         self._recv_label = QLabel(t.gettext("s4.amount_paid")); self._recv_label.setProperty("role", "total-label")
         self._recv_edit = self._num_edit("0.00")
-        self._recv_edit.setMaximumWidth(140)
+        self._recv_edit.setFixedWidth(int(FieldWidth.MD))
         self._recv_edit.textEdited.connect(self._recompute_totals)
         self._rem_label = QLabel(t.gettext("si.remaining")); self._rem_label.setProperty("role", "total-label")
         self._rem_value = QLabel("—"); self._rem_value.setProperty("role", "total-value")
         self._rem_value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        pay.addWidget(self._sub_label, 0, 0); pay.addWidget(self._sub_value, 0, 1)
-        pay.addWidget(self._disc_label, 1, 0); pay.addWidget(self._disc_value, 1, 1)
-        pay.addWidget(self._recv_label, 2, 0); pay.addWidget(self._recv_edit, 2, 1)
-        pay.addWidget(self._rem_label, 3, 0); pay.addWidget(self._rem_value, 3, 1)
+        pay.addWidget(self._recv_label, 0, 0)
+        pay.addWidget(self._recv_edit, 0, 1, Qt.AlignmentFlag.AlignRight)
+        pay.addWidget(self._rem_label, 1, 0); pay.addWidget(self._rem_value, 1, 1)
         pay.setColumnStretch(1, 1)
         card.body.addLayout(pay)
         return card
@@ -315,21 +343,26 @@ class DocumentEntryPage(QWidget):
         bar = QFrame(); bar.setProperty("role", "actionbar")
         apply_shadow(bar, blur=18, y=3, alpha=30)
         row = QHBoxLayout(bar)
-        row.setContentsMargins(Spacing.MD, Spacing.SM, Spacing.MD, Spacing.SM)
+        row.setContentsMargins(Spacing.LG, Spacing.SM, Spacing.LG, Spacing.SM)
         row.setSpacing(Spacing.SM)
         self._btn_new = secondary_button(self._t.gettext("s4.act_new"))
+        self._btn_new.setIcon(standard_icon("new"))
         self._btn_new.clicked.connect(self.reset_form)
         self._btn_post = primary_button(self._t.gettext("s4.act_post"))
+        self._btn_post.setIcon(standard_icon("save"))
         self._btn_post.clicked.connect(lambda: self._post(print_after=False))
         self._btn_post_print = secondary_button(self._t.gettext("s4.act_post_print"))
+        self._btn_post_print.setIcon(standard_icon("print"))
         self._btn_post_print.clicked.connect(lambda: self._post(print_after=True))
         self._error = QLabel(""); self._error.setProperty("role", "error")
         self._error.setVisible(False)
         for b in (self._btn_new, self._btn_post, self._btn_post_print):
             row.addWidget(b)
+        row.addSpacing(Spacing.MD)
         row.addWidget(self._error)
         row.addStretch(1)
         self._btn_close = secondary_button(self._t.gettext("s4.act_close"))
+        self._btn_close.setIcon(standard_icon("close"))
         if self._on_close is not None:
             self._btn_close.clicked.connect(lambda: self._on_close())
         row.addWidget(self._btn_close)
@@ -450,6 +483,7 @@ class DocumentEntryPage(QWidget):
         subtotal = sum((D(ln["qty"]) * D(ln["price"]) for ln in self._lines), D(0))
         discount = sum((D(ln["discount"]) for ln in self._lines), D(0))
         grand = money(subtotal - discount)
+        self._items_value.setText(str(len(self._lines)))
         self._sub_value.setText(format_money(subtotal))
         self._disc_value.setText(format_money(discount))
         self._grand_value.setText(format_money(grand))
@@ -459,9 +493,15 @@ class DocumentEntryPage(QWidget):
             paid = D(0)
         remaining = money(grand - paid)
         self._rem_value.setText(format_money(remaining))
-        self._rem_value.setProperty("accent", "danger" if remaining > 0 else "success")
+        self._rem_value.setProperty("money", "negative" if remaining > 0 else "positive")
         self._rem_value.style().unpolish(self._rem_value)
         self._rem_value.style().polish(self._rem_value)
+        # cash when fully settled, otherwise credit (mirrors the Stage 01 demo).
+        cash = remaining <= 0 and grand > 0
+        self._seg_cash.setProperty("chip", "success" if cash else "neutral")
+        self._seg_credit.setProperty("chip", "neutral" if cash else "warning")
+        for c in (self._seg_cash, self._seg_credit):
+            c.style().unpolish(c); c.style().polish(c)
 
     # ---- posting ---------------------------------------------------------
 
@@ -554,26 +594,35 @@ class DocumentEntryPage(QWidget):
     def retranslate(self, translator: Translator) -> None:
         self._t = translator
         self._title.setText(translator.gettext(self._title_key()))
-        self._kbd_hint.setText(translator.gettext("s4.keyboard_hint"))
         self._party_eyebrow.setText(
             translator.gettext("s4.customer" if self._mode == "sale" else "s4.supplier"))
         self._party_selector.line_edit.setPlaceholderText(translator.gettext(
             "s4.customer_search_ph" if self._mode == "sale" else "s4.supplier_search_ph"))
         self._item_selector.line_edit.setPlaceholderText(translator.gettext("s4.item_search_ph"))
+        self._qty_edit.setPlaceholderText(translator.gettext("si.col_qty"))
+        self._price_edit.setPlaceholderText(translator.gettext("si.col_price"))
+        self._disc_edit.setPlaceholderText(translator.gettext("si.col_discount"))
         self._table.setHorizontalHeaderLabels([translator.gettext(k) for k in self._grid_headers()])
-        self._lines_title.setText(translator.gettext("si.lines"))
+        self._lines_title.setText(translator.gettext("s4.add_item"))
         self._btn_delete.setText(escape_amp(translator.gettext("s4.delete_line")))
+        self._summary_title.setText(translator.gettext("s4.summary"))
+        self._payment_title.setText(translator.gettext("si.payment"))
+        self._items_label.setText(translator.gettext("s4.items"))
         self._grand_label.setText(translator.gettext("si.grand_total"))
         self._sub_label.setText(translator.gettext("si.subtotal"))
         self._disc_label.setText(translator.gettext("si.discount"))
         self._recv_label.setText(translator.gettext("s4.amount_paid"))
         self._rem_label.setText(translator.gettext("si.remaining"))
+        self._kbd_note.setText(translator.gettext("s4.keyboard_hint"))
+        self._seg_cash.setText(translator.gettext("si.pay_cash"))
+        self._seg_credit.setText(translator.gettext("si.pay_credit"))
+        self._add_btn.setText(escape_amp(translator.gettext("s4.add_line")))
         self._btn_new.setText(escape_amp(translator.gettext("s4.act_new")))
         self._btn_post.setText(escape_amp(translator.gettext("s4.act_post")))
         self._btn_post_print.setText(escape_amp(translator.gettext("s4.act_post_print")))
         self._btn_close.setText(escape_amp(translator.gettext("s4.act_close")))
-        for key, lab in self._meta_labels:
-            lab.setText(translator.gettext(key))
+        for key, lf in self._meta_fields:
+            lf.set_label(translator.gettext(key))
         for wrap in (self._chip_phone, self._chip_balance):
             wrap._label.setText(translator.gettext(wrap._label_key))  # type: ignore[attr-defined]
         self._invoice_no.setText(translator.gettext("s4.auto"))

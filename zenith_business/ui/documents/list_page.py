@@ -156,11 +156,16 @@ class DocumentListPage(QWidget):
         self._table.setShowGrid(False)
         hh = self._table.horizontalHeader()
         hh.setHighlightSections(False)
-        # party column stretches
+        # party column stretches; status holds a chip widget so it needs a fixed
+        # width wide enough for the pill (ResizeToContents clips the widget).
         stretch_idx = next((i for i, (_h, k, _a) in enumerate(cols) if k == "party_name"), 0)
+        status_idx = next((i for i, (_h, k, _a) in enumerate(cols) if k == "status"), -1)
         for i in range(len(cols)):
             if i == stretch_idx:
                 hh.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
+            elif i == status_idx:
+                hh.setSectionResizeMode(i, QHeaderView.ResizeMode.Fixed)
+                self._table.setColumnWidth(i, 110)
             else:
                 hh.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(len(cols), QHeaderView.ResizeMode.Fixed)

@@ -32,14 +32,16 @@ from zenith_business.services.purchase_documents import PurchaseReturnLine
 from zenith_business.services.sales_documents import ReturnLine
 from zenith_business.ui.components import (
     Card,
+    LabeledField,
     apply_shadow,
+    chip,
     escape_amp,
-    field_label,
     horizontal_divider,
     muted,
     page_title,
     primary_button,
     secondary_button,
+    standard_icon,
 )
 from zenith_business.ui.design.tokens import ControlSize, FieldWidth, Spacing
 
@@ -87,36 +89,38 @@ class ReturnEntryPage(QWidget):
     def _build_titlebar(self) -> QHBoxLayout:
         row = QHBoxLayout(); row.setSpacing(Spacing.MD)
         self._title = page_title(self._t.gettext(self._title_key()))
-        row.addWidget(self._title); row.addStretch(1)
-        self._status_msg = muted("")
+        row.addWidget(self._title)
+        self._mode_badge = chip(self._t.gettext("s4.act_return"), "warning")
+        row.addWidget(self._mode_badge)
+        row.addStretch(1)
+        self._status_msg = QLabel(""); self._status_msg.setProperty("role", "secondary")
         row.addWidget(self._status_msg)
         return row
 
     def _build_source_card(self) -> QWidget:
         card = Card(role="section"); card.setProperty("accent", "navy"); apply_shadow(card)
         card.body.setSpacing(Spacing.SM)
-        row = QHBoxLayout(); row.setSpacing(Spacing.SM)
-        cell = QVBoxLayout(); cell.setSpacing(Spacing.XXS)
-        self._src_label = field_label(self._t.gettext("s4.source_doc"))
-        cell.addWidget(self._src_label)
+        self._source_title = QLabel(self._t.gettext("s4.source_doc"))
+        self._source_title.setProperty("role", "card-title")
+        card.body.addWidget(self._source_title)
+
+        row = QHBoxLayout(); row.setSpacing(Spacing.MD)
         self._src_edit = QLineEdit()
         self._src_edit.setPlaceholderText(self._t.gettext("s4.source_ph"))
-        self._src_edit.setMinimumWidth(int(FieldWidth.MD))
         self._src_edit.returnPressed.connect(self._load_source)
-        cell.addWidget(self._src_edit)
-        holder = QWidget(); holder.setLayout(cell); holder.setStyleSheet("background: transparent;")
-        row.addWidget(holder)
+        self._src_field = LabeledField(self._t.gettext("s4.source_doc"), self._src_edit,
+                                       width=FieldWidth.MD)
+        row.addWidget(self._src_field)
         self._load_btn = secondary_button(self._t.gettext("s4.load"))
+        self._load_btn.setProperty("variant", "accent")
+        self._load_btn.setIcon(standard_icon("next"))
         self._load_btn.clicked.connect(self._load_source)
         row.addWidget(self._load_btn, alignment=Qt.AlignmentFlag.AlignBottom)
 
-        reason_cell = QVBoxLayout(); reason_cell.setSpacing(Spacing.XXS)
-        self._reason_label = field_label(self._t.gettext("s4.reason"))
-        reason_cell.addWidget(self._reason_label)
-        self._reason_edit = QLineEdit(); self._reason_edit.setMinimumWidth(int(FieldWidth.LG))
-        reason_cell.addWidget(self._reason_edit)
-        rholder = QWidget(); rholder.setLayout(reason_cell); rholder.setStyleSheet("background: transparent;")
-        row.addWidget(rholder)
+        self._reason_edit = QLineEdit()
+        self._reason_field = LabeledField(self._t.gettext("s4.reason"), self._reason_edit,
+                                          width=FieldWidth.LG)
+        row.addWidget(self._reason_field)
         row.addStretch(1)
         card.body.addLayout(row)
         card.body.addWidget(horizontal_divider())
@@ -126,6 +130,9 @@ class ReturnEntryPage(QWidget):
 
     def _build_grid_card(self) -> QWidget:
         card = Card(role="section"); card.setProperty("accent", "brand"); apply_shadow(card)
+        self._lines_title = QLabel(self._t.gettext("si.lines"))
+        self._lines_title.setProperty("role", "card-title"); self._lines_title.setProperty("accent", "brand")
+        card.body.addWidget(self._lines_title)
         headers = ["si.col_row", "si.col_item_code", "si.col_item_name", "si.col_unit",
                    "si.col_qty", "s4.col_returnable", "s4.col_return_qty"]
         self._headers = headers
@@ -150,17 +157,21 @@ class ReturnEntryPage(QWidget):
         bar = QFrame(); bar.setProperty("role", "actionbar")
         apply_shadow(bar, blur=18, y=3, alpha=30)
         row = QHBoxLayout(bar)
-        row.setContentsMargins(Spacing.MD, Spacing.SM, Spacing.MD, Spacing.SM)
+        row.setContentsMargins(Spacing.LG, Spacing.SM, Spacing.LG, Spacing.SM)
         row.setSpacing(Spacing.SM)
         self._btn_post = primary_button(self._t.gettext("s4.act_post"))
+        self._btn_post.setIcon(standard_icon("save"))
         self._btn_post.clicked.connect(lambda: self._post(print_after=False))
         self._btn_post_print = secondary_button(self._t.gettext("s4.act_post_print"))
+        self._btn_post_print.setIcon(standard_icon("print"))
         self._btn_post_print.clicked.connect(lambda: self._post(print_after=True))
         row.addWidget(self._btn_post); row.addWidget(self._btn_post_print)
+        row.addSpacing(Spacing.MD)
         self._error = QLabel(""); self._error.setProperty("role", "error"); self._error.setVisible(False)
         row.addWidget(self._error)
         row.addStretch(1)
         self._btn_close = secondary_button(self._t.gettext("s4.act_close"))
+        self._btn_close.setIcon(standard_icon("close"))
         if self._on_close is not None:
             self._btn_close.clicked.connect(lambda: self._on_close())
         row.addWidget(self._btn_close)
@@ -327,9 +338,12 @@ class ReturnEntryPage(QWidget):
     def retranslate(self, translator: Translator) -> None:
         self._t = translator
         self._title.setText(translator.gettext(self._title_key()))
-        self._src_label.setText(translator.gettext("s4.source_doc"))
+        self._mode_badge.setText(translator.gettext("s4.act_return"))
+        self._source_title.setText(translator.gettext("s4.source_doc"))
+        self._src_field.set_label(translator.gettext("s4.source_doc"))
         self._src_edit.setPlaceholderText(translator.gettext("s4.source_ph"))
-        self._reason_label.setText(translator.gettext("s4.reason"))
+        self._reason_field.set_label(translator.gettext("s4.reason"))
+        self._lines_title.setText(translator.gettext("si.lines"))
         self._load_btn.setText(escape_amp(translator.gettext("s4.load")))
         self._btn_post.setText(escape_amp(translator.gettext("s4.act_post")))
         self._btn_post_print.setText(escape_amp(translator.gettext("s4.act_post_print")))

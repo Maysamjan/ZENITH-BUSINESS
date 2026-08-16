@@ -611,6 +611,11 @@ _CATALOG: dict[str, dict[str, str]] = {
     "s4.keyboard_hint": {
         LANG_ENGLISH: "Item ↵ → Qty ↵ → Price ↵ → Discount ↵ commits the line",
         LANG_DARI: "جنس ↵ ← مقدار ↵ ← قیمت ↵ ← تخفیف ↵ قلم را ثبت می‌کند"},
+    "s4.add_item": {LANG_ENGLISH: "Add Item", LANG_DARI: "افزودن جنس"},
+    "s4.add_line": {LANG_ENGLISH: "Add", LANG_DARI: "افزودن"},
+    "s4.summary": {LANG_ENGLISH: "Summary", LANG_DARI: "خلاصه"},
+    "s4.items": {LANG_ENGLISH: "Items", LANG_DARI: "اقلام"},
+    "s4.col_item": {LANG_ENGLISH: "Item", LANG_DARI: "جنس"},
     # -- actions --
     "s4.act_post": {LANG_ENGLISH: "Save", LANG_DARI: "ذخیره"},
     "s4.act_post_print": {LANG_ENGLISH: "Save & Print", LANG_DARI: "ذخیره و چاپ"},
