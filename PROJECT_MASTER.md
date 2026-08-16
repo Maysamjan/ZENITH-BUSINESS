@@ -15,10 +15,10 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 1.8 |
-| Current Stage | **04 — SALES, PURCHASES & RETURNS — 🧪 READY FOR OWNER REVIEW (NOT locked, NOT merged)** |
+| PROJECT_MASTER.md Version | 1.9 |
+| Current Stage | **04 — SALES, PURCHASES & RETURNS — ✅ LOCKED (owner-approved)** |
 | Database Schema Version | **4** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data, 0004 stage04_sales_purchases_returns) |
-| Last Updated | 2026-08-14 |
+| Last Updated | 2026-08-16 |
 
 **Stage gate:** Stage 00 (constitution) and **Stage 01 (foundation, incl.
 01B–01G refinements + typography)** are owner-approved and **LOCKED** (Master
@@ -33,8 +33,32 @@ passing the Final Owner Acceptance Test (**PASS WITH FIXES**), and **merged into
 `main`**. Its frozen public contracts are recorded in §8; Stage 03 must respect
 them (§33 STOP procedure for any change). Stage 02 extended two locked Stage 01 UI
 files **additively only** (optional params / new methods, no existing contract
-changed). Full architecture: §13H; acceptance record: §13H.10. **Stage 03 is NOT
-STARTED.**
+changed). Full architecture: §13H; acceptance record: §13H.10.
+
+**Stage 03** (master data & business setup — unified `parties`, financial years,
+company profile, warehouses, units, categories, items, users/roles, search
+providers, master-data UI) is **owner-approved and LOCKED** (2026-08-14) and
+**merged into `main`** (schema v3). Its frozen public contracts are recorded in
+§8 and §13I.
+
+**Stage 04** (Sales, Purchases, Sales Returns, Purchase Returns — atomic document
+posting across header/lines/inventory/double-entry ledger/party balance/document
+number/audit; financial-year enforcement at the service layer; the unified
+`parties` model via additive party links; keyboard-first bilingual EN/Dari-RTL
+entry, list, and from-original return screens; per-document A4/A5 printing; live
+dashboard) is **owner-approved and LOCKED** (2026-08-16). Its frozen public
+contracts are recorded in §8 and §13J. Stage 04 extended locked Stage 01 UI files
+**additively only** (an optional `title_key` on the print engine/preview; new
+methods on the dashboard/main window — no existing contract changed) and added
+forward migration 0004 (schema v4) without editing any shipped migration.
+**Stages 01–04 are all locked baselines; Stage 05 is NOT STARTED.**
+
+Accepted known limitation (owner-approved 2026-08-16): under RTL, space-separated
+phone numbers are bidi-reordered inside the LOCKED Stage 01 `SearchSelector`
+results panel. This is a cosmetic dropdown-only issue; all persistent data
+(document numbers, dates, totals, currency) renders correctly in RTL tables and
+fields. The locked `SearchSelector` must **not** be modified to fix it without
+explicit owner authorization.
 
 ---
 
@@ -185,7 +209,7 @@ requested module is implemented.
 | 01 | Project Foundation (+01B–01G premium UI + typography) | ✅ **LOCKED** (owner-approved) |
 | 02 | Database / Auth / RBAC / Service Foundation | ✅ **LOCKED** (owner-approved, merged to main) |
 | 03 | Master Data & Business Setup | ✅ **LOCKED** (owner-approved, merged to main) |
-| 04 | Sales, Purchases & Returns | 🧪 **READY FOR OWNER REVIEW** (NOT locked, NOT merged) |
+| 04 | Sales, Purchases & Returns | ✅ **LOCKED** (owner-approved 2026-08-16) |
 | 04 | Chart of Accounts | ⛔ Not started |
 | 05 | Persons | ⛔ Not started |
 | 06 | Currencies | ⛔ Not started |
@@ -1428,8 +1452,29 @@ extensions; the Stage 04 migration test asserts schema v4).
 overridden, side labels are not); receipts/payments settlement of remaining
 balances is a later module.
 
-**Recommendation:** *STAGE 04 IS TECHNICALLY READY FOR OWNER REVIEW.* Not locked,
-not merged, Stage 05 not started — owner decision only.
+### 13J.1 UI/UX consistency + final polish (2026-08-16)
+Two owner-directed refinement passes aligned the Stage 04 screens with the locked
+Stage 01–03 design system (no business logic, calculations, posting, schema,
+migrations, RBAC, or locked contracts touched):
+- Adopted the shared `LabeledField`/compact metadata, cards, buttons, tables and
+  totals tokens; wired the real application stylesheet in review captures.
+- Fixed a **responsiveness defect** — at 1366×768 the invoice line grid could
+  collapse to zero visible rows; the grid now has a minimum-height floor and the
+  totals/payment area is a single compact strip, so the grid shows several rows
+  at 1366×768 and grows at 1600×900 / 1920×1080.
+- Compacted the Return source area (removed a title duplicating the field label).
+- Verified EN + Dari RTL (numbers/dates/document numbers/currency read correctly
+  in RTL tables/fields), many-record list scrolling, autocomplete edge cases,
+  and Print Preview (A4/A5, EN/Dari, zoom/fit/print).
+- Accepted known limitation: RTL phone-number bidi reordering inside the LOCKED
+  Stage 01 `SearchSelector` dropdown (cosmetic; persistent data unaffected).
+
+**LOCK RECORD:** *Stage 04 is owner-approved and **LOCKED** (2026-08-16).* Its
+public contracts (§8, §13J) are frozen. **313 tests pass.** Stages 01–04 are all
+locked baselines; future stages must preserve backward compatibility and must not
+modify Stage 04 code/UI/logic/DB contracts/tests without explicit owner
+authorization. Not merged by the assistant (owner controls merge). Stage 05 NOT
+STARTED.
 
 ---
 
@@ -1437,6 +1482,7 @@ not merged, Stage 05 not started — owner decision only.
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-08-16 | 1.9 | **Stage 04 — Sales, Purchases & Returns declared LOCKED (owner-approved).** Owner accepted the final UI/UX, responsive behavior, EN/Dari RTL, document workflows, print preview and all Stage 04 functionality after two design-consistency/polish passes (LabeledField metadata + shared tokens; fixed a 1366×768 invoice-grid collapse via a grid min-height + a single compact totals strip; compacted the Return source row). Stage 04 public contracts (§8, §13J) frozen. **313 tests pass.** Stages 01–04 are now all locked baselines; future stages must preserve backward compatibility and must not modify Stage 04 without explicit owner authorization. Accepted known limitation: RTL phone-number bidi reordering inside the LOCKED Stage 01 `SearchSelector` dropdown (cosmetic; persistent data unaffected). No business logic / DB schema / migrations / RBAC changed during the polish passes. Stage 05 NOT STARTED. See §13J.1. |
 | 2026-08-14 | 1.8 | **Stage 04 — Sales, Purchases & Returns implemented (READY FOR OWNER REVIEW; not locked, not merged).** Fresh branch from locked `main` `184ae4a`; 277-test gate re-verified first. Migration 0004 (schema v4, forward/idempotent): sales/purchase return tables, additive `sales.party_id`/`purchases.party_id`/`purchases.supplier_reference`, SRET/PRET numbering, 4 permissions + role grants. New `documents_s4` repos and `SalesDocumentService`/`PurchaseDocumentService` (atomic post across header+lines+inventory+balanced ledger+party balance+numbering+audit; **financial-year enforcement now wired**; unified `parties` via additive party links; over-return/stock guards). Real keyboard-first entry, list and from-original return screens wired into Buy & Sell; **live dashboard** (real today totals, recent sales, low stock; no mock data). Per-document print via `print_builder` reusing the locked A4/A5 engine + preview extended additively with an optional `title_key`. **311 tests pass** (+34). 22-step on-disk acceptance (ledger balanced, health ok, backup/restore) + self-inspected EN/Dari screenshots & prints. No Stage 01/02/03 locked contract changed. See §13J. |
 | 2026-08-11 | 0.1 | Initial constitution captured from Master Spec v1.0 at Stage 00. No production code or schema created. Awaiting Prompt 01 — Project Foundation. |
 | 2026-08-11 | 0.2 | Stage 01 (Project Foundation) implemented on feature branch: project structure, config, identity, logging, exceptions/global handler, SQLite infrastructure (connection + transactions + health, FK on, WAL), i18n/RTL-LTR, centralized UI design system, top-nav shell + branded home + status bar, security readiness (PBKDF2 passwords, licensing boundary), 60 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
