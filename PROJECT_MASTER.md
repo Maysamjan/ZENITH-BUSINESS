@@ -15,10 +15,10 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 1.9 |
-| Current Stage | **04 — SALES, PURCHASES & RETURNS — ✅ LOCKED (owner-approved)** |
-| Database Schema Version | **4** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data, 0004 stage04_sales_purchases_returns) |
-| Last Updated | 2026-08-16 |
+| PROJECT_MASTER.md Version | 2.0 |
+| Current Stage | **05 — RECEIPTS, PAYMENTS & EXPENSES — 🧪 READY FOR OWNER REVIEW (NOT locked, NOT merged)** |
+| Database Schema Version | **5** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data, 0004 stage04_sales_purchases_returns, 0005 stage05_receipts_payments_expenses) |
+| Last Updated | 2026-08-17 |
 
 **Stage gate:** Stage 00 (constitution) and **Stage 01 (foundation, incl.
 01B–01G refinements + typography)** are owner-approved and **LOCKED** (Master
@@ -51,7 +51,17 @@ contracts are recorded in §8 and §13J. Stage 04 extended locked Stage 01 UI fi
 **additively only** (an optional `title_key` on the print engine/preview; new
 methods on the dashboard/main window — no existing contract changed) and added
 forward migration 0004 (schema v4) without editing any shipped migration.
-**Stages 01–04 are all locked baselines; Stage 05 is NOT STARTED.**
+**Stages 01–04 are all locked baselines.**
+
+**Stage 05** (Receipts, Payments, Expenses & the cash/bank/fund foundation — the
+real money-movement / settlement layer) is implemented **READY FOR OWNER REVIEW**
+(2026-08-17), **not locked, not merged**. It builds additively on locked Stage 04
+via forward migration 0005 (schema v5) — an ``is_fund`` flag on the locked
+``accounts``, additive party/method/posting columns on the locked ``receipts``/
+``payments``/``expenses`` (locked ``customer_id``/``supplier_id`` untouched), and
+an ``account_id`` on ``expense_categories`` — with no shipped migration edited and
+no locked contract altered. Atomic posting reuses the LOCKED double-entry ledger
+and party-balance derivation. Full architecture: §13K. **Stage 06 is NOT STARTED.**
 
 Accepted known limitation (owner-approved 2026-08-16): under RTL, space-separated
 phone numbers are bidi-reordered inside the LOCKED Stage 01 `SearchSelector`
@@ -210,6 +220,7 @@ requested module is implemented.
 | 02 | Database / Auth / RBAC / Service Foundation | ✅ **LOCKED** (owner-approved, merged to main) |
 | 03 | Master Data & Business Setup | ✅ **LOCKED** (owner-approved, merged to main) |
 | 04 | Sales, Purchases & Returns | ✅ **LOCKED** (owner-approved 2026-08-16) |
+| 05 | Receipts, Payments & Expenses | 🧪 **READY FOR OWNER REVIEW** (NOT locked, NOT merged) |
 | 04 | Chart of Accounts | ⛔ Not started |
 | 05 | Persons | ⛔ Not started |
 | 06 | Currencies | ⛔ Not started |
@@ -1478,10 +1489,94 @@ STARTED.
 
 ---
 
+## 13K. Stage 05 — Receipts, Payments & Expenses (READY FOR OWNER REVIEW)
+
+The real money-movement / settlement layer, built additively on locked Stage 04.
+No Stage 01–04 locked contract altered; no shipped migration edited; no business
+logic changed in the locked stages.
+
+**A. Database (migration 0005, schema v5, forward/idempotent).** Reuses the money
+tables Stage 02 already created. Adds: ``accounts.is_fund`` (marks cash/bank/fund
+accounts — the minimum foundation for choosing where money moves, no treasury
+module); additive ``party_id`` + ``payment_method`` + posting stamps on
+``receipts``/``payments`` (unified Stage 03 ``parties`` model, locked
+``customer_id``/``supplier_id`` untouched); ``payment_method``/``notes``/stamps on
+``expenses``; ``expense_categories.account_id`` (each category maps to a real
+expense account — categories stay master data, never hard-coded in the UI). Seeds
+funds (Cash, Bank, Petty Cash), a standard set of expense accounts + categories,
+RCP/PAY/EXP sequences, indexes, and 10 permissions with role grants.
+
+**B. Engine.** ``money_s5.py`` repositories (party/method writes, party-aware list
+joins, fund + expense-category reads, ledger-derived fund balances). ``ReceiptService``
+/ ``PaymentService`` / ``ExpenseService`` post ONE atomic transaction each —
+header + Stage 05 metadata + **balanced double-entry ledger** + party-balance effect
++ document number + audit — reusing the LOCKED ``FinancialRepository`` +
+``assert_journal_balanced`` and Stage 04 ``PartyBalanceRepository``. Ledger: Receipt
+Dr fund / Cr AR(customer); Payment Dr AP(supplier) / Cr fund; Expense Dr expense
+account / Cr fund. Financial-year enforcement, RBAC and Decimal-safe strict input
+validation (rejects zero/negative/malformed/NaN/Infinity/oversized amounts and
+non-positive rates) run before any write. Balances are **derived, never editable**:
+a receipt/payment moves the party's ledger balance and the balance re-derives.
+
+**C. Accounting / balances (owner example verified).** Customer owes 13,440 → receives
+5,000 → remaining 8,440. Supplier payable and expense cash movement verified; every
+journal balances (Dr==Cr); cash/bank fund balances derive from the ledger.
+
+**D. UI.** One reusable keyboard-first ``MoneyEntryPage`` (receipt/payment/expense)
+and ``MoneyListPage`` (three history lists) on the LOCKED Stage 01–04 design system
+— same cards, LabeledField metadata, SearchSelector autocomplete, strong amount
+pill, tables, buttons, status pills and RTL. Wired into the **Receipts & Payments**
+top-nav. Compact: the short forms group at the top and fit 1366×768; the lists use
+the Stage 03/04 management-list pattern.
+
+**E. Printed vouchers.** ``VoucherPrintDocument`` composes real business vouchers
+(Receipt / Payment / Expense) reusing the LOCKED print design language (palette,
+typography, company identity, accent party bar, amount-in-words EN+Dari, strong
+amount panel, signature blocks) at A4 and A5, EN and Dari RTL. The Stage 01
+print-preview workspace is reused unchanged via a subclass.
+
+**F. RBAC + audit.** 10 service-enforced permissions (receipts/payments/expenses
+``.view/.create/.print`` + ``funds.view``) with role grants; every create/post is
+audited (actor, timestamp, entity, action; no secrets). Failed posts roll back
+leaving no partial document / balance / journal / audit record.
+
+**G. Verification.** **350 tests pass** (313 baseline + 29 engine/failure-safety +
+8 UI). 17-step on-disk acceptance (admin → funds → credit sale → partial receipt →
+payable → partial payment → expense → **ledger balanced** → ``integrity_check=ok``
+/ ``foreign_key_check`` clean → restart persistence → **backup + mutate + restore**
+rolls back to backup state). Self-inspected EN + Dari screenshots at 1366×768 and
+1920×1080 and A4/A5 vouchers; fixed two self-found defects (a mid-form empty gap
+on the short entry screens; a missing voucher amount-label i18n key + voucher
+signature anchoring).
+
+**Known limitations (deferred, intentional).** Documents post directly to POSTED
+(no separate DRAFT/void UI). Multi-currency: original amount + rate are preserved
+and the base equivalent is derivable, but the GL is posted in document currency
+(consistent with the LOCKED Stage 04 ledger) — cross-currency GL consolidation is a
+later reporting concern. Seeded fund/expense-account names are English master data
+(a user renames them, as with warehouses/units).
+
+**Recommendation:** *STAGE 05 IS TECHNICALLY READY FOR OWNER REVIEW.* Not locked,
+not merged, Stage 06 not started — owner decision only.
+
+### 13K.1 Confirmed future requirement — Opening Stock (Inventory stage)
+
+Recorded per owner direction; **not implemented in Stage 05**. The future Inventory
+stage must distinguish **Opening Stock / موجودی اول دوره** (opening quantity + opening
+inventory value, per item, per warehouse, historically preserved) from **Current
+Stock / موجودی فعلی** (opening + subsequent movements → current quantity + value).
+Inventory reporting must show Opening Quantity, Opening Value, Current Quantity,
+Current Value, Quantity Difference and Value Difference. **Opening Stock must NOT be
+implemented as a fake Purchase Invoice.** The inventory ledger already reserves an
+``OPENING`` movement type for this. Stage 05 does not contradict this requirement.
+
+---
+
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-08-17 | 2.0 | **Stage 05 — Receipts, Payments & Expenses implemented (READY FOR OWNER REVIEW; not locked, not merged).** Built additively on locked Stage 04. Migration 0005 (schema v5, forward/idempotent): `accounts.is_fund`, additive party/method/posting columns on `receipts`/`payments`/`expenses`, `expense_categories.account_id`; seeded funds (Cash/Bank/Petty Cash), expense accounts + categories, RCP/PAY/EXP sequences, 10 permissions + grants. New `money_s5` repos and `ReceiptService`/`PaymentService`/`ExpenseService` — atomic post (header + metadata + balanced ledger + party balance + numbering + audit) reusing the LOCKED double-entry ledger + party-balance derivation; FY enforcement, RBAC, Decimal-safe strict validation; balances derived (never editable). Reusable keyboard-first `MoneyEntryPage` + `MoneyListPage` on the locked design system, wired into Receipts & Payments; A4/A5 EN/Dari `VoucherPrintDocument` (receipt/payment/expense) reusing the locked print language + preview. **350 tests pass** (+37). 17-step on-disk acceptance (ledger balanced, integrity ok, restart, backup/restore). Self-inspected EN/Dari screenshots + vouchers; 2 self-found UI defects fixed. Records the confirmed future Opening-Stock inventory requirement (§13K.1). No Stage 01–04 locked contract changed. See §13K. |
 | 2026-08-16 | 1.9 | **Stage 04 — Sales, Purchases & Returns declared LOCKED (owner-approved).** Owner accepted the final UI/UX, responsive behavior, EN/Dari RTL, document workflows, print preview and all Stage 04 functionality after two design-consistency/polish passes (LabeledField metadata + shared tokens; fixed a 1366×768 invoice-grid collapse via a grid min-height + a single compact totals strip; compacted the Return source row). Stage 04 public contracts (§8, §13J) frozen. **313 tests pass.** Stages 01–04 are now all locked baselines; future stages must preserve backward compatibility and must not modify Stage 04 without explicit owner authorization. Accepted known limitation: RTL phone-number bidi reordering inside the LOCKED Stage 01 `SearchSelector` dropdown (cosmetic; persistent data unaffected). No business logic / DB schema / migrations / RBAC changed during the polish passes. Stage 05 NOT STARTED. See §13J.1. |
 | 2026-08-14 | 1.8 | **Stage 04 — Sales, Purchases & Returns implemented (READY FOR OWNER REVIEW; not locked, not merged).** Fresh branch from locked `main` `184ae4a`; 277-test gate re-verified first. Migration 0004 (schema v4, forward/idempotent): sales/purchase return tables, additive `sales.party_id`/`purchases.party_id`/`purchases.supplier_reference`, SRET/PRET numbering, 4 permissions + role grants. New `documents_s4` repos and `SalesDocumentService`/`PurchaseDocumentService` (atomic post across header+lines+inventory+balanced ledger+party balance+numbering+audit; **financial-year enforcement now wired**; unified `parties` via additive party links; over-return/stock guards). Real keyboard-first entry, list and from-original return screens wired into Buy & Sell; **live dashboard** (real today totals, recent sales, low stock; no mock data). Per-document print via `print_builder` reusing the locked A4/A5 engine + preview extended additively with an optional `title_key`. **311 tests pass** (+34). 22-step on-disk acceptance (ledger balanced, health ok, backup/restore) + self-inspected EN/Dari screenshots & prints. No Stage 01/02/03 locked contract changed. See §13J. |
 | 2026-08-11 | 0.1 | Initial constitution captured from Master Spec v1.0 at Stage 00. No production code or schema created. Awaiting Prompt 01 — Project Foundation. |

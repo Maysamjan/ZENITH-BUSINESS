@@ -42,6 +42,13 @@ from zenith_business.repositories.documents_s4 import (
     SalesExtRepository,
     SalesReturnRepository,
 )
+from zenith_business.repositories.money_s5 import (
+    ExpenseCategoryRepository,
+    ExpenseExtRepository,
+    FundRepository,
+    PaymentExtRepository,
+    ReceiptExtRepository,
+)
 from zenith_business.repositories.financial_years import FinancialYearRepository
 from zenith_business.repositories.parties import PartyRepository
 from zenith_business.repositories.system import (
@@ -67,6 +74,11 @@ from zenith_business.services.master_data import (
     CategoryService,
     UnitService,
     WarehouseService,
+)
+from zenith_business.services.money_documents import (
+    ExpenseService,
+    PaymentService,
+    ReceiptService,
 )
 from zenith_business.services.numbering import DocumentNumberService
 from zenith_business.services.parties import PartyService
@@ -124,6 +136,12 @@ class ApplicationContext:
         self.sales_returns_repo = SalesReturnRepository(db)
         self.purchase_returns_repo = PurchaseReturnRepository(db)
         self.party_balances_repo = PartyBalanceRepository(db)
+        # Stage 05 money-movement repositories
+        self.receipts_ext_repo = ReceiptExtRepository(db)
+        self.payments_ext_repo = PaymentExtRepository(db)
+        self.expenses_ext_repo = ExpenseExtRepository(db)
+        self.funds_repo = FundRepository(db)
+        self.expense_categories_repo = ExpenseCategoryRepository(db)
 
         # ---- services ----
         self.authz = AuthorizationService(self.session)
@@ -180,6 +198,23 @@ class ApplicationContext:
             self.inventory_repo, self.financial_repo, self.accounts_repo, self.currencies_repo,
             self.items_repo, self.warehouses_repo, self.parties_repo, self.party_balances_repo,
             self.numbering, self.audit_repo, self.session, self.authz, self.financial_years)
+
+        # ---- Stage 05 money-movement services ----
+        self.receipts = ReceiptService(
+            db, self.receipts_repo, self.receipts_ext_repo, self.financial_repo,
+            self.accounts_repo, self.currencies_repo, self.parties_repo,
+            self.party_balances_repo, self.funds_repo, self.numbering, self.audit_repo,
+            self.session, self.authz, self.financial_years)
+        self.payments = PaymentService(
+            db, self.payments_repo, self.payments_ext_repo, self.financial_repo,
+            self.accounts_repo, self.currencies_repo, self.parties_repo,
+            self.party_balances_repo, self.funds_repo, self.numbering, self.audit_repo,
+            self.session, self.authz, self.financial_years)
+        self.expenses = ExpenseService(
+            db, self.expenses_repo, self.expenses_ext_repo, self.expense_categories_repo,
+            self.financial_repo, self.accounts_repo, self.currencies_repo, self.parties_repo,
+            self.party_balances_repo, self.funds_repo, self.numbering, self.audit_repo,
+            self.session, self.authz, self.financial_years)
 
         # ---- reusable search providers (§12, §16) ----
         self.item_search = ItemSearchProvider(self.items_repo)

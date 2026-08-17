@@ -198,6 +198,7 @@ class MainWindow(QMainWindow):
         if self._context is not None:
             self._build_stage03_pages()
             self._build_stage04_pages()
+            self._build_stage05_pages()
 
         layout.addWidget(self.content, stretch=1)
 
@@ -355,6 +356,76 @@ class MainWindow(QMainWindow):
         page.open_source(source_id)
         self.content.setCurrentWidget(page)
 
+    # ---- Stage 05: real Receipts / Payments / Expenses -------------------
+
+    def _build_stage05_pages(self) -> None:
+        """Register the real Stage 05 money-movement screens under Receipts & Payments."""
+        from zenith_business.ui.documents.money_list_page import MoneyListPage
+        from zenith_business.ui.documents.money_page import MoneyEntryPage
+        from zenith_business.ui.documents.voucher_preview import VoucherPreviewPage
+
+        ctx, t = self._context, self._translator
+        self._voucher_preview = VoucherPreviewPage(t, on_back=lambda: self._voucher_back())
+        self._voucher_back = self.show_home
+
+        self._s5_receipt_new = MoneyEntryPage(ctx, t, mode="receipt", on_close=self.show_home,
+                                              on_print=self._voucher_printer("receipt"))
+        self._s5_payment_new = MoneyEntryPage(ctx, t, mode="payment", on_close=self.show_home,
+                                              on_print=self._voucher_printer("payment"))
+        self._s5_expense_new = MoneyEntryPage(ctx, t, mode="expense", on_close=self.show_home,
+                                              on_print=self._voucher_printer("expense"))
+        self._s5_receipt_list = MoneyListPage(
+            ctx, t, mode="receipt", on_new=lambda: self._show_s5("s5_receipt_new"),
+            on_print=self._voucher_printer("receipt"))
+        self._s5_payment_list = MoneyListPage(
+            ctx, t, mode="payment", on_new=lambda: self._show_s5("s5_payment_new"),
+            on_print=self._voucher_printer("payment"))
+        self._s5_expense_list = MoneyListPage(
+            ctx, t, mode="expense", on_new=lambda: self._show_s5("s5_expense_new"),
+            on_print=self._voucher_printer("expense"))
+
+        self._stage05_pages = {
+            "s5_receipt_new": self._s5_receipt_new, "s5_receipt_list": self._s5_receipt_list,
+            "s5_payment_new": self._s5_payment_new, "s5_payment_list": self._s5_payment_list,
+            "s5_expense_new": self._s5_expense_new, "s5_expense_list": self._s5_expense_list,
+        }
+        for page in list(self._stage05_pages.values()) + [self._voucher_preview]:
+            self.content.addWidget(page)
+        for name in self._stage05_pages:
+            self._stage03_actions[name] = lambda n=name: self._show_s5(n)
+
+        self._stage03_commands["menu.receipts_payments"] = [
+            ("s5.nav_receipt", True, "s5_receipt_new"),
+            ("s5.nav_receipt_list", True, "s5_receipt_list"),
+            ("s5.nav_payment", True, "s5_payment_new"),
+            ("s5.nav_payment_list", True, "s5_payment_list"),
+            ("s5.nav_expense", True, "s5_expense_new"),
+            ("s5.nav_expense_list", True, "s5_expense_list"),
+        ]
+
+    def _show_s5(self, name: str) -> None:
+        page = self._stage05_pages.get(name)
+        if page is None:
+            return
+        if hasattr(page, "reload"):
+            page.reload()
+        self.content.setCurrentWidget(page)
+
+    def _voucher_printer(self, kind: str):
+        return lambda doc_id: self._open_voucher_print(kind, doc_id)
+
+    def _open_voucher_print(self, kind: str, doc_id: int) -> None:
+        from zenith_business.ui.documents import voucher_builder as vb
+        builders = {"receipt": vb.build_receipt_voucher, "payment": vb.build_payment_voucher,
+                    "expense": vb.build_expense_voucher}
+        back_pages = {"receipt": self._s5_receipt_list, "payment": self._s5_payment_list,
+                      "expense": self._s5_expense_list}
+        data = builders[kind](self._context, self._translator, doc_id)
+        back = back_pages[kind]
+        self._voucher_back = lambda w=back: self.content.setCurrentWidget(w)
+        self._voucher_preview.show_voucher(data)
+        self.content.setCurrentWidget(self._voucher_preview)
+
     def _build_status_bar(self) -> None:
         bar = QStatusBar()
         bar.setSizeGripEnabled(True)
@@ -508,8 +579,13 @@ class MainWindow(QMainWindow):
         for page in getattr(self, "_stage04_pages", {}).values():
             if hasattr(page, "retranslate"):
                 page.retranslate(self._translator)
+        for page in getattr(self, "_stage05_pages", {}).values():
+            if hasattr(page, "retranslate"):
+                page.retranslate(self._translator)
         if hasattr(self, "_doc_preview"):
             self._doc_preview.retranslate(self._translator)
+        if hasattr(self, "_voucher_preview"):
+            self._voucher_preview.retranslate(self._translator)
         self._refresh_status()
         self._apply_identity()
         # Restore the contextual command state for the active view.
