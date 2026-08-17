@@ -19,7 +19,7 @@ on:
       - ".github/workflows/windows-test-build.yml"
 
 permissions:
-  contents: read
+  contents: write   # needed to publish the ZIP as a GitHub Release asset
 
 jobs:
   build:
@@ -78,3 +78,30 @@ jobs:
           path: dist/package
           retention-days: 14
           if-no-files-found: error
+
+      # Delivery-only: zip the portable package and attach it to a GitHub Release
+      # so it has a permanent, one-click Download link (no Actions navigation, no
+      # expiry). This does not change the application, Stage 05, or any source.
+      - name: Zip the portable package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/package/* `
+            -DestinationPath ZenithBusiness-Stage05-TestBuild-win64.zip -Force
+          Write-Host ("Zip size: {0:N1} MB" -f ((Get-Item ZenithBusiness-Stage05-TestBuild-win64.zip).Length/1MB))
+
+      - name: Publish as a GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="stage05-test-build"
+          # Replace any previous copy so the download link is always the latest build.
+          gh release delete "$TAG" --cleanup-tag --yes || true
+          gh release create "$TAG" ZenithBusiness-Stage05-TestBuild-win64.zip \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "Zenith Business — Stage 05 Windows Test Build" \
+            --notes "Self-contained Windows test build including the locked Stages 01-04 and completed Stage 05, with a fresh pre-seeded sample database. Download the ZIP, unzip, and double-click Run-ZenithBusiness.bat. Log in as admin / Admin@123. Full click-by-click test steps are in READ-ME-FIRST inside the package. This is a TEST build for owner acceptance — Stage 05 is not locked or merged."
+          echo "Release published:"
+          gh release view "$TAG" --json url --jq .url
