@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QStyle,
     QVBoxLayout,
@@ -88,6 +89,23 @@ def chip(text: str, kind: str = "neutral") -> QLabel:
     return label
 
 
+def vscroll(inner: QWidget) -> QScrollArea:
+    """Wrap a widget in a frameless vertical scroll area (owner-fix defect #5).
+
+    Lets a tall form body scroll on small windows while a pinned action bar placed
+    outside the scroll area stays visible, so Save/Post/Close are never pushed off
+    screen. Horizontal scrolling is disabled — content reflows within the width.
+    """
+    area = QScrollArea()
+    area.setWidgetResizable(True)
+    area.setWidget(inner)
+    area.setFrameShape(QFrame.Shape.NoFrame)
+    area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    area.viewport().setStyleSheet("background: transparent;")
+    area.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+    return area
+
+
 def standard_icon(name: str) -> QIcon:
     """Return a platform-style icon by short name (Prompt 01D §6).
 
@@ -102,6 +120,7 @@ def standard_icon(name: str) -> QIcon:
         "close": QStyle.StandardPixmap.SP_DialogCloseButton,
         "delete": QStyle.StandardPixmap.SP_TrashIcon,
         "next": QStyle.StandardPixmap.SP_ArrowForward,
+        "edit": QStyle.StandardPixmap.SP_FileDialogContentsView,
     }
     pixmap = mapping.get(name)
     app = QApplication.instance()

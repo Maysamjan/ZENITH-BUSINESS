@@ -53,6 +53,7 @@ class DocumentListPage(QWidget):
         on_new: Callable[[], None] | None = None,
         on_print: Callable[[int], None] | None = None,
         on_return: Callable[[int], None] | None = None,
+        on_void: Callable[[int], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -62,6 +63,7 @@ class DocumentListPage(QWidget):
         self._on_new = on_new
         self._on_print = on_print
         self._on_return = on_return
+        self._on_void = on_void
         self._rows: list[dict] = []
         self._is_return = mode in ("sales_return", "purchase_return")
 
@@ -169,7 +171,9 @@ class DocumentListPage(QWidget):
             else:
                 hh.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(len(cols), QHeaderView.ResizeMode.Fixed)
-        self._table.setColumnWidth(len(cols), 170)
+        # Widen the actions column so Print + Return + Void never clip (defect #3/#5).
+        n_actions = sum(x is not None for x in (self._on_print, self._on_return, self._on_void))
+        self._table.setColumnWidth(len(cols), 130 if n_actions <= 1 else 90 * n_actions)
         self._table.verticalHeader().setDefaultSectionSize(ControlSize.TABLE_ROW_HEIGHT + 6)
         return self._table
 
@@ -231,6 +235,12 @@ class DocumentListPage(QWidget):
             rb = ghost_button(self._t.gettext("s4.act_return"))
             rb.clicked.connect(lambda _c=False, i=data["id"]: self._on_return(i))
             lay.addWidget(rb)
+        if (self._on_void is not None and not self._is_return
+                and data.get("status") == "POSTED"):
+            vb = ghost_button(self._t.gettext("s4.act_void"))
+            vb.setProperty("variant", "danger")
+            vb.clicked.connect(lambda _c=False, i=data["id"]: self._on_void(i))
+            lay.addWidget(vb)
         lay.addStretch(1)
         return host
 
@@ -241,6 +251,18 @@ class DocumentListPage(QWidget):
         self._title.setText(translator.gettext(self._title_key()))
         self._search.setPlaceholderText(translator.gettext("md.search"))
         self._refresh_btn.setText(translator.gettext("md.refresh"))
+        # Rebuild the status-filter labels in the new language (keep the selection).
+        if hasattr(self, "_status_filter") and not self._is_return:
+            keep = self._status_filter.currentData()
+            self._status_filter.blockSignals(True)
+            self._status_filter.clear()
+            for label_key, data in (("s4.filter_all", None), ("s4.status_posted", "POSTED"),
+                                    ("s4.status_void", "VOID")):
+                self._status_filter.addItem(translator.gettext(label_key), data)
+            idx = self._status_filter.findData(keep)
+            if idx >= 0:
+                self._status_filter.setCurrentIndex(idx)
+            self._status_filter.blockSignals(False)
         if self._new_btn is not None:
             from zenith_business.ui.components import escape_amp
             new_key = "s4.sale_new" if self._mode == "sale" else "s4.purchase_new"

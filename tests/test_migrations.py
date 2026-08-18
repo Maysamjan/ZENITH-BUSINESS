@@ -8,10 +8,11 @@ from zenith_business.database.schema import PERMISSIONS, ROLES
 from zenith_business.database.schema_stage03 import STAGE03_PERMISSIONS
 from zenith_business.database.schema_stage04 import STAGE04_PERMISSIONS
 from zenith_business.database.schema_stage05 import STAGE05_PERMISSIONS
+from zenith_business.database.schema_owner_fixes import OWNER_FIX_PERMISSIONS
 
-# Total permission codes after all forward migrations (Stage 02 baseline + 03 + 04).
+# Total permission codes after all forward migrations (Stage 02 baseline + 03 + 04 + 05 + 0006).
 _ALL_PERMISSIONS = (len(PERMISSIONS) + len(STAGE03_PERMISSIONS) + len(STAGE04_PERMISSIONS)
-                   + len(STAGE05_PERMISSIONS))
+                   + len(STAGE05_PERMISSIONS) + len(OWNER_FIX_PERMISSIONS))
 
 
 def _tables(db: Database) -> set[str]:
@@ -28,7 +29,7 @@ def test_migrate_applies_all_pending() -> None:
     runner = MigrationRunner(db)
     assert runner.current_version() == 0
     applied = runner.migrate()
-    assert applied == [1, 2, 3, 4, 5]  # Stage 02 baseline + Stage 03 + Stage 04 + Stage 05
+    assert applied == [1, 2, 3, 4, 5, 6]  # baseline + Stage 03/04/05 + owner-fix hardening
     assert runner.current_version() == runner.latest_version()
     tables = _tables(db)
     for expected in ("users", "roles", "permissions", "sales", "purchases",

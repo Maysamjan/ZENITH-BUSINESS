@@ -81,6 +81,10 @@ class DocumentEntryPage(QWidget):
         self._lines: list[dict] = []
         self._party_id: int | None = None
         self._last_saved_id: int | None = None
+        # Sales support both a registered customer account and an unregistered
+        # walk-in/general customer (defect #2). Purchases keep the single party flow.
+        self._customer_mode = "registered"  # 'registered' | 'walkin'
+        self._rendering = False  # guards itemChanged during programmatic fills
 
         self.setProperty("role", "workspace")
         root = QVBoxLayout(self)
@@ -88,12 +92,17 @@ class DocumentEntryPage(QWidget):
         root.setSpacing(Spacing.XS)
 
         root.addLayout(self._build_titlebar())
+        # The line grid (stretch, internal scroll, floored min-height) absorbs any
+        # vertical squeeze, so the totals band and the action bar below it stay
+        # visible on small windows while the grand total is always in view.
         root.addWidget(self._build_header())
         root.addWidget(self._build_grid_card(), stretch=1)  # entry row + line grid
         root.addLayout(self._build_bottom_band())
         root.addWidget(self._build_action_bar())
 
         self._reload_meta_sources()
+        if self._mode == "sale":
+            self._set_customer_mode("registered")  # initial visual + field state
         self._recompute_totals()
 
     # ---- title -----------------------------------------------------------
@@ -122,6 +131,26 @@ class DocumentEntryPage(QWidget):
         card.body.setSpacing(Spacing.XS)
         t = self._t
 
+        # Step-1 label so the daily workflow reads top-to-bottom:
+        # Customer → invoice info → items → payment → totals → save/print.
+        step = QHBoxLayout(); step.setSpacing(Spacing.SM)
+        self._step_customer = eyebrow(t.gettext(
+            "s4.step_customer" if self._mode == "sale" else "s4.step_supplier"))
+        step.addWidget(self._step_customer)
+        # Customer-type toggle (sales only): registered account vs walk-in/general.
+        if self._mode == "sale":
+            self._seg_registered = secondary_button(t.gettext("s4.mode_registered"))
+            self._seg_walkin = secondary_button(t.gettext("s4.mode_walkin"))
+            for b in (self._seg_registered, self._seg_walkin):
+                b.setProperty("segmented", True)
+                b.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._seg_registered.clicked.connect(lambda: self._set_customer_mode("registered"))
+            self._seg_walkin.clicked.connect(lambda: self._set_customer_mode("walkin"))
+            step.addSpacing(Spacing.MD)
+            step.addWidget(self._seg_registered); step.addWidget(self._seg_walkin)
+        step.addStretch(1)
+        card.body.addLayout(step)
+
         party_key = "s4.customer" if self._mode == "sale" else "s4.supplier"
         ph_key = "s4.customer_search_ph" if self._mode == "sale" else "s4.supplier_search_ph"
         provider = self._ctx.customer_search if self._mode == "sale" else self._ctx.supplier_search
@@ -135,9 +164,10 @@ class DocumentEntryPage(QWidget):
         self._party_eyebrow = eyebrow(t.gettext(party_key))
         col.addWidget(self._party_eyebrow)
         col.addWidget(self._party_selector)
-        wrap = QWidget(); wrap.setLayout(col); wrap.setStyleSheet("background: transparent;")
-        wrap.setMinimumWidth(int(FieldWidth.LG))
-        prow.addWidget(wrap, 2)
+        self._registered_wrap = QWidget(); self._registered_wrap.setLayout(col)
+        self._registered_wrap.setStyleSheet("background: transparent;")
+        self._registered_wrap.setMinimumWidth(int(FieldWidth.LG))
+        prow.addWidget(self._registered_wrap, 2)
 
         self._chip_phone = self._info_chip("si.phone", "—", "neutral")
         bal_key = "si.prev_balance" if self._mode == "sale" else "s4.supplier_ref"
@@ -146,6 +176,28 @@ class DocumentEntryPage(QWidget):
         prow.addWidget(self._chip_balance)
         prow.addStretch(1)
         card.body.addLayout(prow)
+
+        # Walk-in / general customer inline fields (sales only) — hidden until the
+        # Walk-in mode is chosen. The entered details are snapshotted onto the sale.
+        if self._mode == "sale":
+            self._walkin_name = QLineEdit(); self._walkin_phone = QLineEdit()
+            self._walkin_address = QLineEdit()
+            wrow = QHBoxLayout(); wrow.setSpacing(Spacing.LG)
+            self._walkin_fields = [
+                ("s4.walkin_name", self._walkin_name, FieldWidth.LG),
+                ("s4.walkin_phone", self._walkin_phone, FieldWidth.MD),
+                ("s4.walkin_address", self._walkin_address, FieldWidth.LG),
+            ]
+            self._walkin_lfs: list[tuple[str, LabeledField]] = []
+            for key, ctrl, width in self._walkin_fields:
+                lf = LabeledField(t.gettext(key), ctrl, width=width, compact=True)
+                self._walkin_lfs.append((key, lf)); wrow.addWidget(lf)
+            wrow.addStretch(1)
+            self._walkin_wrap = QWidget(); self._walkin_wrap.setLayout(wrow)
+            self._walkin_wrap.setStyleSheet("background: transparent;")
+            self._walkin_wrap.setVisible(False)
+            self._walkin_name.returnPressed.connect(self._item_focus)
+            card.body.addWidget(self._walkin_wrap)
 
         card.body.addWidget(horizontal_divider())
 
@@ -189,6 +241,35 @@ class DocumentEntryPage(QWidget):
         val = wrap._value  # type: ignore[attr-defined]
         val.setText(value); val.setProperty("chip", accent)
         val.style().unpolish(val); val.style().polish(val)
+
+    def _item_focus(self) -> None:
+        if hasattr(self, "_item_selector"):
+            self._item_selector.focus()
+
+    def _set_customer_mode(self, mode: str) -> None:
+        """Toggle between a registered customer account and a walk-in customer."""
+        if self._mode != "sale":
+            return
+        self._customer_mode = mode
+        registered = mode == "registered"
+        self._registered_wrap.setVisible(registered)
+        self._chip_phone.setVisible(registered)
+        self._chip_balance.setVisible(registered)
+        self._walkin_wrap.setVisible(not registered)
+        self._seg_registered.setProperty("variant", "accent" if registered else "plain")
+        self._seg_walkin.setProperty("variant", "accent" if not registered else "plain")
+        for b in (self._seg_registered, self._seg_walkin):
+            b.style().unpolish(b); b.style().polish(b)
+        # Never carry stale identity from the other mode into a posted sale.
+        if registered:
+            for e in (self._walkin_name, self._walkin_phone, self._walkin_address):
+                e.clear()
+        else:
+            self._party_id = None
+            self._party_selector.clear()
+            self._set_chip(self._chip_phone, "—", "neutral")
+            self._set_chip(self._chip_balance, "—", "neutral")
+            self._walkin_name.setFocus()
 
     # ---- entry strip -----------------------------------------------------
 
@@ -237,7 +318,14 @@ class DocumentEntryPage(QWidget):
         bar = QHBoxLayout(); bar.setSpacing(Spacing.SM)
         self._lines_title = QLabel(self._t.gettext("s4.add_item"))
         self._lines_title.setProperty("role", "card-title"); self._lines_title.setProperty("accent", "brand")
-        bar.addWidget(self._lines_title); bar.addStretch(1)
+        bar.addWidget(self._lines_title)
+        self._edit_hint = muted(self._t.gettext("s4.edit_hint"))
+        bar.addWidget(self._edit_hint)
+        bar.addStretch(1)
+        self._btn_edit = secondary_button(self._t.gettext("s4.edit_line"))
+        self._btn_edit.setIcon(standard_icon("edit"))
+        self._btn_edit.clicked.connect(self._edit_selected)
+        bar.addWidget(self._btn_edit)
         self._btn_delete = secondary_button(self._t.gettext("s4.delete_line"))
         self._btn_delete.setProperty("variant", "danger")
         self._btn_delete.clicked.connect(self._delete_selected)
@@ -250,7 +338,15 @@ class DocumentEntryPage(QWidget):
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        # Qty / Price / Discount are editable in place (double-click or type); other
+        # columns are read-only. Double-clicking an item cell reloads the whole line
+        # into the entry strip so the item itself can be replaced (defect #3).
+        self._table.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.EditKeyPressed
+            | QAbstractItemView.EditTrigger.AnyKeyPressed)
+        self._table.itemChanged.connect(self._on_cell_changed)
+        self._table.cellDoubleClicked.connect(self._on_cell_double_clicked)
         self._table.setAlternatingRowColors(True)
         self._table.setShowGrid(False)
         self._table.verticalHeader().setDefaultSectionSize(ControlSize.TABLE_ROW_HEIGHT + 2)
@@ -438,20 +534,79 @@ class DocumentEntryPage(QWidget):
         self._qty_edit.clear(); self._price_edit.clear(); self._disc_edit.clear()
         self._item_selector.focus()
 
+    _EDITABLE_COLS = {C_QTY, C_PRICE, C_DISC}
+
     def _render_lines(self) -> None:
-        self._table.setRowCount(len(self._lines))
-        numeric = {C_QTY, C_PRICE, C_DISC, C_TOTAL}
-        for r, ln in enumerate(self._lines):
-            cells = [str(r + 1), ln["code"], ln["name"], ln["unit"],
-                     format_money(ln["qty"]), format_money(ln["price"]),
-                     format_money(ln["discount"]), format_money(ln["total"]),
-                     ln["wh_name"] or ""]
-            for col, text in enumerate(cells):
-                item = QTableWidgetItem(text)
-                align = (Qt.AlignmentFlag.AlignRight if col in numeric
-                         else Qt.AlignmentFlag.AlignLeft)
-                item.setTextAlignment(align | Qt.AlignmentFlag.AlignVCenter)
-                self._table.setItem(r, col, item)
+        self._rendering = True  # suppress itemChanged during the programmatic fill
+        try:
+            self._table.setRowCount(len(self._lines))
+            numeric = {C_QTY, C_PRICE, C_DISC, C_TOTAL}
+            for r, ln in enumerate(self._lines):
+                cells = [str(r + 1), ln["code"], ln["name"], ln["unit"],
+                         format_money(ln["qty"]), format_money(ln["price"]),
+                         format_money(ln["discount"]), format_money(ln["total"]),
+                         ln["wh_name"] or ""]
+                for col, text in enumerate(cells):
+                    item = QTableWidgetItem(text)
+                    align = (Qt.AlignmentFlag.AlignRight if col in numeric
+                             else Qt.AlignmentFlag.AlignLeft)
+                    item.setTextAlignment(align | Qt.AlignmentFlag.AlignVCenter)
+                    flags = item.flags()
+                    if col in self._EDITABLE_COLS:
+                        flags |= Qt.ItemFlag.ItemIsEditable
+                    else:
+                        flags &= ~Qt.ItemFlag.ItemIsEditable
+                    item.setFlags(flags)
+                    self._table.setItem(r, col, item)
+        finally:
+            self._rendering = False
+
+    def _on_cell_changed(self, item: QTableWidgetItem) -> None:
+        """Inline edit of qty/price/discount — recompute the line + all totals."""
+        if self._rendering:
+            return
+        r, col = item.row(), item.column()
+        if not (0 <= r < len(self._lines)) or col not in self._EDITABLE_COLS:
+            return
+        raw = (item.text() or "").replace(",", "").strip()
+        ln = self._lines[r]
+        try:
+            c = compute_line(
+                raw if col == C_QTY else ln["qty"],
+                raw if col == C_PRICE else ln["price"],
+                raw if col == C_DISC else ln["discount"])
+        except ZenithError as exc:
+            self._show_error(getattr(exc, "user_message", None) or str(exc))
+            self._render_lines()  # revert to the last valid values
+            return
+        ln["qty"] = str(c.quantity); ln["price"] = str(c.unit_price)
+        ln["discount"] = str(c.discount); ln["total"] = str(c.line_total)
+        self.clear_error()
+        self._render_lines()
+        self._recompute_totals()
+
+    def _on_cell_double_clicked(self, row: int, col: int) -> None:
+        # Double-clicking a non-editable cell (e.g. the item name) reloads the whole
+        # line into the entry strip so the item itself can be replaced.
+        if col not in self._EDITABLE_COLS:
+            self._edit_selected()
+
+    def _edit_selected(self, *_a) -> None:
+        r = self._table.currentRow()
+        if not (0 <= r < len(self._lines)):
+            return
+        ln = self._lines[r]
+        self._pending_item = {
+            "item_id": ln["item_id"], "base_unit_id": ln["unit_id"],
+            "item_code": ln["code"], "name": ln["name"], "unit_symbol": ln["unit"],
+            "sale_price": ln["price"]}
+        self._item_selector.set_text(ln["name"])
+        self._qty_edit.setText(ln["qty"]); self._price_edit.setText(ln["price"])
+        self._disc_edit.setText(ln["discount"])
+        self._lines.pop(r)  # re-committing the entry strip re-adds the edited line
+        self._render_lines()
+        self._recompute_totals()
+        self._qty_edit.setFocus(); self._qty_edit.selectAll()
 
     def _delete_selected(self) -> None:
         r = self._table.currentRow()
@@ -506,9 +661,14 @@ class DocumentEntryPage(QWidget):
                 lines = [SaleLine(item_id=ln["item_id"], unit_id=ln["unit_id"],
                                   quantity=ln["qty"], unit_price=ln["price"],
                                   discount=ln["discount"]) for ln in self._lines]
+                walkin = self._customer_mode == "walkin"
                 posted = self._ctx.sales_documents.post_sale(
-                    currency_code=currency_code, lines=lines, party_id=self._party_id,
-                    warehouse_id=wh_id, amount_paid=paid, exchange_rate=rate, sale_date=date)
+                    currency_code=currency_code, lines=lines,
+                    party_id=None if walkin else self._party_id,
+                    warehouse_id=wh_id, amount_paid=paid, exchange_rate=rate, sale_date=date,
+                    walkin_name=self._walkin_name.text() if walkin else None,
+                    walkin_phone=self._walkin_phone.text() if walkin else None,
+                    walkin_address=self._walkin_address.text() if walkin else None)
             else:
                 lines = [PurchaseLine(item_id=ln["item_id"], unit_id=ln["unit_id"],
                                       quantity=ln["qty"], unit_price=ln["price"],
@@ -538,6 +698,8 @@ class DocumentEntryPage(QWidget):
         self._qty_edit.clear(); self._price_edit.clear(); self._disc_edit.clear()
         self._recv_edit.clear()
         self._date_edit.setText(self._ctx_today())
+        if self._mode == "sale":
+            self._set_customer_mode("registered")  # back to the default customer mode
         self._recompute_totals()
 
     # ---- errors ----------------------------------------------------------
@@ -587,7 +749,16 @@ class DocumentEntryPage(QWidget):
         self._disc_edit.setPlaceholderText(translator.gettext("si.col_discount"))
         self._table.setHorizontalHeaderLabels([translator.gettext(k) for k in self._grid_headers()])
         self._lines_title.setText(translator.gettext("s4.add_item"))
+        self._edit_hint.setText(translator.gettext("s4.edit_hint"))
+        self._btn_edit.setText(escape_amp(translator.gettext("s4.edit_line")))
         self._btn_delete.setText(escape_amp(translator.gettext("s4.delete_line")))
+        self._step_customer.setText(translator.gettext(
+            "s4.step_customer" if self._mode == "sale" else "s4.step_supplier"))
+        if self._mode == "sale":
+            self._seg_registered.setText(escape_amp(translator.gettext("s4.mode_registered")))
+            self._seg_walkin.setText(escape_amp(translator.gettext("s4.mode_walkin")))
+            for key, lf in self._walkin_lfs:
+                lf.set_label(translator.gettext(key))
         self._items_label.setText(translator.gettext("s4.items"))
         self._grand_label.setText(translator.gettext("si.grand_total"))
         self._sub_label.setText(translator.gettext("si.subtotal"))

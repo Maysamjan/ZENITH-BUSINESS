@@ -13,6 +13,8 @@ render, so the SAME reflowing A4/A5 engine composes every document type.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from zenith_business.services.context import ApplicationContext
 from zenith_business.ui.mock.demo_invoice import CompanyInfo, InvoiceData, InvoiceLine
 
@@ -32,12 +34,18 @@ def _f(text) -> float:
 
 def _company_info(ctx: ApplicationContext) -> CompanyInfo:
     row = ctx.company_repo.get() or {}
+    # Only pass a logo path that actually exists on disk, so a moved/deleted file
+    # degrades gracefully to the letter-mark instead of a broken image (defect #6).
+    logo = (row.get("logo_path") or "").strip()
+    if logo and not Path(logo).is_file():
+        logo = ""
     return CompanyInfo(
         name=(row.get("display_name") or row.get("legal_name") or "Zenith Business"),
         address=" ".join(x for x in (row.get("address"), row.get("city")) if x),
         phone=row.get("phone") or "",
         email=row.get("email") or "",
         tax_id=row.get("tax_id") or "",
+        logo_path=logo,
     )
 
 
@@ -68,17 +76,29 @@ def build_sale_invoice(ctx: ApplicationContext, sale_id: int) -> tuple[InvoiceDa
     sale = ctx.sales_repo.get(sale_id)
     if sale is None:
         raise ValueError(f"No sale {sale_id}")
-    party = _party(ctx, sale.get("party_id"), "Walk-in Customer")
+    if sale.get("party_id"):
+        party = _party(ctx, sale.get("party_id"), "Walk-in Customer")
+        cust_code = party.get("party_code") or ""
+        cust_name = party.get("name") or "Walk-in Customer"
+        cust_phone = party.get("phone") or ""
+        cust_address = party.get("address") or ""
+    else:
+        # Walk-in / general customer: print the snapshot taken at sale time (defect #2),
+        # so a re-opened/re-printed invoice shows the buyer the operator actually entered.
+        cust_code = ""
+        cust_name = sale.get("walkin_name") or "Walk-in Customer"
+        cust_phone = sale.get("walkin_phone") or ""
+        cust_address = sale.get("walkin_address") or ""
     data = InvoiceData(
         company=_company_info(ctx),
         number=sale["document_no"], date=sale["sale_date"],
         currency=(ctx.currencies_repo.get(sale["currency_id"]) or {}).get("code", ""),
         salesperson=(ctx.users_repo.get_by_id(sale["created_by"]) or {}).get("full_name", "")
         if sale.get("created_by") else "",
-        customer_code=party.get("party_code") or "",
-        customer_name=party.get("name") or "Walk-in Customer",
-        customer_phone=party.get("phone") or "",
-        customer_address=party.get("address") or "",
+        customer_code=cust_code,
+        customer_name=cust_name,
+        customer_phone=cust_phone,
+        customer_address=cust_address,
         lines=_lines_from(ctx, ctx.sales_repo.lines_for(sale_id)),
         paid=_f(sale["amount_paid"]))
     return data, TITLE_SALE

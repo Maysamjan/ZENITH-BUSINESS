@@ -199,6 +199,7 @@ class MainWindow(QMainWindow):
             self._build_stage03_pages()
             self._build_stage04_pages()
             self._build_stage05_pages()
+            self._build_owner_fix_pages()
 
         layout.addWidget(self.content, stretch=1)
 
@@ -288,7 +289,8 @@ class MainWindow(QMainWindow):
         self._s4_sales_list = DocumentListPage(
             ctx, t, mode="sale", on_new=lambda: self._show_s4("s4_sale_new"),
             on_print=self._doc_printer("sale"),
-            on_return=lambda i: self._open_return("sales_return", i))
+            on_return=lambda i: self._open_return("sales_return", i),
+            on_void=lambda i: self._void_sale(i))
         self._s4_purchase_list = DocumentListPage(
             ctx, t, mode="purchase", on_new=lambda: self._show_s4("s4_purchase_new"),
             on_print=self._doc_printer("purchase"),
@@ -354,6 +356,58 @@ class MainWindow(QMainWindow):
         page = (self._s4_sales_return if mode == "sales_return"
                 else self._s4_purchase_return)
         page.open_source(source_id)
+        self.content.setCurrentWidget(page)
+
+    def _void_sale(self, sale_id: int) -> None:
+        """Confirm and safely void a posted sale (defect #3), then refresh the list."""
+        from PyQt6.QtWidgets import QMessageBox
+        from zenith_business.core.exceptions import ZenithError
+        sale = self._context.sales_repo.get(sale_id)
+        if sale is None:
+            return
+        t = self._translator
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(t.gettext("s4.void_confirm_title"))
+        box.setText(t.gettext("s4.void_confirm_title"))
+        box.setInformativeText(
+            t.gettext("s4.void_confirm_body").replace("{no}", sale["document_no"]))
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        if box.exec() != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self._context.sales_documents.void_sale(
+                sale_id=sale_id, reason="Owner void from sales list")
+        except ZenithError as exc:
+            QMessageBox.warning(self, t.gettext("s4.act_void"),
+                                getattr(exc, "user_message", None) or str(exc))
+            return
+        self._s4_sales_list.reload()
+
+    # ---- owner-fix: customer / supplier account ledgers ------------------
+
+    def _build_owner_fix_pages(self) -> None:
+        """Register the customer / supplier ledger screens under Account Reports."""
+        from zenith_business.ui.documents.party_ledger_page import PartyLedgerPage
+        ctx, t = self._context, self._translator
+        self._customer_ledger = PartyLedgerPage(ctx, t, mode="customer", on_close=self.show_home)
+        self._supplier_ledger = PartyLedgerPage(ctx, t, mode="supplier", on_close=self.show_home)
+        self._ledger_pages = {"customer_ledger": self._customer_ledger,
+                              "supplier_ledger": self._supplier_ledger}
+        for page in self._ledger_pages.values():
+            self.content.addWidget(page)
+        for name in self._ledger_pages:
+            self._stage03_actions[name] = lambda n=name: self._show_ledger(n)
+        self._stage03_commands["menu.account_reports"] = [
+            ("led.nav_customer", True, "customer_ledger"),
+            ("led.nav_supplier", True, "supplier_ledger"),
+        ]
+
+    def _show_ledger(self, name: str) -> None:
+        page = self._ledger_pages.get(name)
+        if page is None:
+            return
         self.content.setCurrentWidget(page)
 
     # ---- Stage 05: real Receipts / Payments / Expenses -------------------
@@ -580,6 +634,9 @@ class MainWindow(QMainWindow):
             if hasattr(page, "retranslate"):
                 page.retranslate(self._translator)
         for page in getattr(self, "_stage05_pages", {}).values():
+            if hasattr(page, "retranslate"):
+                page.retranslate(self._translator)
+        for page in getattr(self, "_ledger_pages", {}).values():
             if hasattr(page, "retranslate"):
                 page.retranslate(self._translator)
         if hasattr(self, "_doc_preview"):

@@ -1,10 +1,14 @@
-# Zenith Business — Stage 05 Owner Test Build
+# Zenith Business — Stage 05 Owner Test Build (corrected)
 
 This is a **self-contained Windows test build** of Zenith Business, including the
 locked **Stages 01–04** and the completed **Stage 05 (Receipts · Payments ·
 Expenses · Cash/Fund movements)**. It ships with a **fresh test database already
 loaded with sample data** so you can run the full acceptance test without typing
 any setup.
+
+> **This build also contains the six manual-test fixes you reported.** A short
+> checklist to verify them is in section 5 below; the original 8 acceptance
+> scenarios remain in section 3.
 
 Nothing is installed on your PC. Everything lives inside this one folder. You do
 **not** need Python or an internet connection to run it.
@@ -109,7 +113,45 @@ right-to-left).
 
 ---
 
-## 4. Where the test data is stored
+## 5. Verify the six reported fixes
+
+1. **Clearer Sales Invoice.** *Buy & Sell → Sales Invoice.* The screen now reads
+   top-to-bottom: Customer → invoice info → item search → line items → payment →
+   totals → Save/Print, with a **Registered / Walk-in** toggle at the top.
+
+2. **Walk-in / general customer.** On the Sales Invoice press **Walk-in**, type a
+   name (e.g. *Ahmad Khan*), phone optional, add an item, and **pay in full**
+   (walk-in sales cannot be left on credit — for credit choose **Registered** and
+   pick a customer). Save, then **Save & Print** — the printed invoice shows the
+   name you typed. (A seeded walk-in sale, *SALE-000002 · Ahmad Khan*, is already
+   in the Sales list.)
+
+3. **Edit / replace / delete invoice lines before saving.** With lines added:
+   double-click a **Qty / Price / Discount** cell to edit it (totals recompute
+   instantly); double-click the **item name** to replace the whole line; select a
+   row and press **Delete Line**. Nothing touches stock until you Save.
+   *Correcting a saved sale:* open **Sales list**, press **Void** on a posted row —
+   it reverses the stock, the customer balance and the accounting entry, keeps the
+   original document, and marks it *Cancelled*.
+
+4. **Customer / Supplier ledger.** *Account Reports → Customer Ledger* (or
+   *Supplier Ledger*), choose a person, and see Total Sales / Received / Current
+   Receivable (or Purchases / Paid / Payable) plus every transaction with a
+   running balance. Try **Kabul General Store** and **National Foods**.
+
+5. **Small-window layout.** Shrink the window (drag it small). On the Receipt and
+   Sales screens the **Save / Print / Close** buttons stay pinned and reachable
+   (the form scrolls); no action button is pushed off-screen.
+
+6. **Company logo on printed bills.** A sample logo is already configured and
+   appears on printed invoices/vouchers (try **Save & Print**). To change it:
+   *Base Data → Company* → choose a PNG/JPG logo → Save; new printouts use it, and
+   it survives an app restart. The logo keeps its aspect ratio and degrades to a
+   letter-mark if the file is missing.
+
+---
+
+## 6. Where the test data is stored
 
 For this portable build, all data stays inside this folder under **`appdata\`**
 (the app is pointed there by `Run-ZenithBusiness.bat`):

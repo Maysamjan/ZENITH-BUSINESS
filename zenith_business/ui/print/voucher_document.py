@@ -83,6 +83,24 @@ class VoucherPrintDocument(QWidget):
     def _sp(self, base: float) -> int:
         return max(2, int(base * self._p.scale))
 
+    def _logo_widget(self, size: int) -> QLabel:
+        """Company logo (defect #6): stored image scaled with aspect ratio kept, or
+        the brand letter-mark when no valid logo is configured."""
+        lbl = QLabel(); lbl.setFixedSize(size, size)
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        path = getattr(self._d.company, "logo_path", "") or ""
+        if path:
+            from PyQt6.QtGui import QPixmap
+            pix = QPixmap(path)
+            if not pix.isNull():
+                lbl.setPixmap(pix.scaled(
+                    size, size, Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation))
+                lbl.setProperty("p", "logo-img")
+                return lbl
+        lbl.setText(IDENTITY.product[:1]); lbl.setProperty("p", "logo")
+        return lbl
+
     # ---- page ------------------------------------------------------------
 
     def _page(self) -> QWidget:
@@ -115,9 +133,8 @@ class VoucherPrintDocument(QWidget):
         wrap = QWidget()
         row = QHBoxLayout(wrap); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(16)
         left = QHBoxLayout(); left.setSpacing(12)
-        logo = QLabel(IDENTITY.product[:1]); logo.setProperty("p", "logo")
         size = 64 if not self._p.compact else 44
-        logo.setFixedSize(size, size); logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo = self._logo_widget(size)
         left.addWidget(logo, alignment=Qt.AlignmentFlag.AlignTop)
         comp = QVBoxLayout(); comp.setSpacing(2)
         nm = QLabel(self._d.company.name); nm.setProperty("p", "company"); nm.setWordWrap(True)

@@ -20,6 +20,18 @@ class SalesExtRepository(BaseRepository):
     def set_party(self, sale_id: int, party_id: int | None) -> None:
         self._exec("UPDATE sales SET party_id = ? WHERE id = ?", (party_id, sale_id))
 
+    def set_walkin(self, sale_id: int, name: str | None,
+                   phone: str | None = None, address: str | None = None) -> None:
+        """Snapshot a walk-in/general customer's entered details onto the sale.
+
+        Preserves the buyer's name/phone/address on the document itself (migration
+        0006 columns) so re-opening or printing the invoice later still shows the
+        original customer information without a permanent ``parties`` record.
+        """
+        self._exec(
+            "UPDATE sales SET walkin_name = ?, walkin_phone = ?, walkin_address = ?"
+            " WHERE id = ?", (name, phone, address, sale_id))
+
     def returned_qty_for_line(self, sale_line_id: int) -> str:
         rows = self._all(
             "SELECT srl.quantity FROM sales_return_lines srl"

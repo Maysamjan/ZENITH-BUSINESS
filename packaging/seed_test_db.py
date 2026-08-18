@@ -54,6 +54,34 @@ ADMIN_USER = "admin"
 ADMIN_PASS = "Admin@123"
 
 
+def _seed_company_logo(ctx, paths) -> None:
+    """Draw a small sample logo and configure the company identity + logo.
+
+    Uses Qt offscreen (already a project dependency) so the printed invoices and
+    vouchers show a real company logo out of the box; the owner can replace it in
+    Company Settings.
+    """
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPixmap
+    from PyQt6.QtWidgets import QApplication
+    _ = QApplication.instance() or QApplication([])
+    pm = QPixmap(280, 96); pm.fill(QColor("#0d2a4a"))
+    p = QPainter(pm); p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setBrush(QBrush(QColor("#e0a63c"))); p.setPen(Qt.PenStyle.NoPen)
+    p.drawEllipse(14, 20, 56, 56)
+    p.setPen(QColor("#0d2a4a")); f = QFont("Sans", 30); f.setBold(True); p.setFont(f)
+    p.drawText(24, 62, "Z")
+    p.setPen(QColor("#ffffff")); f2 = QFont("Sans", 22); f2.setBold(True); p.setFont(f2)
+    p.drawText(84, 60, "ZENITH"); p.end()
+    tmp = paths.data_dir / "_seed_logo.png"; pm.save(str(tmp))
+    stored = ctx.company.import_logo(tmp)
+    ctx.company.save(legal_name="Zenith Trading Co.", display_name="Zenith Trading Co.",
+                     address="Shar-e-Naw, Street 4", city="Kabul", phone="+93 70 000 0000",
+                     tax_id="TIN 100 234 567", logo_path=stored)
+    tmp.unlink(missing_ok=True)
+
+
 def main() -> None:
     paths = resolve_paths().ensure()
     db_path = paths.database_file
@@ -70,6 +98,9 @@ def main() -> None:
                                    full_name="Business Owner",
                                    company_name="Zenith Trading Co.")
     ctx.auth.login(ADMIN_USER, ADMIN_PASS)
+
+    # --- company identity + a sample logo (defect #6: logo on printed bills) ---
+    _seed_company_logo(ctx, paths)
 
     # --- accounting period + warehouse -----------------------------------
     ctx.financial_years.create(name="FY 2026", start_date="2026-01-01",
@@ -126,6 +157,14 @@ def main() -> None:
         currency_code="AFN", warehouse_id=wh, party_id=cust_open, amount_paid="0",
         sale_date="2026-06-02",
         lines=[SaleLine(item_id=rice, unit_id=bag, quantity="40", unit_price="1980")])
+
+    # --- a walk-in / general customer cash sale (defect #2) --------------
+    # Paid in full (walk-in credit is not allowed); the entered name is snapshotted
+    # onto the sale and prints on the invoice without a permanent parties record.
+    ctx.sales_documents.post_sale(
+        currency_code="AFN", warehouse_id=wh, amount_paid="3500", sale_date="2026-06-02",
+        walkin_name="Ahmad Khan", walkin_phone="0700 111 222",
+        lines=[SaleLine(item_id=sugar, unit_id=bag, quantity="2", unit_price="1750")])
 
     # --- one posted RECEIPT (Cash) — leaves remaining receivable ---------
     ctx.receipts.post_receipt(party_id=cust_open, account_id=cash, amount="30000",

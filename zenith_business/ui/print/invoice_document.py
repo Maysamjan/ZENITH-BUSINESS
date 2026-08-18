@@ -241,13 +241,35 @@ class InvoicePrintDocument(QWidget):
             return self._header_compact()
         return self._header_spacious()
 
+    def _logo_widget(self, size: int) -> QLabel:
+        """Company logo for the print header (defect #6).
+
+        Renders the configured logo image scaled into a ``size`` box with the
+        aspect ratio preserved (never stretched). If no logo is configured, or the
+        file is missing/unreadable, it degrades gracefully to the brand letter-mark
+        so A4/A5 composition is unaffected.
+        """
+        lbl = QLabel(); lbl.setFixedSize(size, size)
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        path = getattr(self._d.company, "logo_path", "") or ""
+        if path:
+            from PyQt6.QtGui import QPixmap
+            pix = QPixmap(path)
+            if not pix.isNull():
+                lbl.setPixmap(pix.scaled(
+                    size, size, Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation))
+                lbl.setProperty("p", "logo-img")  # transparent, no accent square
+                return lbl
+        lbl.setText(IDENTITY.product[:1]); lbl.setProperty("p", "logo")
+        return lbl
+
     def _header_spacious(self) -> QWidget:
         wrap = QWidget()
         row = QHBoxLayout(wrap); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(16)
         # Company identity block.
         left = QHBoxLayout(); left.setSpacing(12)
-        logo = QLabel(IDENTITY.product[:1]); logo.setProperty("p", "logo")
-        logo.setFixedSize(64, 64); logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo = self._logo_widget(64)
         left.addWidget(logo, alignment=Qt.AlignmentFlag.AlignTop)
         comp = QVBoxLayout(); comp.setSpacing(2)
         nm = QLabel(self._d.company.name); nm.setProperty("p", "company"); nm.setWordWrap(True)
@@ -287,8 +309,7 @@ class InvoicePrintDocument(QWidget):
         wrap = QWidget()
         top = QVBoxLayout(wrap); top.setContentsMargins(0, 0, 0, 0); top.setSpacing(3)
         row = QHBoxLayout(); row.setSpacing(8)
-        logo = QLabel(IDENTITY.product[:1]); logo.setProperty("p", "logo")
-        logo.setFixedSize(40, 40); logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo = self._logo_widget(40)
         row.addWidget(logo, alignment=Qt.AlignmentFlag.AlignVCenter)
         nm = QLabel(self._d.company.name); nm.setProperty("p", "company"); nm.setWordWrap(True)
         row.addWidget(nm, 1, Qt.AlignmentFlag.AlignVCenter)

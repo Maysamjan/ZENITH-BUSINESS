@@ -139,7 +139,9 @@ class SalesDocumentService:
     def post_sale(self, *, currency_code: str, lines: list[SaleLine],
                   party_id: int | None = None, warehouse_id: int | None = None,
                   amount_paid=0, exchange_rate=1, sale_date: str | None = None,
-                  notes: str | None = None, allow_backorder: bool = False) -> PostedDocument:
+                  notes: str | None = None, allow_backorder: bool = False,
+                  walkin_name: str | None = None, walkin_phone: str | None = None,
+                  walkin_address: str | None = None) -> PostedDocument:
         self._authz.require("sales.create")
         self._authz.require("sales.post")
         date = sale_date or today_iso()
@@ -152,6 +154,11 @@ class SalesDocumentService:
         if currency is None:
             raise ValidationError(f"Unknown currency {currency_code!r}.")
         self._resolve_party(party_id, role="customer")
+        # Walk-in / general customer snapshot (defect #2): kept on the sale itself,
+        # never a permanent parties record. Normalise the entered details.
+        wk_name = (walkin_name or "").strip() or None
+        wk_phone = (walkin_phone or "").strip() or None
+        wk_address = (walkin_address or "").strip() or None
 
         paid = money(parse_money_input(amount_paid, field="amount paid"))
         if paid < 0:
@@ -183,6 +190,14 @@ class SalesDocumentService:
             raise ValidationError("Amount paid exceeds the total (overpayment not supported).",
                                   user_message="Amount received cannot exceed the total.")
         remaining = money(grand_total - paid)
+        # Never create an anonymous receivable (defect #2): a credit balance must be
+        # attributable to a registered customer account so it can later be reconciled
+        # and collected. A walk-in / cash sale must therefore be settled in full.
+        if party_id is None and remaining > 0:
+            raise ValidationError(
+                "Walk-in/cash sales cannot be left on credit (no party account).",
+                user_message="A walk-in sale must be paid in full. For credit, select a"
+                             " registered customer.")
         uid = self._session.user_id
 
         with self._db.transaction():
@@ -194,6 +209,8 @@ class SalesDocumentService:
                 grand_total=grand_total, amount_paid=paid, remaining_amount=remaining,
                 status="POSTED", notes=notes, created_by=uid)
             self._ext.set_party(sale_id, party_id)
+            if party_id is None and (wk_name or wk_phone or wk_address):
+                self._ext.set_walkin(sale_id, wk_name, wk_phone, wk_address)
             for idx, (ln, c, wh, stockable) in enumerate(computed, start=1):
                 line_id = self._sales.add_line(
                     sale_id=sale_id, line_no=idx, item_id=ln.item_id, unit_id=ln.unit_id,
@@ -232,6 +249,75 @@ class SalesDocumentService:
         self._financial.add_line(entry_id=entry_id,
                                  account_id=self._accounts.id_by_code(_ACCT_SALES),
                                  credit=grand_total, currency_id=currency_id, memo="Sales revenue")
+        assert_journal_balanced(self._financial, entry_id)
+
+    # ---- void a posted sale (safe reversal) -----------------------------
+
+    def void_sale(self, *, sale_id: int, reason: str | None = None,
+                  void_date: str | None = None) -> PostedDocument:
+        """Reverse a whole posted sale without rewriting history (defect #3).
+
+        Adds compensating records — stock back in (ADJUSTMENT_IN), a reversing
+        journal that nets the original entry to zero, and a VOID status stamp with
+        audit — so inventory, the customer balance and the accounts all return to
+        their pre-sale state while the original document and journal remain intact.
+        """
+        self._authz.require("sales.void")
+        sale = self._sales.get(sale_id)
+        if sale is None or sale["status"] != "POSTED":
+            raise ValidationError("Only a posted sale can be voided.",
+                                  user_message="This sale cannot be voided.")
+        # If the sale already has returns, reversing it as well would double-count;
+        # the return mechanism is the correct correction in that case.
+        if self._returns.list_for_sale(sale_id):
+            raise ValidationError(
+                "Sale has returns; cannot void.",
+                user_message="This sale already has returns. Reverse those instead of voiding.")
+        date = void_date or today_iso()
+        self._fy.assert_postable(date)
+        uid = self._session.user_id
+
+        with self._db.transaction():
+            for ln in self._sales.lines_for(sale_id):
+                if ln["warehouse_id"] is not None:
+                    self._inventory.add_movement(
+                        item_id=ln["item_id"], warehouse_id=ln["warehouse_id"],
+                        movement_type="ADJUSTMENT_IN", quantity=D(ln["quantity"]),
+                        movement_date=date, unit_id=ln["unit_id"],
+                        reference_type="SALE_VOID", reference_id=sale_id,
+                        reference_line_id=ln["id"], created_by=uid)
+            self._post_void_ledger(sale, date, uid)
+            self._sales.mark_void(sale_id, uid, reason)
+            self._audit.record(action="sales.void", user_id=uid,
+                               username=self._session.username, entity_type="sale",
+                               entity_id=sale_id, document_no=sale["document_no"],
+                               details=f"void total={sale['grand_total']} reason={reason or ''}")
+        _logger.info("Voided sale %s", sale["document_no"])
+        return PostedDocument(sale_id, sale["document_no"], str(sale["grand_total"]), "0.00")
+
+    def _post_void_ledger(self, sale, date, uid) -> None:
+        grand = money(sale["grand_total"]); paid = money(sale["amount_paid"])
+        remaining = money(sale["remaining_amount"])
+        entry_no = self._numbering.allocate("JV")
+        entry_id = self._financial.create_entry(
+            entry_no=entry_no, entry_date=date, source_type="SALE_VOID", source_id=sale["id"],
+            description=f"Void sale {sale['document_no']}", created_by=uid)
+        # Exact mirror of _post_sale_ledger so every affected account nets to zero.
+        self._financial.add_line(entry_id=entry_id,
+                                 account_id=self._accounts.id_by_code(_ACCT_SALES),
+                                 debit=grand, currency_id=sale["currency_id"],
+                                 memo="Void: reverse revenue")
+        if paid > 0:
+            self._financial.add_line(entry_id=entry_id,
+                                     account_id=self._accounts.id_by_code(_ACCT_CASH),
+                                     credit=paid, currency_id=sale["currency_id"],
+                                     memo="Void: reverse cash")
+        if remaining > 0:
+            self._financial.add_line(entry_id=entry_id,
+                                     account_id=self._accounts.id_by_code(_ACCT_AR),
+                                     credit=remaining, party_type="CUSTOMER",
+                                     party_id=sale["party_id"], currency_id=sale["currency_id"],
+                                     memo="Void: reverse receivable")
         assert_journal_balanced(self._financial, entry_id)
 
     # ---- post a sales return -------------------------------------------

@@ -50,6 +50,7 @@ from zenith_business.repositories.money_s5 import (
     ReceiptExtRepository,
 )
 from zenith_business.repositories.financial_years import FinancialYearRepository
+from zenith_business.repositories.ledger_s6 import PartyLedgerRepository
 from zenith_business.repositories.parties import PartyRepository
 from zenith_business.repositories.system import (
     AppSettingsRepository,
@@ -82,6 +83,7 @@ from zenith_business.services.money_documents import (
 )
 from zenith_business.services.numbering import DocumentNumberService
 from zenith_business.services.parties import PartyService
+from zenith_business.services.party_ledger import PartyLedgerService
 from zenith_business.services.purchase_documents import PurchaseDocumentService
 from zenith_business.services.purchases import PurchaseService
 from zenith_business.services.sales_documents import SalesDocumentService
@@ -142,6 +144,8 @@ class ApplicationContext:
         self.expenses_ext_repo = ExpenseExtRepository(db)
         self.funds_repo = FundRepository(db)
         self.expense_categories_repo = ExpenseCategoryRepository(db)
+        # Owner-fix (defect #4) party account-ledger repository
+        self.party_ledger_repo = PartyLedgerRepository(db)
 
         # ---- services ----
         self.authz = AuthorizationService(self.session)
@@ -215,6 +219,10 @@ class ApplicationContext:
             self.financial_repo, self.accounts_repo, self.currencies_repo, self.parties_repo,
             self.party_balances_repo, self.funds_repo, self.numbering, self.audit_repo,
             self.session, self.authz, self.financial_years)
+
+        # ---- owner-fix party ledger service (defect #4) ----
+        self.party_ledger = PartyLedgerService(
+            self.party_ledger_repo, self.parties_repo, self.authz)
 
         # ---- reusable search providers (§12, §16) ----
         self.item_search = ItemSearchProvider(self.items_repo)

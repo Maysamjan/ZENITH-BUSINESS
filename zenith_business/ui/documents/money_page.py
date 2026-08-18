@@ -41,6 +41,7 @@ from zenith_business.ui.components import (
     primary_button,
     secondary_button,
     standard_icon,
+    vscroll,
 )
 from zenith_business.ui.design.tokens import FieldWidth, Spacing
 from zenith_business.ui.widgets.search_selector import SearchRow, SearchSelector
@@ -77,10 +78,15 @@ class MoneyEntryPage(QWidget):
         root.setContentsMargins(Spacing.MD, Spacing.SM, Spacing.MD, Spacing.SM)
         root.setSpacing(Spacing.SM)
         root.addLayout(self._build_titlebar())
-        root.addWidget(self._build_header())
-        root.addWidget(self._build_details())
-        root.addWidget(self._build_amount_strip())
-        root.addStretch(1)
+        # Scrollable body + pinned action bar so Save/Print/Close stay reachable on
+        # small windows (owner-fix defect #5).
+        body = QWidget(); body.setStyleSheet("background: transparent;")
+        bcol = QVBoxLayout(body); bcol.setContentsMargins(0, 0, 0, 0); bcol.setSpacing(Spacing.SM)
+        bcol.addWidget(self._build_header())
+        bcol.addWidget(self._build_details())
+        bcol.addWidget(self._build_amount_strip())
+        bcol.addStretch(1)
+        root.addWidget(vscroll(body), stretch=1)
         root.addWidget(self._build_action_bar())
 
         self._reload_sources()
