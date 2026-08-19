@@ -170,6 +170,15 @@ class PartyLedgerPage(QWidget):
         self._party_id = row.payload.get("party_id")
         self.reload()
 
+    def show_party(self, party_id: int) -> None:
+        """Open this ledger directly for a given party (contextual access, round 2)."""
+        party = self._ctx.parties_repo.get(party_id)
+        if party is None:
+            return
+        self._party_id = party_id
+        self._selector.set_text(party.get("name") or "")
+        self.reload()
+
     def reload(self) -> None:
         if self._party_id is None:
             return

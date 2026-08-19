@@ -20,6 +20,11 @@ class SalesExtRepository(BaseRepository):
     def set_party(self, sale_id: int, party_id: int | None) -> None:
         self._exec("UPDATE sales SET party_id = ? WHERE id = ?", (party_id, sale_id))
 
+    def set_corrected_from(self, sale_id: int, original_sale_id: int) -> None:
+        """Link a replacement invoice to the original it superseded (round 2)."""
+        self._exec("UPDATE sales SET corrected_from_id = ? WHERE id = ?",
+                   (original_sale_id, sale_id))
+
     def set_walkin(self, sale_id: int, name: str | None,
                    phone: str | None = None, address: str | None = None) -> None:
         """Snapshot a walk-in/general customer's entered details onto the sale.

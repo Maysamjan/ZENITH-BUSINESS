@@ -47,6 +47,7 @@ class MoneyListPage(QWidget):
         self._mode = mode  # 'receipt' | 'payment' | 'expense'
         self._on_new = on_new
         self._on_print = on_print
+        self._on_view_account = None  # contextual ledger access (round 2)
         self._rows: list[dict] = []
 
         root = QVBoxLayout(self)
@@ -191,6 +192,13 @@ class MoneyListPage(QWidget):
         lay.addWidget(chip(self._t.gettext(key), kind)); lay.addStretch(1)
         return host
 
+    def set_view_account_handler(self, handler) -> None:
+        """Wire the contextual 'View Account' action to open the party ledger."""
+        self._on_view_account = handler
+        # A wider actions column so Print + View Account never clip.
+        self._table.setColumnWidth(self._table.columnCount() - 1, 210)
+        self._render()
+
     def _action_cell(self, data: dict) -> QWidget:
         host = QWidget(); lay = QHBoxLayout(host)
         lay.setContentsMargins(Spacing.SM, 0, Spacing.SM, 0); lay.setSpacing(Spacing.XS)
@@ -198,6 +206,13 @@ class MoneyListPage(QWidget):
             b = ghost_button(self._t.gettext("s4.act_print"))
             b.clicked.connect(lambda _c=False, i=data["id"]: self._on_print(i))
             lay.addWidget(b)
+        if (self._on_view_account is not None and self._mode in ("receipt", "payment")
+                and data.get("party_id")):
+            role = "customer" if self._mode == "receipt" else "supplier"
+            v = ghost_button(self._t.gettext("md.view")); v.setProperty("variant", "accent")
+            v.clicked.connect(
+                lambda _c=False, pid=data["party_id"], rl=role: self._on_view_account(pid, rl))
+            lay.addWidget(v)
         lay.addStretch(1)
         return host
 

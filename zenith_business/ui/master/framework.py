@@ -68,6 +68,8 @@ class ManagementPage(QWidget):
         on_new: Callable[[], None] | None = None,
         on_edit: Callable[[dict], None] | None = None,
         on_toggle_active: Callable[[dict], None] | None = None,
+        on_view: Callable[[dict], None] | None = None,
+        view_label_key: str = "md.view",
         new_label_key: str = "md.new",
         parent: QWidget | None = None,
     ) -> None:
@@ -76,6 +78,8 @@ class ManagementPage(QWidget):
         self._columns = columns
         self._on_edit = on_edit
         self._on_toggle = on_toggle_active
+        self._on_view = on_view
+        self._view_label_key = view_label_key
         self._rows: list[dict] = []
         self._filter_text = ""
 
@@ -211,6 +215,11 @@ class ManagementPage(QWidget):
         lay = QHBoxLayout(host)
         lay.setContentsMargins(Spacing.SM, 0, Spacing.SM, 0)
         lay.setSpacing(Spacing.XS)
+        if self._on_view is not None:
+            view = ghost_button(self._t.gettext(self._view_label_key))
+            view.setProperty("variant", "accent")
+            view.clicked.connect(lambda _c=False, d=data: self._on_view(d))
+            lay.addWidget(view)
         if self._on_edit is not None:
             edit = ghost_button(self._t.gettext("md.edit"))
             edit.clicked.connect(lambda _c=False, d=data: self._on_edit(d))

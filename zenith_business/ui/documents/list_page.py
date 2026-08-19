@@ -54,6 +54,7 @@ class DocumentListPage(QWidget):
         on_print: Callable[[int], None] | None = None,
         on_return: Callable[[int], None] | None = None,
         on_void: Callable[[int], None] | None = None,
+        on_correct: Callable[[int], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -64,6 +65,7 @@ class DocumentListPage(QWidget):
         self._on_print = on_print
         self._on_return = on_return
         self._on_void = on_void
+        self._on_correct = on_correct
         self._rows: list[dict] = []
         self._is_return = mode in ("sales_return", "purchase_return")
 
@@ -158,6 +160,10 @@ class DocumentListPage(QWidget):
         self._table.setShowGrid(False)
         hh = self._table.horizontalHeader()
         hh.setHighlightSections(False)
+        # Keep every column readable on narrow windows: the stretch (party) column
+        # never collapses below a legible width; the table scrolls horizontally if
+        # the total exceeds the viewport (round 2 responsive audit).
+        hh.setMinimumSectionSize(96)
         # party column stretches; status holds a chip widget so it needs a fixed
         # width wide enough for the pill (ResizeToContents clips the widget).
         stretch_idx = next((i for i, (_h, k, _a) in enumerate(cols) if k == "party_name"), 0)
@@ -171,9 +177,10 @@ class DocumentListPage(QWidget):
             else:
                 hh.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(len(cols), QHeaderView.ResizeMode.Fixed)
-        # Widen the actions column so Print + Return + Void never clip (defect #3/#5).
-        n_actions = sum(x is not None for x in (self._on_print, self._on_return, self._on_void))
-        self._table.setColumnWidth(len(cols), 130 if n_actions <= 1 else 90 * n_actions)
+        # Widen the actions column so Print + Return + Correct + Void never clip.
+        n_actions = sum(x is not None for x in (self._on_print, self._on_return,
+                                                self._on_correct, self._on_void))
+        self._table.setColumnWidth(len(cols), 130 if n_actions <= 1 else 84 * n_actions)
         self._table.verticalHeader().setDefaultSectionSize(ControlSize.TABLE_ROW_HEIGHT + 6)
         return self._table
 
@@ -235,6 +242,11 @@ class DocumentListPage(QWidget):
             rb = ghost_button(self._t.gettext("s4.act_return"))
             rb.clicked.connect(lambda _c=False, i=data["id"]: self._on_return(i))
             lay.addWidget(rb)
+        if (self._on_correct is not None and not self._is_return
+                and data.get("status") == "POSTED"):
+            cb = ghost_button(self._t.gettext("s4.act_correct"))
+            cb.clicked.connect(lambda _c=False, i=data["id"]: self._on_correct(i))
+            lay.addWidget(cb)
         if (self._on_void is not None and not self._is_return
                 and data.get("status") == "POSTED"):
             vb = ghost_button(self._t.gettext("s4.act_void"))

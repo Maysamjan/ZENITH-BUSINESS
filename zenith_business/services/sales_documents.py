@@ -144,9 +144,27 @@ class SalesDocumentService:
                   walkin_address: str | None = None) -> PostedDocument:
         self._authz.require("sales.create")
         self._authz.require("sales.post")
+        prep = self._prepare_sale(
+            currency_code=currency_code, lines=lines, party_id=party_id,
+            warehouse_id=warehouse_id, amount_paid=amount_paid, sale_date=sale_date,
+            allow_backorder=allow_backorder, walkin_name=walkin_name,
+            walkin_phone=walkin_phone, walkin_address=walkin_address)
+        uid = self._session.user_id
+        with self._db.transaction():
+            sale_id, document_no = self._do_post_sale(
+                prep, party_id=party_id, warehouse_id=warehouse_id,
+                exchange_rate=exchange_rate, notes=notes, uid=uid)
+        _logger.info("Posted sale %s (total=%s)", document_no, prep["grand_total"])
+        return PostedDocument(sale_id, document_no, str(prep["grand_total"]),
+                              str(prep["remaining"]))
+
+    # ---- shared sale preparation + transaction body ---------------------
+
+    def _prepare_sale(self, *, currency_code, lines, party_id, warehouse_id, amount_paid,
+                      sale_date, allow_backorder, walkin_name, walkin_phone, walkin_address):
+        """Validate + compute a sale (no writes). Shared by post and correct."""
         date = sale_date or today_iso()
         self._fy.assert_postable(date)  # financial-year enforcement (§7)
-
         if not lines:
             raise ValidationError("A sale needs at least one line.",
                                   user_message="Add at least one item to the invoice.")
@@ -154,8 +172,6 @@ class SalesDocumentService:
         if currency is None:
             raise ValidationError(f"Unknown currency {currency_code!r}.")
         self._resolve_party(party_id, role="customer")
-        # Walk-in / general customer snapshot (defect #2): kept on the sale itself,
-        # never a permanent parties record. Normalise the entered details.
         wk_name = (walkin_name or "").strip() or None
         wk_phone = (walkin_phone or "").strip() or None
         wk_address = (walkin_address or "").strip() or None
@@ -190,46 +206,54 @@ class SalesDocumentService:
             raise ValidationError("Amount paid exceeds the total (overpayment not supported).",
                                   user_message="Amount received cannot exceed the total.")
         remaining = money(grand_total - paid)
-        # Never create an anonymous receivable (defect #2): a credit balance must be
-        # attributable to a registered customer account so it can later be reconciled
-        # and collected. A walk-in / cash sale must therefore be settled in full.
+        # Never create an anonymous receivable (defect #2): credit requires a party.
         if party_id is None and remaining > 0:
             raise ValidationError(
                 "Walk-in/cash sales cannot be left on credit (no party account).",
                 user_message="A walk-in sale must be paid in full. For credit, select a"
                              " registered customer.")
-        uid = self._session.user_id
+        return {"date": date, "currency": currency, "computed": computed,
+                "subtotal": subtotal, "discount_total": discount_total,
+                "grand_total": grand_total, "paid": paid, "remaining": remaining,
+                "wk": (wk_name, wk_phone, wk_address)}
 
-        with self._db.transaction():
-            document_no = self._numbering.allocate("SALE")
-            sale_id = self._sales.create_header(
-                document_no=document_no, sale_date=date, currency_id=currency["id"],
-                customer_id=None, warehouse_id=warehouse_id, salesperson_id=uid,
-                exchange_rate=exchange_rate, subtotal=subtotal, discount_total=discount_total,
-                grand_total=grand_total, amount_paid=paid, remaining_amount=remaining,
-                status="POSTED", notes=notes, created_by=uid)
-            self._ext.set_party(sale_id, party_id)
-            if party_id is None and (wk_name or wk_phone or wk_address):
-                self._ext.set_walkin(sale_id, wk_name, wk_phone, wk_address)
-            for idx, (ln, c, wh, stockable) in enumerate(computed, start=1):
-                line_id = self._sales.add_line(
-                    sale_id=sale_id, line_no=idx, item_id=ln.item_id, unit_id=ln.unit_id,
-                    warehouse_id=wh, quantity=c.quantity, unit_price=c.unit_price,
-                    discount=c.discount, line_total=c.line_total)
-                if stockable:
-                    self._inventory.add_movement(
-                        item_id=ln.item_id, warehouse_id=wh, movement_type="SALE",
-                        quantity=-c.quantity, movement_date=date, unit_id=ln.unit_id,
-                        reference_type="SALE", reference_id=sale_id,
-                        reference_line_id=line_id, created_by=uid)
-            self._post_sale_ledger(sale_id, document_no, date, grand_total, paid, remaining,
-                                   party_id, currency["id"], uid)
-            self._sales.mark_posted(sale_id, uid)
-            self._audit.record(action="sales.post", user_id=uid, username=self._session.username,
-                               entity_type="sale", entity_id=sale_id, document_no=document_no,
-                               details=f"total={grand_total} paid={paid} remaining={remaining}")
-        _logger.info("Posted sale %s (total=%s)", document_no, grand_total)
-        return PostedDocument(sale_id, document_no, str(grand_total), str(remaining))
+    def _do_post_sale(self, prep, *, party_id, warehouse_id, exchange_rate, notes, uid,
+                      corrected_from_id=None):
+        """Write header + lines + inventory-out + balanced ledger + audit. Must run
+        inside an open transaction (composed atomically by post and correct)."""
+        date = prep["date"]; currency_id = prep["currency"]["id"]
+        grand_total = prep["grand_total"]; paid = prep["paid"]; remaining = prep["remaining"]
+        document_no = self._numbering.allocate("SALE")
+        sale_id = self._sales.create_header(
+            document_no=document_no, sale_date=date, currency_id=currency_id,
+            customer_id=None, warehouse_id=warehouse_id, salesperson_id=uid,
+            exchange_rate=exchange_rate, subtotal=prep["subtotal"],
+            discount_total=prep["discount_total"], grand_total=grand_total, amount_paid=paid,
+            remaining_amount=remaining, status="POSTED", notes=notes, created_by=uid)
+        self._ext.set_party(sale_id, party_id)
+        wk_name, wk_phone, wk_address = prep["wk"]
+        if party_id is None and (wk_name or wk_phone or wk_address):
+            self._ext.set_walkin(sale_id, wk_name, wk_phone, wk_address)
+        if corrected_from_id is not None:
+            self._ext.set_corrected_from(sale_id, corrected_from_id)
+        for idx, (ln, c, wh, stockable) in enumerate(prep["computed"], start=1):
+            line_id = self._sales.add_line(
+                sale_id=sale_id, line_no=idx, item_id=ln.item_id, unit_id=ln.unit_id,
+                warehouse_id=wh, quantity=c.quantity, unit_price=c.unit_price,
+                discount=c.discount, line_total=c.line_total)
+            if stockable:
+                self._inventory.add_movement(
+                    item_id=ln.item_id, warehouse_id=wh, movement_type="SALE",
+                    quantity=-c.quantity, movement_date=date, unit_id=ln.unit_id,
+                    reference_type="SALE", reference_id=sale_id,
+                    reference_line_id=line_id, created_by=uid)
+        self._post_sale_ledger(sale_id, document_no, date, grand_total, paid, remaining,
+                               party_id, currency_id, uid)
+        self._sales.mark_posted(sale_id, uid)
+        self._audit.record(action="sales.post", user_id=uid, username=self._session.username,
+                           entity_type="sale", entity_id=sale_id, document_no=document_no,
+                           details=f"total={grand_total} paid={paid} remaining={remaining}")
+        return sale_id, document_no
 
     def _post_sale_ledger(self, sale_id, doc_no, date, grand_total, paid, remaining,
                           party_id, currency_id, uid) -> None:
@@ -278,22 +302,77 @@ class SalesDocumentService:
         uid = self._session.user_id
 
         with self._db.transaction():
-            for ln in self._sales.lines_for(sale_id):
-                if ln["warehouse_id"] is not None:
-                    self._inventory.add_movement(
-                        item_id=ln["item_id"], warehouse_id=ln["warehouse_id"],
-                        movement_type="ADJUSTMENT_IN", quantity=D(ln["quantity"]),
-                        movement_date=date, unit_id=ln["unit_id"],
-                        reference_type="SALE_VOID", reference_id=sale_id,
-                        reference_line_id=ln["id"], created_by=uid)
-            self._post_void_ledger(sale, date, uid)
-            self._sales.mark_void(sale_id, uid, reason)
-            self._audit.record(action="sales.void", user_id=uid,
-                               username=self._session.username, entity_type="sale",
-                               entity_id=sale_id, document_no=sale["document_no"],
-                               details=f"void total={sale['grand_total']} reason={reason or ''}")
+            self._do_void_sale(sale, date, uid, reason=reason, action="sales.void")
         _logger.info("Voided sale %s", sale["document_no"])
         return PostedDocument(sale_id, sale["document_no"], str(sale["grand_total"]), "0.00")
+
+    def _do_void_sale(self, sale, date, uid, *, reason, action="sales.void") -> None:
+        """Reverse a posted sale's stock + ledger and stamp VOID. Runs inside an
+        open transaction (composed atomically by void and correct)."""
+        for ln in self._sales.lines_for(sale["id"]):
+            if ln["warehouse_id"] is not None:
+                self._inventory.add_movement(
+                    item_id=ln["item_id"], warehouse_id=ln["warehouse_id"],
+                    movement_type="ADJUSTMENT_IN", quantity=D(ln["quantity"]),
+                    movement_date=date, unit_id=ln["unit_id"],
+                    reference_type="SALE_VOID", reference_id=sale["id"],
+                    reference_line_id=ln["id"], created_by=uid)
+        self._post_void_ledger(sale, date, uid)
+        self._sales.mark_void(sale["id"], uid, reason)
+        self._audit.record(action=action, user_id=uid, username=self._session.username,
+                           entity_type="sale", entity_id=sale["id"],
+                           document_no=sale["document_no"],
+                           details=f"void total={sale['grand_total']} reason={reason or ''}")
+
+    # ---- correct a posted sale (safe void-and-replace) ------------------
+
+    def correct_sale(self, *, sale_id: int, currency_code: str, lines: list[SaleLine],
+                     party_id: int | None = None, warehouse_id: int | None = None,
+                     amount_paid=0, exchange_rate=1, sale_date: str | None = None,
+                     notes: str | None = None, walkin_name: str | None = None,
+                     walkin_phone: str | None = None, walkin_address: str | None = None,
+                     reason: str | None = None) -> PostedDocument:
+        """Safely correct a POSTED sale without overwriting history (round 2).
+
+        The original invoice is reversed exactly like a Void (stock + ledger back
+        out, status VOID, audit) and a NEW corrected invoice is posted in the SAME
+        transaction, linked to the original via ``corrected_from_id``. Both the old
+        and new documents/journals are preserved, the change is audited old→new, and
+        the whole operation is atomic (all-or-nothing). If the invoice has dependent
+        documents (a sales return), the correction is blocked and the operator is
+        directed to the Return/Void workflow instead of an unsafe silent rewrite.
+        """
+        self._authz.require("sales.correct")
+        original = self._sales.get(sale_id)
+        if original is None or original["status"] != "POSTED":
+            raise ValidationError("Only a posted sale can be corrected.",
+                                  user_message="This invoice cannot be corrected.")
+        if self._returns.list_for_sale(sale_id):
+            raise ValidationError(
+                "Sale has dependent returns; correction blocked.",
+                user_message="This invoice already has a return. Reverse the return, or use"
+                             " Void, before correcting.")
+        prep = self._prepare_sale(
+            currency_code=currency_code, lines=lines, party_id=party_id,
+            warehouse_id=warehouse_id, amount_paid=amount_paid, sale_date=sale_date,
+            allow_backorder=False, walkin_name=walkin_name, walkin_phone=walkin_phone,
+            walkin_address=walkin_address)
+        uid = self._session.user_id
+        with self._db.transaction():
+            self._do_void_sale(original, prep["date"], uid,
+                               reason=f"Corrected → replacement invoice",
+                               action="sales.correct_void")
+            new_id, new_no = self._do_post_sale(
+                prep, party_id=party_id, warehouse_id=warehouse_id,
+                exchange_rate=exchange_rate, notes=notes, uid=uid, corrected_from_id=sale_id)
+            self._audit.record(
+                action="sales.correct", user_id=uid, username=self._session.username,
+                entity_type="sale", entity_id=new_id, document_no=new_no,
+                details=(f"corrected {original['document_no']} "
+                         f"old_total={original['grand_total']} new_total={prep['grand_total']} "
+                         f"reason={reason or ''}"))
+        _logger.info("Corrected sale %s → %s", original["document_no"], new_no)
+        return PostedDocument(new_id, new_no, str(prep["grand_total"]), str(prep["remaining"]))
 
     def _post_void_ledger(self, sale, date, uid) -> None:
         grand = money(sale["grand_total"]); paid = money(sale["amount_paid"])

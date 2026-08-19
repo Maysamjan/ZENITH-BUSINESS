@@ -142,6 +142,74 @@ class UserService:
     # Explicit alias mirroring the §18 vocabulary.
     reset_password = change_password
 
+    # ---- self-service account settings (round 2) ------------------------
+
+    def change_own_password(self, *, current_password: str, new_password: str) -> None:
+        """The signed-in user changes their OWN password (round 2).
+
+        Requires the current password (verified against the stored hash), enforces
+        the shared password policy, stores only a secure hash, and is audited. No
+        admin permission is needed — a user always owns their own account.
+        """
+        from zenith_business.security.passwords import verify_password
+        uid = self._session.user_id
+        me = self._users.get_by_id(uid) if uid is not None else None
+        if me is None:
+            raise ValidationError("Not signed in.", user_message="Please sign in again.")
+        if not verify_password(current_password or "", me["password_hash"]):
+            raise ValidationError("Current password is incorrect.",
+                                  user_message="Your current password is incorrect.")
+        if (new_password or "") == (current_password or ""):
+            raise ValidationError("New password must differ.",
+                                  user_message="The new password must be different from the"
+                                               " current one.")
+        validate_password(new_password, username=me["username"])
+        with self._db.transaction():
+            self._users.update_password(uid, hash_password(new_password))
+            self._audit.record(action="account.change_password", user_id=uid,
+                               username=self._session.username, entity_type="user",
+                               entity_id=uid)
+        _logger.info("User id=%s changed their own password", uid)
+
+    def change_own_username(self, *, current_password: str, new_username: str) -> None:
+        """The signed-in user changes their OWN username (round 2).
+
+        Verifies the current password, validates + de-duplicates the new username,
+        preserves the internal user id (so all transaction/audit relationships stay
+        intact), refreshes the live session, and is audited.
+        """
+        from zenith_business.security.passwords import verify_password
+        uid = self._session.user_id
+        me = self._users.get_by_id(uid) if uid is not None else None
+        if me is None:
+            raise ValidationError("Not signed in.", user_message="Please sign in again.")
+        if not verify_password(current_password or "", me["password_hash"]):
+            raise ValidationError("Current password is incorrect.",
+                                  user_message="Your current password is incorrect.")
+        new_username = (new_username or "").strip()
+        if not new_username:
+            raise ValidationError("Username is required.",
+                                  user_message="Please enter a username.")
+        if normalize_username(new_username) == me["username_norm"]:
+            return  # unchanged
+        if self._users.username_exists(new_username):
+            raise ValidationError("Username already exists.",
+                                  user_message="That username is already taken.")
+        with self._db.transaction():
+            self._users.update_username(uid, new_username)
+            self._audit.record(action="account.change_username", user_id=uid,
+                               username=self._session.username, entity_type="user",
+                               entity_id=uid,
+                               details=f"{me['username']} → {new_username}")
+        # Keep the live session label in sync with the new username.
+        current = self._session.user
+        if current is not None:
+            try:
+                current.username = new_username
+            except Exception:
+                pass
+        _logger.info("User id=%s changed their own username", uid)
+
     def update_profile(self, user_id: int, *, full_name: str, email: str | None = None,
                        phone: str | None = None) -> None:
         self._authz.require("users.manage")

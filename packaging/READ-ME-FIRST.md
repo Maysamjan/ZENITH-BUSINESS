@@ -151,6 +151,31 @@ right-to-left).
 
 ---
 
+## 7. Owner review round 2 — what's new to verify
+
+- **Redesigned Sales Invoice** (*Buy & Sell → Sales Invoice*): compact customer +
+  invoice header, a **large items table** (5 rows visible at 1024×768, more on
+  bigger screens, scrolls for 10+), a **Unit** selector on the entry row, obvious
+  **Add / Edit Line / Delete Line**, and a totals strip showing **Previous** and
+  **Updated** customer balance.
+- **Edit / replace a line** before saving: pick a row → **Edit Line** (reloads it so
+  you can change the item, unit, qty, price, discount) or double-click Qty/Price/
+  Discount to edit in place; **Delete Line** removes it. Totals recalculate live.
+- **Correct a posted invoice**: on **Sales list**, press **Correct** on a posted row
+  → it opens as “Correcting invoice …”; change anything and Save. It safely voids the
+  original and posts a linked replacement (stock, balance and accounting all
+  reconcile). If the invoice already has a **Return**, Correct is blocked and points
+  you to Return/Void.
+- **View a customer/supplier account in context**: on **Base Data → Persons** press
+  **View Account** on a row; or on **Receipts List / Payments List** press **View
+  Account** — it opens that party's ledger directly.
+- **Account Settings** (*Tools → My Account*): change your own **password**
+  (current + new + confirm) and **username** (current password required).
+- **Small screens**: resize the window down to 1024×768 — Save/Print/Close stay
+  reachable and the items table stays usable.
+
+---
+
 ## 6. Where the test data is stored
 
 For this portable build, all data stays inside this folder under **`appdata\`**

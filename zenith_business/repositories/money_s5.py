@@ -50,7 +50,8 @@ class ReceiptExtRepository(BaseRepository):
         params.append(limit)
         return self._all(
             "SELECT r.id, r.document_no, r.receipt_date, r.amount, r.payment_method, r.reference,"
-            " r.status, p.name AS party_name, a.name AS account_name, cur.code AS currency_code"
+            " r.status, r.party_id, p.name AS party_name, a.name AS account_name,"
+            " cur.code AS currency_code"
             " FROM receipts r LEFT JOIN parties p ON p.id = r.party_id"
             " LEFT JOIN accounts a ON a.id = r.account_id"
             " LEFT JOIN currencies cur ON cur.id = r.currency_id"
@@ -98,8 +99,8 @@ class PaymentExtRepository(BaseRepository):
         params.append(limit)
         return self._all(
             "SELECT pm.id, pm.document_no, pm.payment_date, pm.amount, pm.payment_method,"
-            " pm.reference, pm.status, p.name AS party_name, a.name AS account_name,"
-            " cur.code AS currency_code FROM payments pm"
+            " pm.reference, pm.status, pm.party_id, p.name AS party_name,"
+            " a.name AS account_name, cur.code AS currency_code FROM payments pm"
             " LEFT JOIN parties p ON p.id = pm.party_id"
             " LEFT JOIN accounts a ON a.id = pm.account_id"
             " LEFT JOIN currencies cur ON cur.id = pm.currency_id"

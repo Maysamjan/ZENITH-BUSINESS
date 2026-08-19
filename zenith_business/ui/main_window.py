@@ -290,7 +290,8 @@ class MainWindow(QMainWindow):
             ctx, t, mode="sale", on_new=lambda: self._show_s4("s4_sale_new"),
             on_print=self._doc_printer("sale"),
             on_return=lambda i: self._open_return("sales_return", i),
-            on_void=lambda i: self._void_sale(i))
+            on_void=lambda i: self._void_sale(i),
+            on_correct=lambda i: self._correct_sale(i))
         self._s4_purchase_list = DocumentListPage(
             ctx, t, mode="purchase", on_new=lambda: self._show_s4("s4_purchase_new"),
             on_print=self._doc_printer("purchase"),
@@ -385,14 +386,27 @@ class MainWindow(QMainWindow):
             return
         self._s4_sales_list.reload()
 
+    def _correct_sale(self, sale_id: int) -> None:
+        """Open the posted invoice in the Sales entry for a safe correction (round 2)."""
+        page = self._s4_sales_entry
+        page.load_for_correction(sale_id)
+        self.content.setCurrentWidget(page)
+
     # ---- owner-fix: customer / supplier account ledgers ------------------
 
     def _build_owner_fix_pages(self) -> None:
-        """Register the customer / supplier ledger screens under Account Reports."""
+        """Register the customer / supplier ledger screens + Account Settings."""
+        from zenith_business.ui.documents.account_settings_page import AccountSettingsPage
         from zenith_business.ui.documents.party_ledger_page import PartyLedgerPage
         ctx, t = self._context, self._translator
         self._customer_ledger = PartyLedgerPage(ctx, t, mode="customer", on_close=self.show_home)
         self._supplier_ledger = PartyLedgerPage(ctx, t, mode="supplier", on_close=self.show_home)
+        # Account Settings (self password / username) under Tools.
+        self._account_settings = AccountSettingsPage(ctx, t, on_close=self.show_home)
+        self.content.addWidget(self._account_settings)
+        self._stage03_actions["account_settings"] = lambda: self._show_account_settings()
+        self._stage03_commands.setdefault("menu.tools", list(self._stage03_commands.get(
+            "menu.tools", []))).append(("acct.nav", True, "account_settings"))
         self._ledger_pages = {"customer_ledger": self._customer_ledger,
                               "supplier_ledger": self._supplier_ledger}
         for page in self._ledger_pages.values():
@@ -403,12 +417,31 @@ class MainWindow(QMainWindow):
             ("led.nav_customer", True, "customer_ledger"),
             ("led.nav_supplier", True, "supplier_ledger"),
         ]
+        # Contextual access: open a party's ledger directly from the Customers list
+        # and the Receipts/Payments lists (round 2 §10/§11).
+        persons = self._stage03_pages.get("persons")
+        if persons is not None and hasattr(persons, "set_view_account_handler"):
+            persons.set_view_account_handler(self._open_party_account)
+        for lst in (getattr(self, "_s5_receipt_list", None),
+                    getattr(self, "_s5_payment_list", None)):
+            if lst is not None and hasattr(lst, "set_view_account_handler"):
+                lst.set_view_account_handler(self._open_party_account)
+
+    def _open_party_account(self, party_id: int, role: str = "customer") -> None:
+        page = self._customer_ledger if role == "customer" else self._supplier_ledger
+        page.show_party(party_id)
+        self.content.setCurrentWidget(page)
 
     def _show_ledger(self, name: str) -> None:
         page = self._ledger_pages.get(name)
         if page is None:
             return
         self.content.setCurrentWidget(page)
+
+    def _show_account_settings(self) -> None:
+        if hasattr(self._account_settings, "reload"):
+            self._account_settings.reload()
+        self.content.setCurrentWidget(self._account_settings)
 
     # ---- Stage 05: real Receipts / Payments / Expenses -------------------
 
@@ -639,6 +672,8 @@ class MainWindow(QMainWindow):
         for page in getattr(self, "_ledger_pages", {}).values():
             if hasattr(page, "retranslate"):
                 page.retranslate(self._translator)
+        if hasattr(self, "_account_settings"):
+            self._account_settings.retranslate(self._translator)
         if hasattr(self, "_doc_preview"):
             self._doc_preview.retranslate(self._translator)
         if hasattr(self, "_voucher_preview"):

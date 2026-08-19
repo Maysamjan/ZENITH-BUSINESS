@@ -181,10 +181,11 @@ class PersonsPage(_BasePage):
             Column("roles_display", "persons.col_roles", width=160),
             Column("is_active", "persons.col_status", width=110, kind="status"),
         ]
+        self._on_view_account = None  # set by main window (contextual ledger, round 2)
         self.page = ManagementPage(
             translator, title_key="persons.title", subtitle_key=None, columns=columns,
             new_label_key="persons.new", on_new=self._new, on_edit=self._edit,
-            on_toggle_active=self._toggle)
+            on_toggle_active=self._toggle, on_view=self._view, view_label_key="md.view")
         self.page.connect_refresh(self.reload)
         self._role_filter = QComboBox()
         for key, val in (("md.all", None), ("persons.role_customer", "customer"),
@@ -205,6 +206,16 @@ class PersonsPage(_BasePage):
                 marks.append(_t(self._t, "persons.f_supplier"))
             r["roles_display"] = " + ".join(marks)
         self.page.set_rows(rows)
+
+    def set_view_account_handler(self, handler) -> None:
+        """Wire the contextual 'View Account' action (party_id, role) -> ledger."""
+        self._on_view_account = handler
+
+    def _view(self, row: dict) -> None:
+        if self._on_view_account is None:
+            return
+        role = "customer" if row.get("is_customer") else "supplier"
+        self._on_view_account(row["id"], role)
 
     def _dialog(self, existing: dict | None) -> None:
         t = self._t

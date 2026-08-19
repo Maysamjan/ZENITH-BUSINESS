@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -85,11 +86,13 @@ class DocumentEntryPage(QWidget):
         # walk-in/general customer (defect #2). Purchases keep the single party flow.
         self._customer_mode = "registered"  # 'registered' | 'walkin'
         self._rendering = False  # guards itemChanged during programmatic fills
+        self._prev_balance = D(0)  # party's balance before this invoice (round 2)
+        self._correction_sale_id: int | None = None  # set when correcting a posted sale
 
         self.setProperty("role", "workspace")
         root = QVBoxLayout(self)
-        root.setContentsMargins(Spacing.MD, Spacing.SM, Spacing.MD, Spacing.SM)
-        root.setSpacing(Spacing.XS)
+        root.setContentsMargins(Spacing.MD, Spacing.XS, Spacing.MD, Spacing.XS)
+        root.setSpacing(Spacing.XXS)  # tight so the items table keeps the space (§5)
 
         root.addLayout(self._build_titlebar())
         # The line grid (stretch, internal scroll, floored min-height) absorbs any
@@ -127,16 +130,16 @@ class DocumentEntryPage(QWidget):
 
     def _build_header(self) -> QWidget:
         card = Card(role="section"); card.setProperty("accent", "navy"); apply_shadow(card)
-        card.body.setContentsMargins(Spacing.CARD_PAD_H, Spacing.SM, Spacing.CARD_PAD_H, Spacing.SM)
-        card.body.setSpacing(Spacing.XS)
+        # Compact header so the dominant items table keeps the vertical space (§5).
+        card.body.setContentsMargins(Spacing.CARD_PAD_H, Spacing.XS, Spacing.CARD_PAD_H, Spacing.XS)
+        card.body.setSpacing(Spacing.XXS)
+        card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         t = self._t
 
-        # Step-1 label so the daily workflow reads top-to-bottom:
-        # Customer → invoice info → items → payment → totals → save/print.
-        step = QHBoxLayout(); step.setSpacing(Spacing.SM)
+        # Retained for retranslate but shown inline (no separate row) to save height.
         self._step_customer = eyebrow(t.gettext(
             "s4.step_customer" if self._mode == "sale" else "s4.step_supplier"))
-        step.addWidget(self._step_customer)
+        self._step_customer.setVisible(False)
         # Customer-type toggle (sales only): registered account vs walk-in/general.
         if self._mode == "sale":
             self._seg_registered = secondary_button(t.gettext("s4.mode_registered"))
@@ -146,10 +149,6 @@ class DocumentEntryPage(QWidget):
                 b.setCursor(Qt.CursorShape.PointingHandCursor)
             self._seg_registered.clicked.connect(lambda: self._set_customer_mode("registered"))
             self._seg_walkin.clicked.connect(lambda: self._set_customer_mode("walkin"))
-            step.addSpacing(Spacing.MD)
-            step.addWidget(self._seg_registered); step.addWidget(self._seg_walkin)
-        step.addStretch(1)
-        card.body.addLayout(step)
 
         party_key = "s4.customer" if self._mode == "sale" else "s4.supplier"
         ph_key = "s4.customer_search_ph" if self._mode == "sale" else "s4.supplier_search_ph"
@@ -175,13 +174,29 @@ class DocumentEntryPage(QWidget):
         prow.addWidget(self._chip_phone)
         prow.addWidget(self._chip_balance)
         prow.addStretch(1)
+        # Customer-type toggle sits inline at the end of the customer row (sales).
+        if self._mode == "sale":
+            prow.addWidget(self._seg_registered)
+            prow.addWidget(self._seg_walkin)
         card.body.addLayout(prow)
 
-        # Walk-in / general customer inline fields (sales only) — hidden until the
-        # Walk-in mode is chosen. The entered details are snapshotted onto the sale.
+        # Walk-in / general customer panel (sales only) — a clearly identifiable,
+        # bordered area so the operator immediately knows this is where to type an
+        # UNREGISTERED customer's details. Hidden until Walk-in mode is chosen; the
+        # entered details are snapshotted onto the sale.
         if self._mode == "sale":
-            self._walkin_name = QLineEdit(); self._walkin_phone = QLineEdit()
-            self._walkin_address = QLineEdit()
+            panel = QFrame()
+            panel.setStyleSheet(
+                "QFrame { background: #eef4fb; border: 1px solid #c8d7ec;"
+                " border-radius: 8px; }")
+            pv = QVBoxLayout(panel)
+            pv.setContentsMargins(Spacing.SM, Spacing.XS, Spacing.SM, Spacing.XS)
+            pv.setSpacing(Spacing.XXS)
+            self._walkin_head = eyebrow(t.gettext("s4.walkin_head"))
+            pv.addWidget(self._walkin_head)
+            self._walkin_name = QLineEdit()
+            self._walkin_name.setPlaceholderText(t.gettext("s4.walkin_name_ph"))
+            self._walkin_phone = QLineEdit(); self._walkin_address = QLineEdit()
             wrow = QHBoxLayout(); wrow.setSpacing(Spacing.LG)
             self._walkin_fields = [
                 ("s4.walkin_name", self._walkin_name, FieldWidth.LG),
@@ -193,13 +208,11 @@ class DocumentEntryPage(QWidget):
                 lf = LabeledField(t.gettext(key), ctrl, width=width, compact=True)
                 self._walkin_lfs.append((key, lf)); wrow.addWidget(lf)
             wrow.addStretch(1)
-            self._walkin_wrap = QWidget(); self._walkin_wrap.setLayout(wrow)
-            self._walkin_wrap.setStyleSheet("background: transparent;")
+            pv.addLayout(wrow)
+            self._walkin_wrap = panel
             self._walkin_wrap.setVisible(False)
             self._walkin_name.returnPressed.connect(self._item_focus)
             card.body.addWidget(self._walkin_wrap)
-
-        card.body.addWidget(horizontal_divider())
 
         # Secondary metadata strip — quieter compact fields (Stage 01 §8 hierarchy).
         meta = QHBoxLayout(); meta.setSpacing(Spacing.LG)
@@ -294,6 +307,11 @@ class DocumentEntryPage(QWidget):
         self._item_selector.rowSelected.connect(self._on_item_selected)
         row.addWidget(self._item_selector, 1)
 
+        # Per-line Unit selector so the operator can confirm/replace the unit
+        # (round 2 §6). Defaults to the item's base unit on selection.
+        self._unit_combo = QComboBox(); self._unit_combo.setFixedWidth(int(FieldWidth.SM))
+        row.addWidget(self._unit_combo)
+
         self._qty_edit = self._num_edit(self._t.gettext("si.col_qty"))
         self._price_edit = self._num_edit(self._t.gettext("si.col_price"))
         self._disc_edit = self._num_edit(self._t.gettext("si.col_discount"))
@@ -314,24 +332,27 @@ class DocumentEntryPage(QWidget):
 
     def _build_grid_card(self) -> QWidget:
         card = Card(role="section"); card.setProperty("accent", "brand"); apply_shadow(card)
-        card.body.setSpacing(Spacing.SM)
-        bar = QHBoxLayout(); bar.setSpacing(Spacing.SM)
-        self._lines_title = QLabel(self._t.gettext("s4.add_item"))
-        self._lines_title.setProperty("role", "card-title"); self._lines_title.setProperty("accent", "brand")
-        bar.addWidget(self._lines_title)
-        self._edit_hint = muted(self._t.gettext("s4.edit_hint"))
-        bar.addWidget(self._edit_hint)
-        bar.addStretch(1)
+        # The grid card must EXPAND to hold the dominant items table; a Preferred
+        # policy would size to content and clip the table (round 2 §5).
+        card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        card.body.setContentsMargins(Spacing.CARD_PAD_H, Spacing.XS, Spacing.CARD_PAD_H, Spacing.XS)
+        card.body.setSpacing(Spacing.XS)
+        # Edit/Delete buttons live on the single entry-strip row (no separate
+        # toolbar row) so the items table keeps the maximum vertical space (§5).
         self._btn_edit = secondary_button(self._t.gettext("s4.edit_line"))
         self._btn_edit.setIcon(standard_icon("edit"))
         self._btn_edit.clicked.connect(self._edit_selected)
-        bar.addWidget(self._btn_edit)
         self._btn_delete = secondary_button(self._t.gettext("s4.delete_line"))
         self._btn_delete.setProperty("variant", "danger")
         self._btn_delete.clicked.connect(self._delete_selected)
-        bar.addWidget(self._btn_delete)
-        card.body.addLayout(bar)
-        card.body.addLayout(self._build_entry_row())
+        # Retained (referenced by retranslate) but shown as a compact hint on the
+        # search field rather than their own row.
+        self._lines_title = QLabel(self._t.gettext("s4.add_item")); self._lines_title.setVisible(False)
+        self._edit_hint = muted(self._t.gettext("s4.edit_hint")); self._edit_hint.setVisible(False)
+        strip = self._build_entry_row()
+        strip.addWidget(self._btn_edit)
+        strip.addWidget(self._btn_delete)
+        card.body.addLayout(strip)
 
         self._table = QTableWidget(0, 9)
         self._table.setHorizontalHeaderLabels([self._t.gettext(k) for k in self._grid_headers()])
@@ -350,9 +371,14 @@ class DocumentEntryPage(QWidget):
         self._table.setAlternatingRowColors(True)
         self._table.setShowGrid(False)
         self._table.verticalHeader().setDefaultSectionSize(ControlSize.TABLE_ROW_HEIGHT + 2)
-        # Floor the line grid so it always shows several rows and never collapses
-        # under the fixed panels at 1366×768 (matches the Stage 01 invoice grid).
-        self._table.setMinimumHeight(140)
+        # The line grid is the DOMINANT central area of the invoice (round 2 §5):
+        # a generous floor keeps ~7-8 rows visible even under the fixed header/totals
+        # at 1024×768, and its root stretch lets it grow (with internal scrolling for
+        # 10+ lines) so secondary controls never squeeze the invoice lines.
+        # A modest floor guarantees ~5 rows even at 1024×768; the Expanding policy
+        # lets the table grow to dominate the screen at larger resolutions.
+        self._table.setMinimumHeight(150)
+        self._table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         from PyQt6.QtWidgets import QHeaderView
         header = self._table.horizontalHeader()
         header.setHighlightSections(False)
@@ -361,7 +387,7 @@ class DocumentEntryPage(QWidget):
                   C_DISC: 90, C_TOTAL: 120, C_WH: 110}
         for col, w in widths.items():
             self._table.setColumnWidth(col, w)
-        card.body.addWidget(self._table)
+        card.body.addWidget(self._table, 1)  # table takes the card's growth
         return card
 
     # ---- bottom totals strip (compact, always visible) ------------------
@@ -376,24 +402,26 @@ class DocumentEntryPage(QWidget):
         return lab, val, holder
 
     def _build_bottom_band(self) -> QHBoxLayout:
-        """A single compact totals/payment strip so the line grid keeps the
-        vertical space (fits 1366×768, grows the grid on larger screens)."""
+        """A compact two-row totals/payment/balance strip (reference lower area):
+        row 1 = item totals + grand total, row 2 = payment + customer balance. Both
+        stay visible while the dominant line grid keeps the vertical space."""
         t = self._t
         card = Card(role="section"); card.setProperty("accent", "brand"); apply_shadow(card)
-        card.body.setContentsMargins(Spacing.CARD_PAD_H, Spacing.SM, Spacing.CARD_PAD_H, Spacing.SM)
-        row = QHBoxLayout(); row.setSpacing(Spacing.XL)
+        card.body.setContentsMargins(Spacing.CARD_PAD_H, Spacing.XS, Spacing.CARD_PAD_H, Spacing.XS)
+        card.body.setSpacing(Spacing.XXS)
+        card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
 
+        # -- row 1: item count, subtotal, discount, cash/credit, grand total --
+        row = QHBoxLayout(); row.setSpacing(Spacing.XL)
         self._items_label, self._items_value, items_w = self._inline("s4.items")
         self._sub_label, self._sub_value, sub_w = self._inline("si.subtotal")
         self._disc_label, self._disc_value, disc_w = self._inline("si.discount")
         for w in (items_w, sub_w, disc_w):
             row.addWidget(w)
         row.addStretch(1)
-
         self._seg_cash = chip(t.gettext("si.pay_cash"), "success")
         self._seg_credit = chip(t.gettext("si.pay_credit"), "neutral")
         row.addWidget(self._seg_cash); row.addWidget(self._seg_credit)
-
         gt = QFrame(); gt.setProperty("role", "grand-total-strong")
         gtl = QHBoxLayout(gt); gtl.setContentsMargins(Spacing.LG, Spacing.XS, Spacing.LG, Spacing.XS)
         gtl.setSpacing(Spacing.MD)
@@ -401,18 +429,25 @@ class DocumentEntryPage(QWidget):
         self._grand_value = QLabel("—"); self._grand_value.setProperty("role", "gts-value")
         gtl.addWidget(self._grand_label); gtl.addWidget(self._grand_value)
         row.addWidget(gt)
+        card.body.addLayout(row)
 
+        # -- row 2: previous balance, amount paid, remaining, updated balance --
+        row2 = QHBoxLayout(); row2.setSpacing(Spacing.XL)
+        self._prev_label, self._prev_value, prev_w = self._inline("si.prev_balance")
+        row2.addWidget(prev_w)
+        row2.addStretch(1)
         self._recv_label = QLabel(t.gettext("s4.amount_paid")); self._recv_label.setProperty("role", "total-label")
         self._recv_edit = self._num_edit("0.00"); self._recv_edit.setFixedWidth(int(FieldWidth.SM))
         self._recv_edit.textEdited.connect(self._recompute_totals)
-        row.addWidget(self._recv_label); row.addWidget(self._recv_edit)
-
+        row2.addWidget(self._recv_label); row2.addWidget(self._recv_edit)
         self._rem_label = QLabel(t.gettext("si.remaining")); self._rem_label.setProperty("role", "total-label")
         self._rem_value = QLabel("—"); self._rem_value.setProperty("role", "total-value")
         self._rem_value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        row.addWidget(self._rem_label); row.addWidget(self._rem_value)
+        row2.addWidget(self._rem_label); row2.addWidget(self._rem_value)
+        self._upd_label, self._upd_value, upd_w = self._inline("si.updated_balance")
+        row2.addWidget(upd_w)
+        card.body.addLayout(row2)
 
-        card.body.addLayout(row)
         band = QHBoxLayout(); band.addWidget(card)
         return band
 
@@ -472,6 +507,17 @@ class DocumentEntryPage(QWidget):
             idx = self._currency_combo.findData(target)
             if idx >= 0:
                 self._currency_combo.setCurrentIndex(idx)
+        # Per-line unit choices (round 2 §6): label by symbol, fall back to name.
+        cur_unit = self._unit_combo.currentData()
+        self._unit_combo.clear()
+        rtl = self._t.direction.name == "RTL" if hasattr(self._t, "direction") else False
+        for u in self._ctx.units_repo.list_all():
+            label = (u.get("name_fa") if rtl else u.get("name_en")) or u.get("symbol") or u["code"]
+            self._unit_combo.addItem(label, u["id"])
+        if cur_unit is not None:
+            idx = self._unit_combo.findData(cur_unit)
+            if idx >= 0:
+                self._unit_combo.setCurrentIndex(idx)
 
     # ---- party -----------------------------------------------------------
 
@@ -489,10 +535,12 @@ class DocumentEntryPage(QWidget):
             self._set_chip(self._chip_balance, format_money(bal),
                            "danger" if positive else "success")
         else:
-            pay = self._ctx.purchase_documents.payable(self._party_id)
-            positive = D(pay) > 0
-            self._set_chip(self._chip_balance, format_money(pay),
+            bal = self._ctx.purchase_documents.payable(self._party_id)
+            positive = D(bal) > 0
+            self._set_chip(self._chip_balance, format_money(bal),
                            "warning" if positive else "success")
+        self._prev_balance = D(bal)
+        self._recompute_totals()
 
     # ---- item / line entry ----------------------------------------------
 
@@ -501,9 +549,20 @@ class DocumentEntryPage(QWidget):
         self._pending_item = p
         if self._mode == "sale" and p.get("sale_price") is not None:
             self._price_edit.setText(format_money(p["sale_price"]).replace(",", ""))
+        base_unit = p.get("base_unit_id")
+        if base_unit is not None:
+            idx = self._unit_combo.findData(base_unit)
+            if idx >= 0:
+                self._unit_combo.setCurrentIndex(idx)
         if not self._qty_edit.text():
             self._qty_edit.setText("1")
         self._qty_edit.setFocus(); self._qty_edit.selectAll()
+
+    def _current_unit(self, fallback) -> tuple[int, str]:
+        uid = self._unit_combo.currentData()
+        if uid is None:
+            return fallback, ""
+        return uid, self._unit_combo.currentText()
 
     def _commit_line(self) -> None:
         self.clear_error()
@@ -519,10 +578,11 @@ class DocumentEntryPage(QWidget):
             return
         wh_id = self._wh_combo.currentData()
         wh_name = self._wh_combo.currentText()
+        unit_id, unit_label = self._current_unit(payload.get("base_unit_id"))
         self._lines.append({
-            "item_id": payload["item_id"], "unit_id": payload.get("base_unit_id"),
+            "item_id": payload["item_id"], "unit_id": unit_id,
             "code": payload.get("item_code", ""), "name": payload.get("name", ""),
-            "unit": payload.get("unit_symbol") or "",
+            "unit": unit_label or payload.get("unit_symbol") or "",
             "qty": str(c.quantity), "price": str(c.unit_price), "discount": str(c.discount),
             "total": str(c.line_total), "wh_id": wh_id, "wh_name": wh_name,
         })
@@ -601,6 +661,9 @@ class DocumentEntryPage(QWidget):
             "item_code": ln["code"], "name": ln["name"], "unit_symbol": ln["unit"],
             "sale_price": ln["price"]}
         self._item_selector.set_text(ln["name"])
+        idx = self._unit_combo.findData(ln["unit_id"])
+        if idx >= 0:
+            self._unit_combo.setCurrentIndex(idx)
         self._qty_edit.setText(ln["qty"]); self._price_edit.setText(ln["price"])
         self._disc_edit.setText(ln["discount"])
         self._lines.pop(r)  # re-committing the entry strip re-adds the edited line
@@ -640,6 +703,10 @@ class DocumentEntryPage(QWidget):
         self._seg_credit.setProperty("chip", "neutral" if cash else "warning")
         for c in (self._seg_cash, self._seg_credit):
             c.style().unpolish(c); c.style().polish(c)
+        # Previous balance and the balance this invoice would leave the customer
+        # (round 2): the unpaid remainder adds to what they owe.
+        self._prev_value.setText(format_money(self._prev_balance))
+        self._upd_value.setText(format_money(self._prev_balance + remaining))
 
     # ---- posting ---------------------------------------------------------
 
@@ -662,13 +729,20 @@ class DocumentEntryPage(QWidget):
                                   quantity=ln["qty"], unit_price=ln["price"],
                                   discount=ln["discount"]) for ln in self._lines]
                 walkin = self._customer_mode == "walkin"
-                posted = self._ctx.sales_documents.post_sale(
+                sale_kwargs = dict(
                     currency_code=currency_code, lines=lines,
                     party_id=None if walkin else self._party_id,
                     warehouse_id=wh_id, amount_paid=paid, exchange_rate=rate, sale_date=date,
                     walkin_name=self._walkin_name.text() if walkin else None,
                     walkin_phone=self._walkin_phone.text() if walkin else None,
                     walkin_address=self._walkin_address.text() if walkin else None)
+                if self._correction_sale_id is not None:
+                    # Safe correction of a posted invoice: voids the original and
+                    # posts this replacement atomically (round 2 §9).
+                    posted = self._ctx.sales_documents.correct_sale(
+                        sale_id=self._correction_sale_id, **sale_kwargs)
+                else:
+                    posted = self._ctx.sales_documents.post_sale(**sale_kwargs)
             else:
                 lines = [PurchaseLine(item_id=ln["item_id"], unit_id=ln["unit_id"],
                                       quantity=ln["qty"], unit_price=ln["price"],
@@ -680,8 +754,10 @@ class DocumentEntryPage(QWidget):
             self._show_error(getattr(exc, "user_message", None) or str(exc))
             return
         self._last_saved_id = posted.id
-        self._status_msg.setText(
-            self._t.gettext("s4.msg_posted").replace("{no}", posted.document_no))
+        was_correction = self._correction_sale_id is not None
+        self._status_msg.setText(self._t.gettext(
+            "s4.msg_corrected" if was_correction else "s4.msg_posted").replace(
+            "{no}", posted.document_no))
         self.reset_form()
         if print_after and self._on_print is not None:
             self._on_print(posted.id)
@@ -690,6 +766,8 @@ class DocumentEntryPage(QWidget):
         self._lines = []
         self._party_id = None
         self._pending_item = None
+        self._correction_sale_id = None
+        self._prev_balance = D(0)
         self._render_lines()
         self._party_selector.clear()
         self._item_selector.clear()
@@ -698,9 +776,69 @@ class DocumentEntryPage(QWidget):
         self._qty_edit.clear(); self._price_edit.clear(); self._disc_edit.clear()
         self._recv_edit.clear()
         self._date_edit.setText(self._ctx_today())
+        self._title.setText(self._t.gettext(self._title_key()))
         if self._mode == "sale":
             self._set_customer_mode("registered")  # back to the default customer mode
         self._recompute_totals()
+
+    # ---- load a posted sale for safe correction (round 2 §9) ------------
+
+    def load_for_correction(self, sale_id: int) -> None:
+        """Load a posted sale into the form so it can be corrected. Saving posts a
+        replacement invoice and voids the original (see ``correct_sale``)."""
+        sale = self._ctx.sales_repo.get(sale_id)
+        if sale is None or sale.get("status") != "POSTED":
+            self._show_error(self._t.gettext("s4.msg_correct_only_posted"))
+            return
+        self.reset_form()
+        self._correction_sale_id = sale_id
+        # currency / date / warehouse
+        cur = self._ctx.currencies_repo.get(sale["currency_id"])
+        if cur is not None:
+            i = self._currency_combo.findData(cur["code"])
+            if i >= 0:
+                self._currency_combo.setCurrentIndex(i)
+        self._date_edit.setText(sale["sale_date"])
+        self._rate_edit.setText(str(sale.get("exchange_rate") or "1"))
+        if sale.get("warehouse_id") is not None:
+            i = self._wh_combo.findData(sale["warehouse_id"])
+            if i >= 0:
+                self._wh_combo.setCurrentIndex(i)
+        # customer: registered vs walk-in snapshot
+        if sale.get("party_id"):
+            party = self._ctx.parties_repo.get(sale["party_id"])
+            self._set_customer_mode("registered")
+            self._party_id = sale["party_id"]
+            if party is not None:
+                self._party_selector.set_text(party.get("name") or "")
+                self._set_chip(self._chip_phone, party.get("phone") or "—", "neutral")
+                bal = self._ctx.sales_documents.receivable(self._party_id)
+                self._prev_balance = D(bal)
+                self._set_chip(self._chip_balance, format_money(bal),
+                               "danger" if D(bal) > 0 else "success")
+        elif sale.get("walkin_name"):
+            self._set_customer_mode("walkin")
+            self._walkin_name.setText(sale.get("walkin_name") or "")
+            self._walkin_phone.setText(sale.get("walkin_phone") or "")
+            self._walkin_address.setText(sale.get("walkin_address") or "")
+        # lines
+        unit_by_id = {u["id"]: u for u in self._ctx.units_repo.list_all()}
+        for ln in self._ctx.sales_repo.lines_for(sale_id):
+            item = self._ctx.items_repo.get(ln["item_id"]) or {}
+            unit = unit_by_id.get(ln["unit_id"], {})
+            self._lines.append({
+                "item_id": ln["item_id"], "unit_id": ln["unit_id"],
+                "code": item.get("item_code", ""), "name": item.get("name", ""),
+                "unit": unit.get("symbol") or unit.get("name_en") or "",
+                "qty": str(ln["quantity"]), "price": str(ln["unit_price"]),
+                "discount": str(ln["discount"]), "total": str(ln["line_total"]),
+                "wh_id": ln.get("warehouse_id"),
+                "wh_name": self._wh_combo.currentText()})
+        self._recv_edit.setText(str(sale.get("amount_paid") or "0"))
+        self._render_lines()
+        self._recompute_totals()
+        self._title.setText(
+            self._t.gettext("s4.correcting").replace("{no}", sale["document_no"]))
 
     # ---- errors ----------------------------------------------------------
 
@@ -757,6 +895,8 @@ class DocumentEntryPage(QWidget):
         if self._mode == "sale":
             self._seg_registered.setText(escape_amp(translator.gettext("s4.mode_registered")))
             self._seg_walkin.setText(escape_amp(translator.gettext("s4.mode_walkin")))
+            self._walkin_head.setText(translator.gettext("s4.walkin_head"))
+            self._walkin_name.setPlaceholderText(translator.gettext("s4.walkin_name_ph"))
             for key, lf in self._walkin_lfs:
                 lf.set_label(translator.gettext(key))
         self._items_label.setText(translator.gettext("s4.items"))
@@ -765,6 +905,9 @@ class DocumentEntryPage(QWidget):
         self._disc_label.setText(translator.gettext("si.discount"))
         self._recv_label.setText(translator.gettext("s4.amount_paid"))
         self._rem_label.setText(translator.gettext("si.remaining"))
+        self._prev_label.setText(translator.gettext("si.prev_balance"))
+        self._upd_label.setText(translator.gettext("si.updated_balance"))
+        self._reload_meta_sources()  # unit labels follow language
         self._kbd_note.setText(translator.gettext("s4.keyboard_hint"))
         self._seg_cash.setText(translator.gettext("si.pay_cash"))
         self._seg_credit.setText(translator.gettext("si.pay_credit"))
