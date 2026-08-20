@@ -28,6 +28,7 @@ from zenith_business.core.i18n import Translator
 from zenith_business.core.money import format_money
 from zenith_business.ui.components import (
     Card,
+    RowActions,
     chip,
     ghost_button,
     page_title,
@@ -176,11 +177,14 @@ class DocumentListPage(QWidget):
                 self._table.setColumnWidth(i, 110)
             else:
                 hh.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+        # Keep the party (stretch) column legible on narrow windows.
+        hh.setMinimumSectionSize(96)
         hh.setSectionResizeMode(len(cols), QHeaderView.ResizeMode.Fixed)
-        # Widen the actions column so Print + Return + Correct + Void never clip.
-        n_actions = sum(x is not None for x in (self._on_print, self._on_return,
-                                                self._on_correct, self._on_void))
-        self._table.setColumnWidth(len(cols), 130 if n_actions <= 1 else 84 * n_actions)
+        # Print stays inline; Return / Correct / Void collapse into a ⋯ menu, so
+        # the action column stays compact and never clips at 1366×768 (§G).
+        has_secondary = any(x is not None for x in (self._on_return, self._on_correct,
+                                                    self._on_void))
+        self._table.setColumnWidth(len(cols), 150 if has_secondary else 118)
         self._table.verticalHeader().setDefaultSectionSize(ControlSize.TABLE_ROW_HEIGHT + 6)
         return self._table
 
@@ -231,30 +235,25 @@ class DocumentListPage(QWidget):
         return host
 
     def _action_cell(self, data: dict) -> QWidget:
-        host = QWidget(); lay = QHBoxLayout(host)
-        lay.setContentsMargins(Spacing.SM, 0, Spacing.SM, 0); lay.setSpacing(Spacing.XS)
+        # Print is the high-frequency action → inline; Return / Correct / Void
+        # (only on POSTED, non-return documents) collapse into a ⋯ menu so the
+        # action column can't clip at 1366×768.
+        row = RowActions()
+        doc_id = data["id"]
         if self._on_print is not None:
-            b = ghost_button(self._t.gettext("s4.act_print"))
-            b.clicked.connect(lambda _c=False, i=data["id"]: self._on_print(i))
-            lay.addWidget(b)
-        if (self._on_return is not None and not self._is_return
-                and data.get("status") == "POSTED"):
-            rb = ghost_button(self._t.gettext("s4.act_return"))
-            rb.clicked.connect(lambda _c=False, i=data["id"]: self._on_return(i))
-            lay.addWidget(rb)
-        if (self._on_correct is not None and not self._is_return
-                and data.get("status") == "POSTED"):
-            cb = ghost_button(self._t.gettext("s4.act_correct"))
-            cb.clicked.connect(lambda _c=False, i=data["id"]: self._on_correct(i))
-            lay.addWidget(cb)
-        if (self._on_void is not None and not self._is_return
-                and data.get("status") == "POSTED"):
-            vb = ghost_button(self._t.gettext("s4.act_void"))
-            vb.setProperty("variant", "danger")
-            vb.clicked.connect(lambda _c=False, i=data["id"]: self._on_void(i))
-            lay.addWidget(vb)
-        lay.addStretch(1)
-        return host
+            row.add_button(self._t.gettext("s4.act_print"),
+                           lambda i=doc_id: self._on_print(i))
+        posted = (not self._is_return and data.get("status") == "POSTED")
+        if posted and self._on_return is not None:
+            row.add_menu_action(self._t.gettext("s4.act_return"),
+                                lambda i=doc_id: self._on_return(i))
+        if posted and self._on_correct is not None:
+            row.add_menu_action(self._t.gettext("s4.act_correct"),
+                                lambda i=doc_id: self._on_correct(i))
+        if posted and self._on_void is not None:
+            row.add_menu_action(self._t.gettext("s4.act_void"),
+                                lambda i=doc_id: self._on_void(i))
+        return row
 
     # ---- i18n ------------------------------------------------------------
 
