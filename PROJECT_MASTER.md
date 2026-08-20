@@ -16,7 +16,7 @@
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
 | PROJECT_MASTER.md Version | 2.0 |
-| Current Stage | **05 — RECEIPTS, PAYMENTS & EXPENSES (+ owner review rounds 1 & 2) — 🧪 READY FOR OWNER REVIEW (NOT locked, NOT merged)** |
+| Current Stage | **05 — RECEIPTS, PAYMENTS & EXPENSES (+ owner review rounds 1 & 2 + full UI/UX modernization) — 🧪 READY FOR OWNER REVIEW (NOT locked, NOT merged)** |
 | Database Schema Version | **7** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data, 0004 stage04_sales_purchases_returns, 0005 stage05_receipts_payments_expenses, 0006 owner_fixes_walkin_ledger_void, 0007 round2_sales_correction) |
 | Last Updated | 2026-08-17 |
 
@@ -1617,6 +1617,59 @@ screenshots; 2 self-found UI defects fixed before delivery.
 
 **Recommendation:** *STILL READY FOR OWNER REVIEW.* Not locked, not merged, Stage 06
 not started — awaiting owner manual acceptance of the corrected Windows build.
+
+---
+
+## 13N. Full UI/UX modernization — Stages 01–05 (READY FOR OWNER REVIEW)
+
+A **presentation-layer-only** modernization across every Stage 01–05 screen,
+applied in 7 controlled passes. **No database, migration, repository, service,
+accounting, inventory, posting, correction, auth, RBAC, audit, licensing or
+document-numbering behaviour was changed.** Schema stays **v7**. Full suite
+**391 passing** (377 baseline + 14 new UI tests). The single authorized
+functional addition is **New Item Opening Stock**, which introduces no new
+inventory behaviour — it orchestrates the *existing* `inventory.record_opening`
+service (one `OPENING` movement) after `items.create`.
+
+- **Pass 1 — shared foundation.** `FormDialog` recomposed into fixed header +
+  scrollable body + pinned Save/Cancel footer, clamped to `availableGeometry`
+  (so Save/Cancel can never leave the screen at 1366×768). New reusable
+  `RowActions` (inline buttons + `⋯` overflow menu). `ManagementPage` adopts it,
+  with a header `minimumSectionSize` floor. QSS for dialog header/footer + kebab.
+- **Pass 2 — login/shell/dashboard.** Login redesigned into a two-panel
+  composition: left **Zenith Soft** developer brand panel (company, kind,
+  Phone/Email/Address — phone & email forced LTR in RTL) and right product
+  login/setup form with a Version + Licence footer. Real Dari RTL mirroring. No
+  Zenith Soft logo asset exists → a typographic monogram is used (no invented
+  logo). Fixed a latent Qt quirk where bare `background:transparent` widget
+  stylesheets stripped child control fills (blanked the Sign In button / dialog
+  inputs) — moved to app-level ID-scoped rules.
+- **Pass 3 — documents.** Sales/Purchase Invoice already delivered the approved
+  reference layout (dominant items table, walk-in panel, strong Grand Total,
+  pinned actions) and inherits the design system; verified EN/Dari at 1366×768.
+  The **walk-in "paid in full" treatment reflects existing logic**
+  (`sales_documents.py` credit guard), not a new UI rule. Document lists moved
+  to Print-inline + `⋯` (Return/Correct/Void) — no more 4-button crowding.
+- **Pass 4 — master data.** New Item gains an **Opening Stock** section
+  (Opening Quantity + Opening Warehouse, create-only, stockable-only) → existing
+  `inventory.record_opening`. All master dialogs inherit the scroll+pinned
+  footer.
+- **Pass 5 — money/ledger.** Receipts/Payments/Expenses lists adopt `RowActions`
+  (View Account + Print inline). Ledgers/entry pages already on the system;
+  balances consumed from the authoritative party-ledger service.
+- **Pass 6 — users/account.** Change Password (Tools → My Account) confirmed
+  against the existing `change_own_password` (verifies current password, existing
+  hashing/policy, audited, RBAC-safe). Roles permission dialog de-duplicated to
+  use the native dialog scroll.
+- **Pass 7 — regression.** Responsive tests at **1366×768 / 1600×900 /
+  1920×1080** assert no action button falls off-screen (Sales Invoice with 12
+  lines, Receipt entry, tall FormDialog). Printed customer documents use the
+  **customer's** company identity + logo (`company.logo_path`), never Zenith
+  Soft's dev contact (§18 preserved).
+
+New UI tests: `test_ui_foundation.py`, `test_item_opening_stock_ui.py`,
+`test_responsive_layout.py`. Stage 05 remains **READY FOR OWNER REVIEW — not
+locked, not merged**; Stage 06 not started.
 
 ---
 
