@@ -7,6 +7,8 @@ locally. Nothing here contains business logic or touches the database.
 
 from __future__ import annotations
 
+from typing import Callable
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QIcon
 from PyQt6.QtWidgets import (
@@ -15,10 +17,12 @@ from PyQt6.QtWidgets import (
     QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QScrollArea,
     QSizePolicy,
     QStyle,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -366,3 +370,52 @@ class EmptyState(QWidget):
     def set_text(self, title: str, subtitle: str = "") -> None:
         self._title.setText(title)
         self._subtitle.setText(subtitle)
+
+
+class RowActions(QWidget):
+    """Compact table row-action control (design system §G / §15).
+
+    Renders zero or more *inline* buttons followed by an optional ``⋯`` overflow
+    menu holding the remaining actions. This keeps a table's action column from
+    clipping at 1366×768 while still exposing every action, and replaces the old
+    pattern of stacking three full-width buttons per row (which starved the
+    stretch column and built a heavy per-row widget tree).
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setStyleSheet("background: transparent;")
+        self._lay = QHBoxLayout(self)
+        self._lay.setContentsMargins(Spacing.SM, 0, Spacing.SM, 0)
+        self._lay.setSpacing(Spacing.XS)
+        self._lay.addStretch(1)
+        self._menu: QMenu | None = None
+        self._kebab: QToolButton | None = None
+
+    def add_button(self, label: str, handler: Callable[[], None], *,
+                   variant: str | None = None) -> QPushButton:
+        """Add a leading inline action button (highest-frequency actions)."""
+        btn = ghost_button(label)
+        if variant:
+            btn.setProperty("variant", variant)
+        btn.clicked.connect(lambda _c=False, h=handler: h())
+        self._lay.insertWidget(self._lay.count() - 1, btn)  # before the stretch
+        return btn
+
+    def add_menu_action(self, label: str, handler: Callable[[], None]):
+        """Add an action to the ``⋯`` overflow menu (created on first use)."""
+        if self._menu is None:
+            self._kebab = QToolButton()
+            self._kebab.setText("⋯")  # horizontal ellipsis ⋯
+            self._kebab.setProperty("role", "kebab")
+            self._kebab.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._kebab.setFixedSize(int(ControlSize.TOOLBAR_BUTTON_HEIGHT),
+                                     int(ControlSize.TOOLBAR_BUTTON_HEIGHT))
+            self._kebab.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+            self._menu = QMenu(self._kebab)
+            self._menu.setLayoutDirection(self.layoutDirection())
+            self._kebab.setMenu(self._menu)
+            self._lay.insertWidget(self._lay.count() - 1, self._kebab)
+        action = self._menu.addAction(label)
+        action.triggered.connect(lambda _c=False, h=handler: h())
+        return action

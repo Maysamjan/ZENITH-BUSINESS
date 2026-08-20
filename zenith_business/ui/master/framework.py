@@ -15,14 +15,17 @@ from typing import Callable
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QApplication,
     QComboBox,
     QDialog,
-    QDialogButtonBox,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
+    QScrollArea,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -32,6 +35,7 @@ from PyQt6.QtWidgets import (
 from zenith_business.core.i18n import Translator
 from zenith_business.ui.components import (
     Card,
+    RowActions,
     chip,
     error_label,
     field_label,
@@ -148,8 +152,16 @@ class ManagementPage(QWidget):
                 hh.setSectionResizeMode(i, QHeaderView.ResizeMode.Fixed)
             else:
                 hh.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+        # Keep the stretch (name/party) column legible on narrow windows: give
+        # every section a floor so the fixed action column can't starve it.
+        hh.setMinimumSectionSize(90)
         hh.setSectionResizeMode(len(columns), QHeaderView.ResizeMode.Fixed)
-        self._table.setColumnWidth(len(columns), 210)
+        # Action column width adapts to how many actions there are. With 3+
+        # actions the extras collapse into a ⋯ menu, so one inline + kebab fits
+        # in ~150px instead of three full buttons crowding the row.
+        n_actions = sum(x is not None for x in (on_view, on_edit, on_toggle_active))
+        act_w = 150 if n_actions > 2 else max(116, 84 * max(n_actions, 1) + 20)
+        self._table.setColumnWidth(len(columns), act_w)
         self._table.verticalHeader().setDefaultSectionSize(ControlSize.TABLE_ROW_HEIGHT + 6)
         self._table.doubleClicked.connect(self._on_row_double_clicked)
         root.addWidget(self._table, stretch=1)
@@ -211,27 +223,31 @@ class ManagementPage(QWidget):
         return host
 
     def _action_cell(self, data: dict) -> QWidget:
-        host = QWidget()
-        lay = QHBoxLayout(host)
-        lay.setContentsMargins(Spacing.SM, 0, Spacing.SM, 0)
-        lay.setSpacing(Spacing.XS)
+        # Build the ordered action list (highest priority first), then render as
+        # inline buttons (≤2) or one inline + a ⋯ overflow menu (3+) so the
+        # column never clips at 1366×768 (§G/§15).
+        actions: list[tuple[str, Callable[[], None], str | None]] = []
         if self._on_view is not None:
-            view = ghost_button(self._t.gettext(self._view_label_key))
-            view.setProperty("variant", "accent")
-            view.clicked.connect(lambda _c=False, d=data: self._on_view(d))
-            lay.addWidget(view)
+            actions.append((self._t.gettext(self._view_label_key),
+                            lambda d=data: self._on_view(d), "accent"))
         if self._on_edit is not None:
-            edit = ghost_button(self._t.gettext("md.edit"))
-            edit.clicked.connect(lambda _c=False, d=data: self._on_edit(d))
-            lay.addWidget(edit)
+            actions.append((self._t.gettext("md.edit"),
+                            lambda d=data: self._on_edit(d), None))
         if self._on_toggle is not None:
             active = bool(data.get("is_active", 1))
-            toggle = ghost_button(
-                self._t.gettext("md.deactivate" if active else "md.activate"))
-            toggle.clicked.connect(lambda _c=False, d=data: self._on_toggle(d))
-            lay.addWidget(toggle)
-        lay.addStretch(1)
-        return host
+            actions.append((self._t.gettext("md.deactivate" if active else "md.activate"),
+                            lambda d=data: self._on_toggle(d), None))
+
+        row = RowActions()
+        if len(actions) <= 2:
+            for label, handler, variant in actions:
+                row.add_button(label, handler, variant=variant)
+        else:
+            first_label, first_handler, first_variant = actions[0]
+            row.add_button(first_label, first_handler, variant=first_variant)
+            for label, handler, _variant in actions[1:]:
+                row.add_menu_action(label, handler)
+        return row
 
     def _on_row_double_clicked(self, index) -> None:
         rows = self._visible_rows()
@@ -253,7 +269,16 @@ class ManagementPage(QWidget):
 
 
 class FormDialog(QDialog):
-    """Sectioned create/edit dialog with a bottom Save/Cancel bar (§14)."""
+    """Sectioned create/edit dialog: a fixed header, a **scrollable body**, and a
+    **pinned Save/Cancel footer**, height-clamped to the available screen (§14, §I).
+
+    The public API (``add_section`` / ``add_field`` / ``set_submit`` /
+    ``set_error`` / ``clear_error`` and the ``_body`` layout used by a few
+    callers) is unchanged; only the internal composition gained a
+    :class:`QScrollArea` and a pinned footer so Save/Cancel can never be pushed
+    off-screen on small displays (1366×768). Enter still submits via the default
+    button.
+    """
 
     def __init__(self, translator: Translator, title: str,
                  parent: QWidget | None = None) -> None:
@@ -264,27 +289,80 @@ class FormDialog(QDialog):
         if parent is not None:
             self.setLayoutDirection(parent.layoutDirection())
 
-        self._root = QVBoxLayout(self)
-        self._root.setContentsMargins(Spacing.XL, Spacing.LG, Spacing.XL, Spacing.LG)
-        self._root.setSpacing(Spacing.SECTION_GAP)
-        self._root.addWidget(page_title(title))
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # ---- fixed header (title + error region) ----
+        header = QWidget()
+        header.setProperty("role", "dialog-header")
+        hl = QVBoxLayout(header)
+        hl.setContentsMargins(Spacing.XL, Spacing.LG, Spacing.XL, Spacing.SM)
+        hl.setSpacing(Spacing.XS)
+        hl.addWidget(page_title(title))
         self._error = error_label("")
         self._error.setVisible(False)
-        self._root.addWidget(self._error)
-        self._body = QVBoxLayout()
-        self._body.setSpacing(Spacing.MD)
-        self._root.addLayout(self._body)
-        self._root.addStretch(1)
+        hl.addWidget(self._error)
+        outer.addWidget(header)
 
-        buttons = QDialogButtonBox()
+        # ---- scrollable body (grows here; scrolls when tall) ----
+        inner = QWidget()
+        inner.setStyleSheet("background: transparent;")
+        self._body = QVBoxLayout(inner)
+        self._body.setContentsMargins(Spacing.XL, Spacing.MD, Spacing.XL, Spacing.LG)
+        self._body.setSpacing(Spacing.MD)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(inner)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.viewport().setStyleSheet("background: transparent;")
+        outer.addWidget(scroll, 1)
+        self._scroll = scroll
+
+        # ---- pinned footer (Save/Cancel — never scrolls away) ----
+        footer = QWidget()
+        footer.setProperty("role", "dialog-footer")
+        fl = QHBoxLayout(footer)
+        fl.setContentsMargins(Spacing.XL, Spacing.SM, Spacing.XL, Spacing.SM)
+        fl.setSpacing(Spacing.SM)
+        fl.addStretch(1)
         self._save = primary_button(self._t.gettext("action.save"))
         self._cancel = secondary_button(self._t.gettext("action.cancel"))
-        buttons.addButton(self._save, QDialogButtonBox.ButtonRole.AcceptRole)
-        buttons.addButton(self._cancel, QDialogButtonBox.ButtonRole.RejectRole)
+        fl.addWidget(self._cancel)
+        fl.addWidget(self._save)
+        self._save.setDefault(True)
+        self._save.setAutoDefault(True)
         self._save.clicked.connect(self._on_save)
         self._cancel.clicked.connect(self.reject)
-        self._root.addWidget(buttons)
+        outer.addWidget(footer)
+
         self._on_submit: Callable[[], None] | None = None
+
+    # ---- keep Save/Cancel on-screen at any resolution -------------------
+
+    def showEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        super().showEvent(event)
+        self._clamp_to_screen()
+
+    def _clamp_to_screen(self) -> None:
+        """Never exceed the available screen; re-centre within the work area."""
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is None:
+            return
+        avail = screen.availableGeometry()
+        max_h = int(avail.height() * 0.92)
+        max_w = int(avail.width() * 0.96)
+        self.setMaximumHeight(max_h)
+        if self.height() > max_h:
+            self.resize(min(self.width(), max_w), max_h)
+        frame = self.frameGeometry()
+        frame.moveCenter(avail.center())
+        if frame.top() < avail.top():
+            frame.moveTop(avail.top())
+        if frame.left() < avail.left():
+            frame.moveLeft(avail.left())
+        self.move(frame.topLeft())
 
     def add_section(self, title: str) -> QGridLayout:
         from zenith_business.ui.components import section_title

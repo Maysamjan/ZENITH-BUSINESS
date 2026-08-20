@@ -483,6 +483,30 @@ def build_stylesheet() -> str:
     /* ==== dialogs ======================================================= */
     QDialog {{ background-color: {c.BACKGROUND}; }}
     QMessageBox {{ background-color: {c.SURFACE}; }}
+    /* Sectioned FormDialog: fixed header, scrollable body, pinned footer (§I). */
+    QWidget[role="dialog-header"] {{
+        background-color: {c.SURFACE};
+        border-bottom: 1px solid {c.BORDER};
+    }}
+    QWidget[role="dialog-footer"] {{
+        background-color: {c.SURFACE_ALT};
+        border-top: 1px solid {c.BORDER};
+    }}
+
+    /* ==== compact row-action (⋯ more) button on tables ================== */
+    QToolButton[role="kebab"] {{
+        background-color: transparent;
+        border: 1px solid transparent;
+        border-radius: {Radius.SM}px;
+        color: {c.TEXT_SECONDARY};
+        padding: 0;
+    }}
+    QToolButton[role="kebab"]:hover {{
+        background-color: {c.SURFACE_ALT};
+        border-color: {c.BORDER};
+        color: {c.PRIMARY};
+    }}
+    QToolButton[role="kebab"]::menu-indicator {{ image: none; width: 0; }}
 
     /* ==== authentication screens (Stage 02) ============================= */
     QScrollArea#AuthScroll {{ background-color: {c.HEADER_BG}; border: none; }}
