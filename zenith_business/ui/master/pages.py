@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from zenith_business.core.i18n import Translator
-from zenith_business.core.money import format_money
+from zenith_business.core.money import D, format_money
 from zenith_business.services.context import ApplicationContext
 from zenith_business.services.exceptions import ZenithError
 from zenith_business.ui.components import (
@@ -35,6 +35,7 @@ from zenith_business.ui.components import (
     page_subtitle,
     page_title,
     primary_button,
+    secondary,
     section_title,
 )
 from zenith_business.ui.design.tokens import FieldWidth, Spacing
@@ -124,6 +125,33 @@ class ItemsPage(_BasePage):
         g4 = dlg.add_section(_t(t, "items.sec_inventory"))
         dlg.add_field(g4, 0, 0, _t(t, "items.col_min"), minstock, width=FieldWidth.SM)
 
+        # Opening Stock — creating an inventory-controlled item can record its
+        # current stock via the EXISTING inventory.record_opening service (one
+        # OPENING movement). Only offered on create (editing opening stock after
+        # the fact would corrupt stock history — "opening" vs "current" stock).
+        opening_qty = QLineEdit("0")
+        opening_wh = QComboBox()
+        for w in self._ctx.warehouses_repo.list_active():
+            opening_wh.addItem(w["name"], w["id"])
+            if w.get("is_default"):
+                opening_wh.setCurrentIndex(opening_wh.count() - 1)
+        opening_widgets = []
+        if existing is None:
+            dlg.add_field(g4, 0, 1, _t(t, "items.f_opening_qty"), opening_qty,
+                          width=FieldWidth.SM)
+            dlg.add_field(g4, 1, 0, _t(t, "items.f_opening_wh"), opening_wh,
+                          width=FieldWidth.MD)
+            hint = secondary(_t(t, "items.opening_hint")); hint.setWordWrap(True)
+            g4.addWidget(hint, 2, 0, 1, 2)
+            opening_widgets = [opening_qty, opening_wh]
+
+            def _sync_opening() -> None:
+                on = stockable.isChecked()
+                for w in opening_widgets:
+                    w.setEnabled(on)
+            stockable.toggled.connect(lambda _c: _sync_opening())
+            _sync_opening()
+
         if existing:
             code.setText(existing["item_code"]); code.setEnabled(False)
             name.setText(existing["name"]); alt.setText(existing.get("alternate_name") or "")
@@ -144,12 +172,21 @@ class ItemsPage(_BasePage):
                         default_sale_price=sale.text(), reorder_level=minstock.text(),
                         track_inventory=stockable.isChecked())
                 else:
-                    self._ctx.items.create(
+                    new_id = self._ctx.items.create(
                         item_code=code.text(), name=name.text(), base_unit_id=unit.currentData(),
                         barcode=barcode.text(), alternate_name=alt.text(),
                         category_id=cat.currentData(), purchase_price=purchase.text(),
                         default_sale_price=sale.text(), reorder_level=minstock.text(),
                         track_inventory=stockable.isChecked())
+                    # Record opening stock via the EXISTING inventory service (one
+                    # OPENING movement) when a stockable item is created with a
+                    # positive opening quantity and a warehouse is chosen.
+                    if (stockable.isChecked()
+                            and D(opening_qty.text() or "0") > 0
+                            and opening_wh.currentData() is not None):
+                        self._ctx.inventory.record_opening(
+                            item_id=new_id, warehouse_id=opening_wh.currentData(),
+                            quantity_on_hand=opening_qty.text())
             except ZenithError as exc:
                 dlg.set_error(exc.user_message); return
             dlg.accept(); self.reload()

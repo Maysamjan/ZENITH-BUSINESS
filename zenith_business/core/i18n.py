@@ -499,7 +499,18 @@ _CATALOG: dict[str, dict[str, str]] = {
     "items.sec_general": {LANG_ENGLISH: "General", LANG_DARI: "عمومی"},
     "items.sec_classification": {LANG_ENGLISH: "Classification", LANG_DARI: "دسته‌بندی"},
     "items.sec_pricing": {LANG_ENGLISH: "Pricing", LANG_DARI: "قیمت‌گذاری"},
-    "items.sec_inventory": {LANG_ENGLISH: "Inventory", LANG_DARI: "موجودی"},
+    "items.sec_inventory": {LANG_ENGLISH: "Inventory & Opening Stock",
+                            LANG_DARI: "موجودی و موجودی اولیه"},
+    "items.f_opening_qty": {LANG_ENGLISH: "Opening Quantity",
+                            LANG_DARI: "موجودی اولیه"},
+    "items.f_opening_wh": {LANG_ENGLISH: "Opening Warehouse",
+                           LANG_DARI: "انبار موجودی اولیه"},
+    "items.opening_hint": {
+        LANG_ENGLISH: "Starting stock on hand now. Records one opening inventory "
+                      "movement to the chosen warehouse. Leave 0 if none.",
+        LANG_DARI: "موجودی فعلی این جنس. یک حرکت موجودی اولیه در انبار انتخاب‌شده "
+                   "ثبت می‌کند. اگر موجودی ندارید ۰ بگذارید.",
+    },
     "items.f_stockable": {LANG_ENGLISH: "Track inventory (stockable)",
                           LANG_DARI: "کنترل موجودی (قابل انبار)"},
     "items.filter_category": {LANG_ENGLISH: "Category", LANG_DARI: "دسته"},
