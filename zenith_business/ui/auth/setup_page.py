@@ -35,8 +35,9 @@ class InitialAdminSetupPage(QWidget):
         self._t = translator
         self._on_submit = on_submit
         # Scope the transparent background to THIS widget only (see LoginPage).
+        # Transparency via the app-level stylesheet (theme.py), not a
+        # widget-level sheet, so child controls keep their app QSS backgrounds.
         self.setObjectName("SetupPageRoot")
-        self.setStyleSheet("QWidget#SetupPageRoot { background: transparent; }")
 
         col = QVBoxLayout(self)
         col.setContentsMargins(0, 0, 0, 0)

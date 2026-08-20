@@ -400,6 +400,29 @@ _CATALOG: dict[str, dict[str, str]] = {
         LANG_ENGLISH: "Zenith Soft · Secure offline access",
         LANG_DARI: "زینت سافت · دسترسی امن آفلاین",
     },
+    # ---- developer (Zenith Soft) brand panel on the login screen ----------
+    "brand.company": {LANG_ENGLISH: "ZENITH SOFT", LANG_DARI: "زینیت سافت"},
+    "brand.kind": {
+        LANG_ENGLISH: "Software Development Company",
+        LANG_DARI: "شرکت توسعه نرم‌افزار",
+    },
+    "brand.phone_label": {LANG_ENGLISH: "Phone", LANG_DARI: "شماره تماس"},
+    "brand.email_label": {LANG_ENGLISH: "Email", LANG_DARI: "ایمیل"},
+    "brand.address_label": {LANG_ENGLISH: "Address", LANG_DARI: "آدرس"},
+    "brand.address_value": {
+        LANG_ENGLISH: "Qala-e-Fatullah, 3rd Street, Kabul, Afghanistan",
+        LANG_DARI: "کابل، قلعه فتح‌الله، سرک سوم",
+    },
+    "brand.product_lead": {
+        LANG_ENGLISH: "The complete desktop solution for your business.",
+        LANG_DARI: "راه‌حل کامل دسکتاپ برای کسب‌وکار شما.",
+    },
+    "login.version": {LANG_ENGLISH: "Version", LANG_DARI: "نسخه"},
+    "login.licence": {LANG_ENGLISH: "Licence", LANG_DARI: "جواز"},
+    "login.licence_dev": {
+        LANG_ENGLISH: "Offline desktop edition",
+        LANG_DARI: "نسخه دسکتاپ آفلاین",
+    },
     # initial administrator setup
     "setup.title": {LANG_ENGLISH: "Welcome — Create Administrator",
                     LANG_DARI: "خوش آمدید — ایجاد مدیر سیستم"},

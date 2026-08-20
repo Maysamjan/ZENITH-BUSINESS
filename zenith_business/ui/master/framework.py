@@ -306,8 +306,10 @@ class FormDialog(QDialog):
         outer.addWidget(header)
 
         # ---- scrollable body (grows here; scrolls when tall) ----
+        # NB: no bare "background: transparent" widget stylesheet here — that
+        # would cascade onto child inputs/buttons and strip their app-QSS fills.
+        # The body simply inherits the dialog's background (BACKGROUND).
         inner = QWidget()
-        inner.setStyleSheet("background: transparent;")
         self._body = QVBoxLayout(inner)
         self._body.setContentsMargins(Spacing.XL, Spacing.MD, Spacing.XL, Spacing.LG)
         self._body.setSpacing(Spacing.MD)
@@ -316,7 +318,6 @@ class FormDialog(QDialog):
         scroll.setWidget(inner)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.viewport().setStyleSheet("background: transparent;")
         outer.addWidget(scroll, 1)
         self._scroll = scroll
 

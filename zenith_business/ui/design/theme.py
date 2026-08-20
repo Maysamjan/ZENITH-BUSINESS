@@ -508,18 +508,20 @@ def build_stylesheet() -> str:
     }}
     QToolButton[role="kebab"]::menu-indicator {{ image: none; width: 0; }}
 
-    /* ==== authentication screens (Stage 02) ============================= */
-    QScrollArea#AuthScroll {{ background-color: {c.HEADER_BG}; border: none; }}
-    QScrollArea#AuthScroll > QWidget > QWidget {{ background-color: {c.HEADER_BG}; }}
-    QWidget#AuthBackdrop {{
-        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-            stop:0 {c.HEADER_BG}, stop:0.55 {c.HEADER_BG_ALT}, stop:1 {c.WORKSPACE_BOTTOM});
+    /* ==== authentication — two-panel login (Stage 02 / Pass 2) ========== */
+    QWidget#AuthBrandPanel {{
+        background: qlineargradient(x1:0, y1:0, x2:0.6, y2:1,
+            stop:0 {c.HEADER_BG_ALT}, stop:0.6 {c.HEADER_BG}, stop:1 {c.HEADER_BORDER});
     }}
-    QFrame#AuthCard {{
-        background-color: {c.SURFACE};
-        border: 1px solid {c.BORDER};
-        border-radius: {Radius.XL}px;
-    }}
+    QWidget#AuthBrandPanel QLabel {{ background: transparent; color: {c.HEADER_TEXT}; }}
+    QWidget#AuthFormPanel {{ background-color: {c.SURFACE}; }}
+    /* Login/setup page bodies are transparent (sit on the surface panel).
+       Declared app-level, NOT as a widget stylesheet, so child controls keep
+       their app QSS backgrounds. */
+    QWidget#LoginPageRoot, QWidget#SetupPageRoot {{ background: transparent; }}
+    QWidget#AuthContactRow {{ background: transparent; }}
+    QScrollArea#AuthScroll {{ background: transparent; border: none; }}
+    QScrollArea#AuthScroll > QWidget > QWidget {{ background: transparent; }}
     QLabel#AuthBrandMark {{
         background-color: {c.PRIMARY};
         color: {c.TEXT_ON_PRIMARY};
@@ -527,28 +529,39 @@ def build_stylesheet() -> str:
         font-weight: {t.WEIGHT_BOLD};
         border-radius: {Radius.LG}px;
     }}
-    QLabel#AuthBrandTitle {{
-        color: {c.TEXT_ON_PRIMARY};
+    QLabel#AuthBrandCompany {{
+        color: {c.HEADER_TEXT};
+        font-size: {t.SIZE_BRAND_HOME}pt;
+        font-weight: {t.WEIGHT_BOLD};
+        letter-spacing: 2px;
+    }}
+    QLabel#AuthBrandKind {{
+        color: {c.HEADER_TEXT_MUTED}; font-size: {t.SIZE_SECTION_TITLE}pt;
+    }}
+    QWidget#AuthBrandRule {{ background-color: {c.HEADER_BG_ALT}; }}
+    QLabel#AuthBrandLead {{ color: {c.HEADER_TEXT_MUTED}; font-size: {t.SIZE_BODY}pt; }}
+    QLabel#AuthContactLabel {{
+        color: {c.HEADER_TEXT_MUTED}; font-size: {t.SIZE_CAPTION}pt;
+        font-weight: {t.WEIGHT_SEMIBOLD}; letter-spacing: 0.5px;
+    }}
+    QLabel#AuthContactValue {{ color: {c.HEADER_TEXT}; font-size: {t.SIZE_BODY}pt; }}
+    QLabel#AuthProduct {{
+        color: {c.TEXT_PRIMARY};
         font-size: {t.SIZE_BRAND_HOME}pt;
         font-weight: {t.WEIGHT_BOLD};
         letter-spacing: 1px;
-        background: transparent;
     }}
-    QLabel#AuthBrandTagline {{
-        color: {c.HEADER_TEXT_MUTED};
-        font-size: {t.SIZE_TAGLINE}pt;
-        background: transparent;
-    }}
+    QLabel#AuthTagline {{ color: {c.TEXT_SECONDARY}; font-size: {t.SIZE_TAGLINE}pt; }}
     QLabel#AuthFooter {{ color: {c.TEXT_MUTED}; font-size: {t.SIZE_CAPTION}pt; }}
     QPushButton[authlang="true"] {{
         background-color: transparent;
-        color: {c.HEADER_TEXT_MUTED};
-        border: 1px solid {c.HEADER_BG_ALT};
+        color: {c.TEXT_SECONDARY};
+        border: 1px solid {c.BORDER};
         border-radius: {Radius.SM}px;
         padding: {Spacing.XXS}px {Spacing.MD}px;
         min-height: {ControlSize.TOOLBAR_BUTTON_HEIGHT}px;
     }}
-    QPushButton[authlang="true"]:hover {{ color: {c.HEADER_TEXT}; }}
+    QPushButton[authlang="true"]:hover {{ color: {c.PRIMARY}; border-color: {c.PRIMARY}; }}
     QPushButton[authlang="true"][selected="true"] {{
         background-color: {c.PRIMARY}; color: {c.TEXT_ON_PRIMARY}; border: 1px solid {c.PRIMARY};
     }}
