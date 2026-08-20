@@ -24,7 +24,14 @@ from PyQt6.QtWidgets import (
 )
 
 from zenith_business.core.money import format_money
-from zenith_business.ui.components import Card, chip, ghost_button, page_title, primary_button
+from zenith_business.ui.components import (
+    Card,
+    RowActions,
+    chip,
+    ghost_button,
+    page_title,
+    primary_button,
+)
 from zenith_business.ui.design.tokens import ControlSize, FieldWidth, Spacing
 
 _STATUS_CHIP = {"POSTED": ("s4.status_posted", "success"),
@@ -200,21 +207,20 @@ class MoneyListPage(QWidget):
         self._render()
 
     def _action_cell(self, data: dict) -> QWidget:
-        host = QWidget(); lay = QHBoxLayout(host)
-        lay.setContentsMargins(Spacing.SM, 0, Spacing.SM, 0); lay.setSpacing(Spacing.XS)
-        if self._on_print is not None:
-            b = ghost_button(self._t.gettext("s4.act_print"))
-            b.clicked.connect(lambda _c=False, i=data["id"]: self._on_print(i))
-            lay.addWidget(b)
+        # Both actions are high-frequency for a receipts/payments list, so they
+        # stay inline (≤2 actions → no overflow menu needed).
+        row = RowActions()
         if (self._on_view_account is not None and self._mode in ("receipt", "payment")
                 and data.get("party_id")):
             role = "customer" if self._mode == "receipt" else "supplier"
-            v = ghost_button(self._t.gettext("md.view")); v.setProperty("variant", "accent")
-            v.clicked.connect(
-                lambda _c=False, pid=data["party_id"], rl=role: self._on_view_account(pid, rl))
-            lay.addWidget(v)
-        lay.addStretch(1)
-        return host
+            row.add_button(
+                self._t.gettext("md.view"),
+                lambda pid=data["party_id"], rl=role: self._on_view_account(pid, rl),
+                variant="accent")
+        if self._on_print is not None:
+            row.add_button(self._t.gettext("s4.act_print"),
+                           lambda i=data["id"]: self._on_print(i))
+        return row
 
     def retranslate(self, translator) -> None:
         self._t = translator
