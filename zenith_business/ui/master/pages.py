@@ -721,8 +721,10 @@ class RolesPage(_BasePage):
         t = self._t
         dlg = FormDialog(t, f"{row['name']} — {_t(t, 'role.edit_perms')}", parent=self.window())
         current = self._ctx.roles.permissions_for_role(row["id"])
-        scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setMinimumHeight(360)
-        holder = QWidget(); col = QVBoxLayout(holder); col.setSpacing(Spacing.SM)
+        # The FormDialog body scrolls natively now (Pass 1), so the permission
+        # groups are added straight into it — no nested QScrollArea needed.
+        holder = QWidget(); col = QVBoxLayout(holder)
+        col.setContentsMargins(0, 0, 0, 0); col.setSpacing(Spacing.SM)
         checks: dict[str, QCheckBox] = {}
         for group, pairs in self._ctx.roles.permission_groups():
             col.addWidget(section_title(group.title()))
@@ -730,9 +732,7 @@ class RolesPage(_BasePage):
                 cb = QCheckBox(label); cb.setChecked(code in current)
                 checks[code] = cb
                 col.addWidget(cb)
-        col.addStretch(1)
-        scroll.setWidget(holder)
-        dlg._body.addWidget(scroll)  # noqa: SLF001
+        dlg._body.addWidget(holder)  # noqa: SLF001
 
         def submit() -> None:
             selected = [c for c, cb in checks.items() if cb.isChecked()]
