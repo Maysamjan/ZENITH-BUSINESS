@@ -102,6 +102,33 @@ def test_walkin_customer_fields_clear_and_stable(biz, qapp):
     pg.close()
 
 
+def test_walkin_panel_not_clipped_in_real_main_window(biz, qapp):
+    """Regression: inside the real MainWindow at 1366×768 the header must NOT be
+    squeezed by the Expanding items table, so the (taller) walk-in panel is shown
+    at its full content height instead of clipping the input fields.
+    """
+    from zenith_business.core.config import AppConfig, LANG_DARI
+    from zenith_business.ui.design.theme import build_stylesheet
+    from zenith_business.ui.main_window import MainWindow
+
+    QApplication.instance().setStyleSheet(build_stylesheet())
+    cfg = AppConfig(); cfg.ui.language = LANG_DARI
+    win = MainWindow(cfg, database=biz.db, current_user=biz.session.user, context=biz)
+    win.resize(1366, 768)
+    entry = win._s4_sales_entry
+    win.content.setCurrentWidget(entry)
+    entry._set_customer_mode("walkin")
+    win.show()
+    QApplication.processEvents()
+    QApplication.processEvents()
+    panel = entry._walkin_wrap
+    # the panel gets its full content height (was clipped to ~78px before the fix)
+    assert panel.height() >= panel.minimumSizeHint().height() - 1
+    # and the action bar stays on-screen
+    assert entry._btn_post.mapTo(win, entry._btn_post.rect().bottomLeft()).y() <= win.height()
+    win.close()
+
+
 def test_form_dialog_footer_within_screen(qapp):
     from zenith_business.ui.master.framework import FormDialog
 

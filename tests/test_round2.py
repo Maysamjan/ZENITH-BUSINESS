@@ -136,7 +136,7 @@ def test_invoice_many_lines_and_unit_and_item_edit(biz, qapp):
     from zenith_business.ui.documents.entry_page import DocumentEntryPage
     pg = DocumentEntryPage(biz, Translator(), mode="sale")
     assert pg._unit_combo.count() >= 1           # per-line unit selector present
-    assert pg._table.minimumHeight() >= 150      # dominant, Expanding items table
+    assert pg._table.minimumHeight() >= 100      # dominant, Expanding items table
     from PyQt6.QtWidgets import QSizePolicy
     assert pg._table.sizePolicy().verticalPolicy() == QSizePolicy.Policy.Expanding
     rice_pl = {"item_id": biz.rice, "base_unit_id": biz.bag, "item_code": "RICE",

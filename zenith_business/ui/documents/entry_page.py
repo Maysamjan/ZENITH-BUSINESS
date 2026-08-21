@@ -133,7 +133,11 @@ class DocumentEntryPage(QWidget):
         # Compact header so the dominant items table keeps the vertical space (§5).
         card.body.setContentsMargins(Spacing.CARD_PAD_H, Spacing.XS, Spacing.CARD_PAD_H, Spacing.XS)
         card.body.setSpacing(Spacing.XXS)
-        card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        # Minimum (not Maximum) vertical policy: the header takes exactly its
+        # content height and never grows to steal the table's space — but it must
+        # NEVER be compressed below its content either, otherwise the (taller)
+        # walk-in panel gets clipped when the Expanding items table is greedy.
+        card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         t = self._t
 
         # Retained for retranslate but shown inline (no separate row) to save height.
@@ -193,8 +197,8 @@ class DocumentEntryPage(QWidget):
                 "QFrame#WalkinPanel { background: #eef4fb; border: 1px solid #c8d7ec;"
                 " border-radius: 8px; }")
             pv = QVBoxLayout(panel)
-            pv.setContentsMargins(Spacing.CARD_PAD_H, Spacing.CARD_PAD_V,
-                                  Spacing.CARD_PAD_H, Spacing.CARD_PAD_V)
+            pv.setContentsMargins(Spacing.CARD_PAD_H, Spacing.SM,
+                                  Spacing.CARD_PAD_H, Spacing.SM)
             pv.setSpacing(Spacing.SM)
             self._walkin_head = eyebrow(t.gettext("s4.walkin_head"))
             self._walkin_head.setWordWrap(True)
@@ -216,6 +220,9 @@ class DocumentEntryPage(QWidget):
             self._walkin_lfs: list[tuple[str, LabeledField]] = []
             for key, ctrl, minw, stretch in walkin_specs:
                 ctrl.setMinimumWidth(int(minw))
+                # An enforced minimum HEIGHT is what stops the inputs collapsing /
+                # clipping when the panel is under vertical pressure.
+                ctrl.setMinimumHeight(int(ControlSize.INPUT_HEIGHT))
                 ctrl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
                 lf = LabeledField(t.gettext(key), ctrl)
                 lf.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -223,6 +230,9 @@ class DocumentEntryPage(QWidget):
                 wrow.addWidget(lf, stretch)
             pv.addLayout(wrow)
             self._walkin_wrap = panel
+            # The panel demands its full content height (sizeHint = minimum) so it
+            # can never be squeezed/clipped by the greedy items table below.
+            panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
             self._walkin_wrap.setVisible(False)
             self._walkin_name.returnPressed.connect(self._item_focus)
             card.body.addWidget(self._walkin_wrap)
@@ -388,9 +398,14 @@ class DocumentEntryPage(QWidget):
         # a generous floor keeps ~7-8 rows visible even under the fixed header/totals
         # at 1024×768, and its root stretch lets it grow (with internal scrolling for
         # 10+ lines) so secondary controls never squeeze the invoice lines.
-        # A modest floor guarantees ~5 rows even at 1024×768; the Expanding policy
-        # lets the table grow to dominate the screen at larger resolutions.
-        self._table.setMinimumHeight(150)
+        # A modest floor keeps the table usable; the Expanding policy lets it grow
+        # to dominate the screen at larger resolutions and scroll internally when
+        # short. The floor is deliberately below the header's needs so the grid —
+        # not the header — absorbs any vertical squeeze at 1366×768 (otherwise the
+        # taller walk-in panel in the header gets clipped). The table stays the
+        # dominant, growing area at every normal window size via the Expanding
+        # policy; only its *floor* is modest.
+        self._table.setMinimumHeight(100)
         self._table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         from PyQt6.QtWidgets import QHeaderView
         header = self._table.horizontalHeader()
