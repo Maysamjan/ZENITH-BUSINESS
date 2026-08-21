@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from zenith_business.core.i18n import Translator
-from zenith_business.core.money import format_money
+from zenith_business.core.money import D, format_money
 from zenith_business.services.context import ApplicationContext
 from zenith_business.services.exceptions import ZenithError
 from zenith_business.ui.components import (
@@ -35,6 +35,7 @@ from zenith_business.ui.components import (
     page_subtitle,
     page_title,
     primary_button,
+    secondary,
     section_title,
 )
 from zenith_business.ui.design.tokens import FieldWidth, Spacing
@@ -124,6 +125,33 @@ class ItemsPage(_BasePage):
         g4 = dlg.add_section(_t(t, "items.sec_inventory"))
         dlg.add_field(g4, 0, 0, _t(t, "items.col_min"), minstock, width=FieldWidth.SM)
 
+        # Opening Stock — creating an inventory-controlled item can record its
+        # current stock via the EXISTING inventory.record_opening service (one
+        # OPENING movement). Only offered on create (editing opening stock after
+        # the fact would corrupt stock history — "opening" vs "current" stock).
+        opening_qty = QLineEdit("0")
+        opening_wh = QComboBox()
+        for w in self._ctx.warehouses_repo.list_active():
+            opening_wh.addItem(w["name"], w["id"])
+            if w.get("is_default"):
+                opening_wh.setCurrentIndex(opening_wh.count() - 1)
+        opening_widgets = []
+        if existing is None:
+            dlg.add_field(g4, 0, 1, _t(t, "items.f_opening_qty"), opening_qty,
+                          width=FieldWidth.SM)
+            dlg.add_field(g4, 1, 0, _t(t, "items.f_opening_wh"), opening_wh,
+                          width=FieldWidth.MD)
+            hint = secondary(_t(t, "items.opening_hint")); hint.setWordWrap(True)
+            g4.addWidget(hint, 2, 0, 1, 2)
+            opening_widgets = [opening_qty, opening_wh]
+
+            def _sync_opening() -> None:
+                on = stockable.isChecked()
+                for w in opening_widgets:
+                    w.setEnabled(on)
+            stockable.toggled.connect(lambda _c: _sync_opening())
+            _sync_opening()
+
         if existing:
             code.setText(existing["item_code"]); code.setEnabled(False)
             name.setText(existing["name"]); alt.setText(existing.get("alternate_name") or "")
@@ -144,12 +172,21 @@ class ItemsPage(_BasePage):
                         default_sale_price=sale.text(), reorder_level=minstock.text(),
                         track_inventory=stockable.isChecked())
                 else:
-                    self._ctx.items.create(
+                    new_id = self._ctx.items.create(
                         item_code=code.text(), name=name.text(), base_unit_id=unit.currentData(),
                         barcode=barcode.text(), alternate_name=alt.text(),
                         category_id=cat.currentData(), purchase_price=purchase.text(),
                         default_sale_price=sale.text(), reorder_level=minstock.text(),
                         track_inventory=stockable.isChecked())
+                    # Record opening stock via the EXISTING inventory service (one
+                    # OPENING movement) when a stockable item is created with a
+                    # positive opening quantity and a warehouse is chosen.
+                    if (stockable.isChecked()
+                            and D(opening_qty.text() or "0") > 0
+                            and opening_wh.currentData() is not None):
+                        self._ctx.inventory.record_opening(
+                            item_id=new_id, warehouse_id=opening_wh.currentData(),
+                            quantity_on_hand=opening_qty.text())
             except ZenithError as exc:
                 dlg.set_error(exc.user_message); return
             dlg.accept(); self.reload()
@@ -181,10 +218,11 @@ class PersonsPage(_BasePage):
             Column("roles_display", "persons.col_roles", width=160),
             Column("is_active", "persons.col_status", width=110, kind="status"),
         ]
+        self._on_view_account = None  # set by main window (contextual ledger, round 2)
         self.page = ManagementPage(
             translator, title_key="persons.title", subtitle_key=None, columns=columns,
             new_label_key="persons.new", on_new=self._new, on_edit=self._edit,
-            on_toggle_active=self._toggle)
+            on_toggle_active=self._toggle, on_view=self._view, view_label_key="md.view")
         self.page.connect_refresh(self.reload)
         self._role_filter = QComboBox()
         for key, val in (("md.all", None), ("persons.role_customer", "customer"),
@@ -205,6 +243,16 @@ class PersonsPage(_BasePage):
                 marks.append(_t(self._t, "persons.f_supplier"))
             r["roles_display"] = " + ".join(marks)
         self.page.set_rows(rows)
+
+    def set_view_account_handler(self, handler) -> None:
+        """Wire the contextual 'View Account' action (party_id, role) -> ledger."""
+        self._on_view_account = handler
+
+    def _view(self, row: dict) -> None:
+        if self._on_view_account is None:
+            return
+        role = "customer" if row.get("is_customer") else "supplier"
+        self._on_view_account(row["id"], role)
 
     def _dialog(self, existing: dict | None) -> None:
         t = self._t
@@ -673,8 +721,10 @@ class RolesPage(_BasePage):
         t = self._t
         dlg = FormDialog(t, f"{row['name']} — {_t(t, 'role.edit_perms')}", parent=self.window())
         current = self._ctx.roles.permissions_for_role(row["id"])
-        scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setMinimumHeight(360)
-        holder = QWidget(); col = QVBoxLayout(holder); col.setSpacing(Spacing.SM)
+        # The FormDialog body scrolls natively now (Pass 1), so the permission
+        # groups are added straight into it — no nested QScrollArea needed.
+        holder = QWidget(); col = QVBoxLayout(holder)
+        col.setContentsMargins(0, 0, 0, 0); col.setSpacing(Spacing.SM)
         checks: dict[str, QCheckBox] = {}
         for group, pairs in self._ctx.roles.permission_groups():
             col.addWidget(section_title(group.title()))
@@ -682,9 +732,7 @@ class RolesPage(_BasePage):
                 cb = QCheckBox(label); cb.setChecked(code in current)
                 checks[code] = cb
                 col.addWidget(cb)
-        col.addStretch(1)
-        scroll.setWidget(holder)
-        dlg._body.addWidget(scroll)  # noqa: SLF001
+        dlg._body.addWidget(holder)  # noqa: SLF001
 
         def submit() -> None:
             selected = [c for c, cb in checks.items() if cb.isChecked()]

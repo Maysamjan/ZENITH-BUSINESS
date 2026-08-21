@@ -18,6 +18,7 @@ class CompanyInfo:
     phone: str
     email: str
     tax_id: str
+    logo_path: str = ""  # optional stored logo image; empty → letter-mark fallback
 
 
 @dataclass(frozen=True)

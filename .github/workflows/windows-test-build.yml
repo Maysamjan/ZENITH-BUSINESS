@@ -1,0 +1,107 @@
+name: Windows Test Build
+
+# Builds a self-contained Windows test package (ZenithBusiness.exe + a fresh
+# pre-seeded sample database + launcher + owner instructions) and uploads it as a
+# downloadable artifact. This does NOT change any Stage 01-05 functionality — it
+# only packages the current source exactly as it is.
+#
+# Run it manually from the Actions tab (Run workflow), or it runs automatically
+# on pushes to the Stage 05 branch that touch the app or the packaging kit.
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - claude/zenith-business-architecture-ywcgpe
+    paths:
+      - "zenith_business/**"
+      - "packaging/**"
+      - ".github/workflows/windows-test-build.yml"
+
+permissions:
+  contents: write   # needed to publish the ZIP as a GitHub Release asset
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install application + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pyinstaller
+
+      - name: Freeze ZenithBusiness.exe
+        run: pyinstaller packaging/zenith_business.spec --noconfirm --clean
+
+      - name: Assemble portable package
+        shell: pwsh
+        run: |
+          $pkg = "dist/package"
+          New-Item -ItemType Directory -Force -Path $pkg | Out-Null
+          Copy-Item -Recurse -Force "dist/ZenithBusiness" "$pkg/app"
+          Copy-Item -Force "packaging/Run-ZenithBusiness.bat" "$pkg/"
+          Copy-Item -Force "packaging/Reset-Test-Data.bat" "$pkg/"
+          Copy-Item -Force "packaging/READ-ME-FIRST.md" "$pkg/READ-ME-FIRST.txt"
+          Write-Host "Seeding fresh sample database..."
+          python packaging/seed_test_db.py "$pkg/appdata"
+          Copy-Item -Recurse -Force "$pkg/appdata" "$pkg/appdata_seed"
+
+      - name: Smoke-check the frozen build starts (offscreen)
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          ZENITH_DATA_HOME: dist/package/appdata
+        run: |
+          # Launch briefly to confirm the exe and its Qt runtime load, then close.
+          $p = Start-Process -FilePath "dist/ZenithBusiness/ZenithBusiness.exe" -PassThru
+          Start-Sleep -Seconds 12
+          if ($p.HasExited -and $p.ExitCode -ne 0) {
+            throw "Frozen app exited early with code $($p.ExitCode)"
+          }
+          if (-not $p.HasExited) { $p.Kill() }
+          Write-Host "Frozen build launched cleanly."
+
+      - name: Upload Windows test package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZenithBusiness-Stage05-TestBuild-win64
+          path: dist/package
+          retention-days: 14
+          if-no-files-found: error
+
+      # Delivery-only: zip the portable package and attach it to a GitHub Release
+      # so it has a permanent, one-click Download link (no Actions navigation, no
+      # expiry). This does not change the application, Stage 05, or any source.
+      - name: Zip the portable package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/package/* `
+            -DestinationPath ZenithBusiness-Stage05-TestBuild-win64.zip -Force
+          Write-Host ("Zip size: {0:N1} MB" -f ((Get-Item ZenithBusiness-Stage05-TestBuild-win64.zip).Length/1MB))
+
+      - name: Publish as a GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="stage05-test-build"
+          # Replace any previous copy so the download link is always the latest build.
+          gh release delete "$TAG" --cleanup-tag --yes || true
+          gh release create "$TAG" ZenithBusiness-Stage05-TestBuild-win64.zip \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "Zenith Business — Stage 05 Windows Test Build" \
+            --notes "Self-contained Windows test build including the locked Stages 01-04 and completed Stage 05, with a fresh pre-seeded sample database. Download the ZIP, unzip, and double-click Run-ZenithBusiness.bat. Log in as admin / Admin@123. Full click-by-click test steps are in READ-ME-FIRST inside the package. This is a TEST build for owner acceptance — Stage 05 is not locked or merged."
+          echo "Release published:"
+          gh release view "$TAG" --json url --jq .url

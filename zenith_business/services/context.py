@@ -35,8 +35,24 @@ from zenith_business.repositories.master import (
     UnitRepository,
     WarehouseRepository,
 )
+from zenith_business.repositories.documents_s4 import (
+    PartyBalanceRepository,
+    PurchaseExtRepository,
+    PurchaseReturnRepository,
+    SalesExtRepository,
+    SalesReturnRepository,
+)
+from zenith_business.repositories.money_s5 import (
+    ExpenseCategoryRepository,
+    ExpenseExtRepository,
+    FundRepository,
+    PaymentExtRepository,
+    ReceiptExtRepository,
+)
 from zenith_business.repositories.financial_years import FinancialYearRepository
+from zenith_business.repositories.ledger_s6 import PartyLedgerRepository
 from zenith_business.repositories.parties import PartyRepository
+from zenith_business.repositories.reports import SalesReportRepository
 from zenith_business.repositories.system import (
     AppSettingsRepository,
     AuditRepository,
@@ -61,11 +77,20 @@ from zenith_business.services.master_data import (
     UnitService,
     WarehouseService,
 )
+from zenith_business.services.money_documents import (
+    ExpenseService,
+    PaymentService,
+    ReceiptService,
+)
 from zenith_business.services.numbering import DocumentNumberService
 from zenith_business.services.parties import PartyService
+from zenith_business.services.party_ledger import PartyLedgerService
+from zenith_business.services.purchase_documents import PurchaseDocumentService
 from zenith_business.services.purchases import PurchaseService
+from zenith_business.services.sales_documents import SalesDocumentService
 from zenith_business.services.roles import RoleService
 from zenith_business.services.sales import SalesService
+from zenith_business.services.sales_reports import SalesReportService
 from zenith_business.services.search_providers import ItemSearchProvider, PartySearchProvider
 from zenith_business.services.session import SessionContext
 from zenith_business.services.setup import InitialSetupService
@@ -109,6 +134,20 @@ class ApplicationContext:
         # Stage 03 repositories
         self.parties_repo = PartyRepository(db)
         self.financial_years_repo = FinancialYearRepository(db)
+        # Stage 04 repositories
+        self.sales_ext_repo = SalesExtRepository(db)
+        self.purchases_ext_repo = PurchaseExtRepository(db)
+        self.sales_returns_repo = SalesReturnRepository(db)
+        self.purchase_returns_repo = PurchaseReturnRepository(db)
+        self.party_balances_repo = PartyBalanceRepository(db)
+        # Stage 05 money-movement repositories
+        self.receipts_ext_repo = ReceiptExtRepository(db)
+        self.payments_ext_repo = PaymentExtRepository(db)
+        self.expenses_ext_repo = ExpenseExtRepository(db)
+        self.funds_repo = FundRepository(db)
+        self.expense_categories_repo = ExpenseCategoryRepository(db)
+        # Owner-fix (defect #4) party account-ledger repository
+        self.party_ledger_repo = PartyLedgerRepository(db)
 
         # ---- services ----
         self.authz = AuthorizationService(self.session)
@@ -153,6 +192,44 @@ class ApplicationContext:
         self.roles = RoleService(
             db, self.roles_repo, self.permissions_repo, self.audit_repo, self.session,
             self.authz)
+
+        # ---- Stage 04 document services ----
+        self.sales_documents = SalesDocumentService(
+            db, self.sales_repo, self.sales_ext_repo, self.sales_returns_repo,
+            self.inventory_repo, self.financial_repo, self.accounts_repo, self.currencies_repo,
+            self.items_repo, self.warehouses_repo, self.parties_repo, self.party_balances_repo,
+            self.numbering, self.audit_repo, self.session, self.authz, self.financial_years)
+        self.purchase_documents = PurchaseDocumentService(
+            db, self.purchases_repo, self.purchases_ext_repo, self.purchase_returns_repo,
+            self.inventory_repo, self.financial_repo, self.accounts_repo, self.currencies_repo,
+            self.items_repo, self.warehouses_repo, self.parties_repo, self.party_balances_repo,
+            self.numbering, self.audit_repo, self.session, self.authz, self.financial_years)
+
+        # ---- Stage 05 money-movement services ----
+        self.receipts = ReceiptService(
+            db, self.receipts_repo, self.receipts_ext_repo, self.financial_repo,
+            self.accounts_repo, self.currencies_repo, self.parties_repo,
+            self.party_balances_repo, self.funds_repo, self.numbering, self.audit_repo,
+            self.session, self.authz, self.financial_years)
+        self.payments = PaymentService(
+            db, self.payments_repo, self.payments_ext_repo, self.financial_repo,
+            self.accounts_repo, self.currencies_repo, self.parties_repo,
+            self.party_balances_repo, self.funds_repo, self.numbering, self.audit_repo,
+            self.session, self.authz, self.financial_years)
+        self.expenses = ExpenseService(
+            db, self.expenses_repo, self.expenses_ext_repo, self.expense_categories_repo,
+            self.financial_repo, self.accounts_repo, self.currencies_repo, self.parties_repo,
+            self.party_balances_repo, self.funds_repo, self.numbering, self.audit_repo,
+            self.session, self.authz, self.financial_years)
+
+        # ---- owner-fix party ledger service (defect #4) ----
+        self.party_ledger = PartyLedgerService(
+            self.party_ledger_repo, self.parties_repo, self.authz)
+
+        # ---- Sales Reporting (read-only over authoritative POSTED documents) ----
+        self.sales_report_repo = SalesReportRepository(db)
+        self.sales_reports = SalesReportService(
+            self.sales_report_repo, self.session, self.authz)
 
         # ---- reusable search providers (§12, §16) ----
         self.item_search = ItemSearchProvider(self.items_repo)

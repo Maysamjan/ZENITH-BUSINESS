@@ -15,10 +15,10 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 1.7 |
-| Current Stage | **03 — MASTER DATA & BUSINESS SETUP — ✅ LOCKED (owner-approved) + merged to main** |
-| Database Schema Version | **3** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data) |
-| Last Updated | 2026-08-14 |
+| PROJECT_MASTER.md Version | 2.0 |
+| Current Stage | **05 — RECEIPTS, PAYMENTS & EXPENSES (+ owner review rounds 1 & 2 + full UI/UX modernization) — 🧪 READY FOR OWNER REVIEW (NOT locked, NOT merged)** |
+| Database Schema Version | **7** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data, 0004 stage04_sales_purchases_returns, 0005 stage05_receipts_payments_expenses, 0006 owner_fixes_walkin_ledger_void, 0007 round2_sales_correction) |
+| Last Updated | 2026-08-17 |
 
 **Stage gate:** Stage 00 (constitution) and **Stage 01 (foundation, incl.
 01B–01G refinements + typography)** are owner-approved and **LOCKED** (Master
@@ -33,8 +33,42 @@ passing the Final Owner Acceptance Test (**PASS WITH FIXES**), and **merged into
 `main`**. Its frozen public contracts are recorded in §8; Stage 03 must respect
 them (§33 STOP procedure for any change). Stage 02 extended two locked Stage 01 UI
 files **additively only** (optional params / new methods, no existing contract
-changed). Full architecture: §13H; acceptance record: §13H.10. **Stage 03 is NOT
-STARTED.**
+changed). Full architecture: §13H; acceptance record: §13H.10.
+
+**Stage 03** (master data & business setup — unified `parties`, financial years,
+company profile, warehouses, units, categories, items, users/roles, search
+providers, master-data UI) is **owner-approved and LOCKED** (2026-08-14) and
+**merged into `main`** (schema v3). Its frozen public contracts are recorded in
+§8 and §13I.
+
+**Stage 04** (Sales, Purchases, Sales Returns, Purchase Returns — atomic document
+posting across header/lines/inventory/double-entry ledger/party balance/document
+number/audit; financial-year enforcement at the service layer; the unified
+`parties` model via additive party links; keyboard-first bilingual EN/Dari-RTL
+entry, list, and from-original return screens; per-document A4/A5 printing; live
+dashboard) is **owner-approved and LOCKED** (2026-08-16). Its frozen public
+contracts are recorded in §8 and §13J. Stage 04 extended locked Stage 01 UI files
+**additively only** (an optional `title_key` on the print engine/preview; new
+methods on the dashboard/main window — no existing contract changed) and added
+forward migration 0004 (schema v4) without editing any shipped migration.
+**Stages 01–04 are all locked baselines.**
+
+**Stage 05** (Receipts, Payments, Expenses & the cash/bank/fund foundation — the
+real money-movement / settlement layer) is implemented **READY FOR OWNER REVIEW**
+(2026-08-17), **not locked, not merged**. It builds additively on locked Stage 04
+via forward migration 0005 (schema v5) — an ``is_fund`` flag on the locked
+``accounts``, additive party/method/posting columns on the locked ``receipts``/
+``payments``/``expenses`` (locked ``customer_id``/``supplier_id`` untouched), and
+an ``account_id`` on ``expense_categories`` — with no shipped migration edited and
+no locked contract altered. Atomic posting reuses the LOCKED double-entry ledger
+and party-balance derivation. Full architecture: §13K. **Stage 06 is NOT STARTED.**
+
+Accepted known limitation (owner-approved 2026-08-16): under RTL, space-separated
+phone numbers are bidi-reordered inside the LOCKED Stage 01 `SearchSelector`
+results panel. This is a cosmetic dropdown-only issue; all persistent data
+(document numbers, dates, totals, currency) renders correctly in RTL tables and
+fields. The locked `SearchSelector` must **not** be modified to fix it without
+explicit owner authorization.
 
 ---
 
@@ -185,7 +219,8 @@ requested module is implemented.
 | 01 | Project Foundation (+01B–01G premium UI + typography) | ✅ **LOCKED** (owner-approved) |
 | 02 | Database / Auth / RBAC / Service Foundation | ✅ **LOCKED** (owner-approved, merged to main) |
 | 03 | Master Data & Business Setup | ✅ **LOCKED** (owner-approved, merged to main) |
-| 04 | (next module) | ⛔ **NOT STARTED** |
+| 04 | Sales, Purchases & Returns | ✅ **LOCKED** (owner-approved 2026-08-16) |
+| 05 | Receipts, Payments & Expenses | 🧪 **READY FOR OWNER REVIEW** (NOT locked, NOT merged) |
 | 04 | Chart of Accounts | ⛔ Not started |
 | 05 | Persons | ⛔ Not started |
 | 06 | Currencies | ⛔ Not started |
@@ -1367,10 +1402,397 @@ MERGE.* Not locked, not merged — owner decision only.
 
 ---
 
+## 13J. Stage 04 — Sales, Purchases & Returns (READY FOR OWNER REVIEW)
+
+Built additively on locked `main` (`184ae4a`, 277 tests) — no Stage 01/02/03
+locked contract altered. Delivers the four real production documents that replace
+the Stage 01 mock invoice: **Sales, Purchases, Sales Returns, Purchase Returns**,
+each an atomic transaction across header + lines + inventory + double-entry ledger
++ party balance + document number + audit (all commit or all roll back).
+
+**A. Database (migration 0004, schema v4, forward/idempotent).** New tables
+`sales_returns` / `sales_return_lines` / `purchase_returns` / `purchase_return_lines`
+(own `DRAFT/POSTED/CANCELLED` status CHECK, `document_no` UNIQUE, RESTRICT refs to
+source doc / party / warehouse, Decimal-text money). Additive nullable party links
+`sales.party_id` and `purchases.party_id` → `parties` (RESTRICT), plus
+`purchases.supplier_reference`; the locked `customer_id`/`supplier_id` FKs are left
+intact. New `SRET`/`PRET` numbering sequences; 4 new permissions
+(`sales.return`, `sales.print`, `purchases.return`, `purchases.print`) with role
+grants. Never edits a shipped migration.
+
+**B. Engine.** `documents_s4.py` repositories (party link, returns, returned-qty
+queries, party-aware list joins, Decimal party balances derived from the LOCKED
+ledger where `party_type IN ('CUSTOMER','SUPPLIER')`). `SalesDocumentService` /
+`PurchaseDocumentService` compose the LOCKED Stage 02 repositories and add: **FY
+enforcement at the service layer** (`assert_postable` before every post — the
+Stage 03 deferred item, now wired), the unified `parties` model (writes
+`customer_id/supplier_id = NULL` + sets `party_id`), stock checks, no-overpayment,
+proportional return discounts, over-return + return-more-than-on-hand guards, and
+the reversing ledger entries. Money/quantities are Decimal end to end.
+
+**C. UI (real, service-backed, on the locked shell).** One keyboard-first
+`DocumentEntryPage` (sale/purchase) — party + item autocomplete via the locked
+`SearchSelector` + Stage 03 providers, live Decimal totals, payment, Save / Save &
+Print; `DocumentListPage` (sales/purchases/returns) with search, status filter and
+per-row Print/Return; `ReturnEntryPage` (from-original, editable return qty). Wired
+into the **Buy & Sell** top-nav category; the Stage 01 mock invoice is no longer in
+the production navigation. The Home **dashboard is now live** — real Today's Sales/
+Purchases, real Recent Sales, real Low-Stock (reorder level), truthful `—` for
+KPIs without a computed source (no mock data on a production screen).
+
+**D. Printing.** `print_builder.py` converts each persisted document into the
+LOCKED print `InvoiceData` (screen == print; float only at the display boundary).
+The locked A4/A5 reflow engine and preview were extended **additively** with an
+optional `title_key` (default preserves Stage 01 "SALES INVOICE"), so the same
+engine composes Purchase Invoices and Return notes in English + Dari.
+
+**E. Verification.** **311 tests** (was 277; +34: 20 engine + 14 UI). On-disk
+acceptance workflow (22 checks): admin→company→FY→warehouses→items(+reorder)→
+customer/supplier→purchase(stock in)→cash/credit/partial sales→sales & purchase
+returns→over-return rejected→**global ledger balanced (Dr==Cr)**→`check_health`
+ok→**backup + restore** (restored DB carries the sales). Self-inspected screenshots
+(dashboard, sales entry, sales list, purchase entry, purchase list, sales return,
+purchase return, print preview — EN + Dari) and A4/A5 EN/Dari prints for all four
+document types; fixed a list cell-widget redraw defect and null party-field print
+rendering during self-inspection. No locked contract changed (only additive
+extensions; the Stage 04 migration test asserts schema v4).
+
+**Known limitations (deferred, intentional):** documents post directly to
+`POSTED` (no separate DRAFT editing screen yet); the locked print engine's
+"Bill To"/"Salesperson" labels are reused as-is for purchases (title is
+overridden, side labels are not); receipts/payments settlement of remaining
+balances is a later module.
+
+### 13J.1 UI/UX consistency + final polish (2026-08-16)
+Two owner-directed refinement passes aligned the Stage 04 screens with the locked
+Stage 01–03 design system (no business logic, calculations, posting, schema,
+migrations, RBAC, or locked contracts touched):
+- Adopted the shared `LabeledField`/compact metadata, cards, buttons, tables and
+  totals tokens; wired the real application stylesheet in review captures.
+- Fixed a **responsiveness defect** — at 1366×768 the invoice line grid could
+  collapse to zero visible rows; the grid now has a minimum-height floor and the
+  totals/payment area is a single compact strip, so the grid shows several rows
+  at 1366×768 and grows at 1600×900 / 1920×1080.
+- Compacted the Return source area (removed a title duplicating the field label).
+- Verified EN + Dari RTL (numbers/dates/document numbers/currency read correctly
+  in RTL tables/fields), many-record list scrolling, autocomplete edge cases,
+  and Print Preview (A4/A5, EN/Dari, zoom/fit/print).
+- Accepted known limitation: RTL phone-number bidi reordering inside the LOCKED
+  Stage 01 `SearchSelector` dropdown (cosmetic; persistent data unaffected).
+
+**LOCK RECORD:** *Stage 04 is owner-approved and **LOCKED** (2026-08-16).* Its
+public contracts (§8, §13J) are frozen. **313 tests pass.** Stages 01–04 are all
+locked baselines; future stages must preserve backward compatibility and must not
+modify Stage 04 code/UI/logic/DB contracts/tests without explicit owner
+authorization. Not merged by the assistant (owner controls merge). Stage 05 NOT
+STARTED.
+
+---
+
+## 13K. Stage 05 — Receipts, Payments & Expenses (READY FOR OWNER REVIEW)
+
+The real money-movement / settlement layer, built additively on locked Stage 04.
+No Stage 01–04 locked contract altered; no shipped migration edited; no business
+logic changed in the locked stages.
+
+**A. Database (migration 0005, schema v5, forward/idempotent).** Reuses the money
+tables Stage 02 already created. Adds: ``accounts.is_fund`` (marks cash/bank/fund
+accounts — the minimum foundation for choosing where money moves, no treasury
+module); additive ``party_id`` + ``payment_method`` + posting stamps on
+``receipts``/``payments`` (unified Stage 03 ``parties`` model, locked
+``customer_id``/``supplier_id`` untouched); ``payment_method``/``notes``/stamps on
+``expenses``; ``expense_categories.account_id`` (each category maps to a real
+expense account — categories stay master data, never hard-coded in the UI). Seeds
+funds (Cash, Bank, Petty Cash), a standard set of expense accounts + categories,
+RCP/PAY/EXP sequences, indexes, and 10 permissions with role grants.
+
+**B. Engine.** ``money_s5.py`` repositories (party/method writes, party-aware list
+joins, fund + expense-category reads, ledger-derived fund balances). ``ReceiptService``
+/ ``PaymentService`` / ``ExpenseService`` post ONE atomic transaction each —
+header + Stage 05 metadata + **balanced double-entry ledger** + party-balance effect
++ document number + audit — reusing the LOCKED ``FinancialRepository`` +
+``assert_journal_balanced`` and Stage 04 ``PartyBalanceRepository``. Ledger: Receipt
+Dr fund / Cr AR(customer); Payment Dr AP(supplier) / Cr fund; Expense Dr expense
+account / Cr fund. Financial-year enforcement, RBAC and Decimal-safe strict input
+validation (rejects zero/negative/malformed/NaN/Infinity/oversized amounts and
+non-positive rates) run before any write. Balances are **derived, never editable**:
+a receipt/payment moves the party's ledger balance and the balance re-derives.
+
+**C. Accounting / balances (owner example verified).** Customer owes 13,440 → receives
+5,000 → remaining 8,440. Supplier payable and expense cash movement verified; every
+journal balances (Dr==Cr); cash/bank fund balances derive from the ledger.
+
+**D. UI.** One reusable keyboard-first ``MoneyEntryPage`` (receipt/payment/expense)
+and ``MoneyListPage`` (three history lists) on the LOCKED Stage 01–04 design system
+— same cards, LabeledField metadata, SearchSelector autocomplete, strong amount
+pill, tables, buttons, status pills and RTL. Wired into the **Receipts & Payments**
+top-nav. Compact: the short forms group at the top and fit 1366×768; the lists use
+the Stage 03/04 management-list pattern.
+
+**E. Printed vouchers.** ``VoucherPrintDocument`` composes real business vouchers
+(Receipt / Payment / Expense) reusing the LOCKED print design language (palette,
+typography, company identity, accent party bar, amount-in-words EN+Dari, strong
+amount panel, signature blocks) at A4 and A5, EN and Dari RTL. The Stage 01
+print-preview workspace is reused unchanged via a subclass.
+
+**F. RBAC + audit.** 10 service-enforced permissions (receipts/payments/expenses
+``.view/.create/.print`` + ``funds.view``) with role grants; every create/post is
+audited (actor, timestamp, entity, action; no secrets). Failed posts roll back
+leaving no partial document / balance / journal / audit record.
+
+**G. Verification.** **350 tests pass** (313 baseline + 29 engine/failure-safety +
+8 UI). 17-step on-disk acceptance (admin → funds → credit sale → partial receipt →
+payable → partial payment → expense → **ledger balanced** → ``integrity_check=ok``
+/ ``foreign_key_check`` clean → restart persistence → **backup + mutate + restore**
+rolls back to backup state). Self-inspected EN + Dari screenshots at 1366×768 and
+1920×1080 and A4/A5 vouchers; fixed two self-found defects (a mid-form empty gap
+on the short entry screens; a missing voucher amount-label i18n key + voucher
+signature anchoring).
+
+**Known limitations (deferred, intentional).** Documents post directly to POSTED
+(no separate DRAFT/void UI). Multi-currency: original amount + rate are preserved
+and the base equivalent is derivable, but the GL is posted in document currency
+(consistent with the LOCKED Stage 04 ledger) — cross-currency GL consolidation is a
+later reporting concern. Seeded fund/expense-account names are English master data
+(a user renames them, as with warehouses/units).
+
+**Recommendation:** *STAGE 05 IS TECHNICALLY READY FOR OWNER REVIEW.* Not locked,
+not merged, Stage 06 not started — owner decision only.
+
+### 13K.1 Confirmed future requirement — Opening Stock (Inventory stage)
+
+Recorded per owner direction; **not implemented in Stage 05**. The future Inventory
+stage must distinguish **Opening Stock / موجودی اول دوره** (opening quantity + opening
+inventory value, per item, per warehouse, historically preserved) from **Current
+Stock / موجودی فعلی** (opening + subsequent movements → current quantity + value).
+Inventory reporting must show Opening Quantity, Opening Value, Current Quantity,
+Current Value, Quantity Difference and Value Difference. **Opening Stock must NOT be
+implemented as a fake Purchase Invoice.** The inventory ledger already reserves an
+``OPENING`` movement type for this. Stage 05 does not contradict this requirement.
+
+---
+
+## 13L. Owner manual-test hardening pass (READY FOR OWNER REVIEW)
+
+Six owner-reported defects from the manual Windows test, all fixed **additively**
+(no LOCKED public contract — service API or DB schema — broken; the pass does edit
+locked Stage 01/04 UI/print files with explicit owner authorization, keeping every
+prior test green).
+
+- **Migration 0006 (schema v6, forward/idempotent).** Adds nullable
+  ``sales.walkin_name/walkin_phone/walkin_address`` snapshot columns and the new
+  ``parties.ledger`` permission; extends the pre-existing ``sales.void`` /
+  ``purchases.void`` grants to Manager/Accountant. `PRAGMA integrity_check` = ok,
+  `foreign_key_check` = 0.
+- **#1 Sales Invoice refined** (`ui/documents/entry_page.py`): explicit
+  Customer → invoice-info → item search → lines → payment → totals → Save/Print
+  reading order; Registered/Walk-in toggle; same locked design language.
+- **#2 Walk-in / general customer**: `SalesDocumentService.post_sale` gains optional
+  ``walkin_name/phone/address`` snapshotted onto the sale (printed on the invoice
+  via `print_builder`), with NO permanent `parties` row; a walk-in sale must be
+  paid in full — **walk-in credit is rejected** so no anonymous receivable is ever
+  created. Registered vs walk-in stay distinguishable (`party_id` vs snapshot).
+- **#3 Line editing + posted correction**: in-grid Qty/Price/Discount inline edit,
+  double-click-item replace, delete — all pre-post (no stock movement until Save);
+  **`void_sale`** safely reverses a posted sale (stock via ADJUSTMENT_IN + reversing
+  JV + customer balance + VOID stamp + audit), keeping the original document, with a
+  guard blocking void when returns exist. Returns (Stage 04) remain the partial
+  correction path.
+- **#4 Customer/Supplier ledger**: new `repositories/ledger_s6.PartyLedgerRepository`
+  + `services/party_ledger.PartyLedgerService` + `ui/documents/party_ledger_page.PartyLedgerPage`
+  under Account Reports — running balance + Total Sales/Received/Receivable (or
+  Purchases/Paid/Payable), all DERIVED from the authoritative ledger; a party that is
+  both customer and supplier is one identity with two ledger views.
+- **#5 Responsive**: reusable `components.vscroll` scroll-body + pinned action bar on
+  the Stage 05 money entry pages so Save/Print/Close never leave the viewport;
+  widened list actions column so Print+Return+Void don't clip.
+- **#6 Company logo on prints**: `CompanyInfo.logo_path` rendered by the invoice and
+  voucher print headers (`_logo_widget`) with aspect-ratio preserved and a graceful
+  letter-mark fallback; persists across restart; EN + Dari verified.
+
+**Testing:** full suite **368 pass** (+18 in `tests/test_owner_fixes.py`); 20-step
+real on-disk acceptance (walk-in, void reversal, customer/supplier ledgers, restart,
+re-open + print, ledger balanced, integrity/fk clean). Self-inspected EN/Dari
+screenshots; 2 self-found UI defects fixed before delivery.
+
+**Recommendation:** *STILL READY FOR OWNER REVIEW.* Not locked, not merged, Stage 06
+not started — awaiting owner manual acceptance of the corrected Windows build.
+
+---
+
+## 13N. Full UI/UX modernization — Stages 01–05 (READY FOR OWNER REVIEW)
+
+A **presentation-layer-only** modernization across every Stage 01–05 screen,
+applied in 7 controlled passes. **No database, migration, repository, service,
+accounting, inventory, posting, correction, auth, RBAC, audit, licensing or
+document-numbering behaviour was changed.** Schema stays **v7**. Full suite
+**391 passing** (377 baseline + 14 new UI tests). The single authorized
+functional addition is **New Item Opening Stock**, which introduces no new
+inventory behaviour — it orchestrates the *existing* `inventory.record_opening`
+service (one `OPENING` movement) after `items.create`.
+
+- **Pass 1 — shared foundation.** `FormDialog` recomposed into fixed header +
+  scrollable body + pinned Save/Cancel footer, clamped to `availableGeometry`
+  (so Save/Cancel can never leave the screen at 1366×768). New reusable
+  `RowActions` (inline buttons + `⋯` overflow menu). `ManagementPage` adopts it,
+  with a header `minimumSectionSize` floor. QSS for dialog header/footer + kebab.
+- **Pass 2 — login/shell/dashboard.** Login redesigned into a two-panel
+  composition: left **Zenith Soft** developer brand panel (company, kind,
+  Phone/Email/Address — phone & email forced LTR in RTL) and right product
+  login/setup form with a Version + Licence footer. Real Dari RTL mirroring. No
+  Zenith Soft logo asset exists → a typographic monogram is used (no invented
+  logo). Fixed a latent Qt quirk where bare `background:transparent` widget
+  stylesheets stripped child control fills (blanked the Sign In button / dialog
+  inputs) — moved to app-level ID-scoped rules.
+- **Pass 3 — documents.** Sales/Purchase Invoice already delivered the approved
+  reference layout (dominant items table, walk-in panel, strong Grand Total,
+  pinned actions) and inherits the design system; verified EN/Dari at 1366×768.
+  The **walk-in "paid in full" treatment reflects existing logic**
+  (`sales_documents.py` credit guard), not a new UI rule. Document lists moved
+  to Print-inline + `⋯` (Return/Correct/Void) — no more 4-button crowding.
+- **Pass 4 — master data.** New Item gains an **Opening Stock** section
+  (Opening Quantity + Opening Warehouse, create-only, stockable-only) → existing
+  `inventory.record_opening`. All master dialogs inherit the scroll+pinned
+  footer.
+- **Pass 5 — money/ledger.** Receipts/Payments/Expenses lists adopt `RowActions`
+  (View Account + Print inline). Ledgers/entry pages already on the system;
+  balances consumed from the authoritative party-ledger service.
+- **Pass 6 — users/account.** Change Password (Tools → My Account) confirmed
+  against the existing `change_own_password` (verifies current password, existing
+  hashing/policy, audited, RBAC-safe). Roles permission dialog de-duplicated to
+  use the native dialog scroll.
+- **Pass 7 — regression.** Responsive tests at **1366×768 / 1600×900 /
+  1920×1080** assert no action button falls off-screen (Sales Invoice with 12
+  lines, Receipt entry, tall FormDialog). Printed customer documents use the
+  **customer's** company identity + logo (`company.logo_path`), never Zenith
+  Soft's dev contact (§18 preserved).
+
+New UI tests: `test_ui_foundation.py`, `test_item_opening_stock_ui.py`,
+`test_responsive_layout.py`. Stage 05 remains **READY FOR OWNER REVIEW — not
+locked, not merged**; Stage 06 not started.
+
+---
+
+## 13M. Owner review round 2 (READY FOR OWNER REVIEW)
+
+Owner-review-2 defects, fixed **additively** (no LOCKED public contract broken;
+the pass edits locked Stage 01/03/04 UI files with explicit owner authorization).
+Migration **0007 (schema v7)** adds `sales.corrected_from_id` and the `sales.correct`
+permission; `PRAGMA integrity_check` = ok, `foreign_key_check` = 0.
+
+- **Sales Invoice restructure (§1-§8)** — `ui/documents/entry_page.py`: compact
+  customer+invoice header (customer-type toggle inline), a **dominant Expanding
+  items table** (grid card set to Expanding + table Expanding with a 150px floor →
+  ~5 rows at 1024×768/1366×768, ~15 at 1080p, internal scroll beyond), a single
+  entry strip carrying **Unit** + **Add / Edit Line / Delete Line**, and a two-row
+  totals strip with **Previous + Updated customer balance**. Walk-in is a clearly
+  labelled bordered panel.
+- **Complete line editing before posting (§6/§7)** — inline Qty/Price/Discount edit,
+  a per-line Unit selector, item replacement via Edit Line, and Delete; no inventory
+  movement until posting.
+- **Safe posted-invoice correction (§9)** — `SalesDocumentService.correct_sale`:
+  atomic **void-of-original + linked replacement** (`corrected_from_id`), audited
+  `sales.correct`, all-or-nothing; **blocked when a dependent sales return exists**
+  (directs to Return/Void). Refactored `post_sale`/`void_sale` into shared
+  `_prepare_sale` / `_do_post_sale` / `_do_void_sale` so correction reuses one source
+  of truth. Wired as a **Correct** action on the Sales list opening the invoice in
+  the entry form.
+- **Contextual account history (§10/§11)** — `PartyLedgerPage.show_party`;
+  `ManagementPage.on_view` adds a **View Account** row action on the Customers list;
+  `MoneyListPage.set_view_account_handler` adds it on the Receipts/Payments lists.
+  Ledger figures stay derived from the authoritative ledger.
+- **Account Settings (§12)** — `UserService.change_own_password` /
+  `change_own_username`: current-password verified, password-policy enforced, hashed
+  (never plaintext), id-preserving (all relationships intact), duplicate-username
+  guarded, audited; new `AccountSettingsPage` under Tools → My Account.
+- **Responsive (§13/§14)** — Save/Print/Close reachable at 1024×768/1280×720/
+  1366×768/1080p; dominant table on normal+large screens; list stretch column keeps
+  a legible minimum. (1280×720, the shortest listed resolution, shows ~3-4 table rows
+  with internal scroll — an honest height constraint, all controls reachable.)
+- **Logo/print (§16)** — unchanged and re-verified (invoice + vouchers, EN/Dari,
+  aspect-preserved, graceful fallback).
+
+**Testing:** full suite **377 pass** (+9 `tests/test_round2.py`). 13-step round-2
+on-disk acceptance (correction reconciles stock+ledger+balance, dependency block,
+password/username change, restart persistence, integrity/fk clean). Self-inspected
+EN/Dari screenshots incl. 1024×768; the items-table compression found on first
+inspection was fixed (Expanding grid card + tightened chrome).
+
+**Recommendation:** *STILL READY FOR OWNER REVIEW.* Not locked, not merged, Stage 06
+not started — awaiting owner manual acceptance of the next Windows build.
+
+---
+
+## 13O. Stage 05 final — Sales Reporting + Return-lookup fix + correction audit (READY FOR OWNER REVIEW)
+
+Additive; **no** accounting, inventory, ledger, numbering, auth, RBAC or licensing
+logic changed, **no** migration added (schema stays **v7**). Reads only the
+authoritative `sales` / `sales_returns` tables.
+
+- **P1 — Sales Return lookup.** The return page (`ui/documents/return_page.py`)
+  rejected a typed invoice number unless it *exactly* equalled the stored
+  `document_no`, so a partial entry (`2`, `000002`) failed with "not found". It now
+  accepts a **unique partial match**, **flags an ambiguous fragment**
+  (`s4.msg_source_ambiguous`), and still rejects a genuinely nonexistent number.
+  Partial-return, over-return and stock/ledger reversal already reconciled and are
+  re-covered by tests.
+- **P2/P3 — Correction is not a duplicate; audit enriched.** Confirmed the LOCKED
+  void-and-replace `correct_sale` does **not** create a second normal invoice or
+  double-count — the VOID original is excluded from every total and the replacement
+  counts exactly once. The `sales.correct` audit note now records a **human-readable
+  line diff** ("Rice qty 5 → 3; Sugar 2 removed; Oil 4 added") alongside the old→new
+  totals and the reason. (In-place mutation was deliberately **not** adopted: it
+  would destroy the auditability the owner asked to preserve.)
+- **P6 — Sales Reporting system (new).** `repositories/reports.py`
+  (`SalesReportRepository`) + `services/sales_reports.py` (`SalesReportService`)
+  compute **Gross / Paid / Credit / Returns / Net** for any period —
+  Today / This Week / This Month / This Year / **Custom From–To** — plus **daily,
+  monthly and yearly** breakdowns and per-invoice transaction detail. Correct by
+  construction: **partial payments split** into paid vs credit (never whole); **later
+  receipts** (debt collection) are **not** counted as sales; **corrected invoices count
+  once** (VOID excluded); **Gross and Returns stay distinguishable**, Net = Gross −
+  Returns. Filters: date range, warehouse, customer, payment status,
+  registered/walk-in. Money summed with `Decimal`.
+- **P6 UI + print.** `ui/documents/sales_report_page.py` — period presets, custom
+  range, all filters, five colour-coded summary tiles, and
+  Transactions / Daily / Monthly views; wired into **Account Reports**, English +
+  Dari RTL. `ui/print/sales_report_document.py` + `sales_report_preview.py` — a
+  printable report on the existing preview standard, using the **CUSTOMER's**
+  business identity (logo / name / address / phone) from Company settings — never the
+  Zenith Soft developer identity. **A4 only** (owner decision, 2026-08-21): a
+  nine-column report is unreadable squeezed onto A5, so the report preview exposes
+  **A4 exclusively** (English + Dari) — the whole table fits the A4 printable area
+  with all nine columns (Date, Invoice #, Customer, Type, Gross, Paid, Credit,
+  Returned, Net), the five summary cards and the totals row, and no document-level
+  horizontal scrolling. A5 is **not** removed globally — invoices, receipts and
+  vouchers still offer A4/A5.
+
+**Verification.** Full suite **431 pass** (+34: engine reconciliation, partial-paid
+split, later-receipt-excluded, corrected-not-double-counted, returns math, date
+boundaries, presets, all filters, correction audit; UI: return lookup
+exact/partial/nonexistent/ambiguous, report tiles, view switch, walk-in filter,
+print payload uses customer identity, Dari). A real on-disk end-to-end scenario
+(opening stock → cash / credit / partial / walk-in sales → correction → receipt →
+partial return) reconciles **by hand**: Gross 3000, Paid 2000, Credit 1000, Returns
+300, Net 2700; stock Rice 481 / Sugar 490; ledger balanced (Dr = Cr). Self-inspected
+EN + Dari screenshots of the report screen (detail/daily/monthly), the A4 EN and A5
+Dari customer-identity print, and the return lookup loaded by a partial number.
+
+**Recommendation:** *STILL READY FOR OWNER REVIEW.* Not locked, not merged, Stage 06
+not started.
+
+---
+
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-08-21 | 2.3 | **Stage 05 final — Sales Reporting system + Sales-Return lookup fix + correction audit (Stage 05 still READY FOR OWNER REVIEW; not locked, not merged).** Additive; **no** accounting/inventory/ledger/numbering/auth/RBAC/licensing change and **no** migration (schema stays **v7**); reads only the authoritative `sales`/`sales_returns` tables. **P1** — the Sales Return page now loads a persisted invoice by a **unique partial number** (e.g. `2` → `SALE-000002`), flags an ambiguous fragment, and still rejects a nonexistent one (was: exact-match only → "not found"). **P2/P3** — confirmed `correct_sale` (void-and-replace) does **not** duplicate the invoice or double-count (VOID original excluded, replacement counts once); the `sales.correct` audit note now carries a **human-readable line diff** ("Rice qty 5 → 3; Sugar removed") plus old→new totals and reason. **P6** — new **Sales Reporting** engine (`repositories/reports.py` + `services/sales_reports.py`): **Gross/Paid/Credit/Returns/Net** for Today/Week/Month/Year/**Custom** + daily/monthly/yearly breakdowns and per-invoice detail; **partial payments split** paid vs credit, **later receipts excluded**, **corrected invoices counted once**, **Gross/Returns distinguishable** (Net = Gross − Returns); filters for date range/warehouse/customer/payment-status/registered-walk-in; `Decimal` sums. New **Sales Report screen** (`ui/documents/sales_report_page.py`) with presets, custom range, filters, five summary tiles and Transactions/Daily/Monthly views under **Account Reports** (EN + Dari RTL), and a **printable report** (`ui/print/sales_report_document.py` + preview) using the **customer's** business identity (logo/name/address/phone), never the developer identity. Per owner decision the Sales Report prints **A4 only** (a nine-column report is unreadable on A5) — the report preview exposes A4 exclusively (EN + Dari); A5 stays available for invoices/receipts/vouchers. **431 tests pass** (+34). Real on-disk E2E reconciles by hand (Gross 3000 / Paid 2000 / Credit 1000 / Returns 300 / Net 2700; stock 481/490; ledger balanced). Self-inspected EN/Dari report + A4 EN/Dari print + return-lookup screenshots. See §13O. |
+| 2026-08-19 | 2.2 | **Owner review round 2 — Sales Invoice restructure + correction + account settings + responsive (Stage 05 still READY FOR OWNER REVIEW; not locked, not merged).** All additive (no LOCKED public contract broken; touches locked Stage 01/03/04 UI with owner authorization). Migration **0007** (schema v7, forward/idempotent): `sales.corrected_from_id` link column + `sales.correct` permission (Admin/Manager/Accountant). **Sales Invoice restructured** to the owner's reference layout — compact customer+invoice header, **dominant Expanding items table** (5 rows at 1024×768/1366×768, ~15 at 1080p, internal scroll for many lines), single entry strip with a **per-line Unit selector** + obvious **Add / Edit Line / Delete Line** (full item/qty/unit/price/discount edit before posting), and a two-row totals/payment/balance strip showing **Previous + Updated customer balance**. **Walk-in** is now a clearly-labelled bordered panel (name/phone/address). **Safe posted-invoice correction** (`SalesDocumentService.correct_sale`): atomic void-of-original + linked replacement invoice, audited old→new, **blocks when a dependent return exists** (directs to Return/Void). **Self-service Account Settings** (`UserService.change_own_password` / `change_own_username`): current-password verified, policy-enforced, hashed, id-preserving, audited; new `AccountSettingsPage` under Tools. **Contextual ledger** access — "View Account" from the Customers list and the Receipts/Payments lists opens that party's ledger directly (`ManagementPage.on_view`, `MoneyListPage.set_view_account_handler`, `PartyLedgerPage.show_party`). **Responsive** fixes: dominant table via Expanding grid card + tightened header/entry/totals so Save/Print/Close stay reachable at 1024×768/1280×720/1366×768/1080p; list stretch column has a legible minimum. **377 tests pass** (+9 in `tests/test_round2.py`). 13-step round-2 on-disk acceptance (correction reconciles stock+ledger+balance, dependency block, password/username change, restart persistence, integrity/fk clean). Self-inspected EN/Dari screenshots incl. 1024×768; fixed the items-table compression found in review. See §13M. |
+| 2026-08-18 | 2.1 | **Owner manual-test hardening pass (Stage 05 still READY FOR OWNER REVIEW; not locked, not merged).** Fixed six owner-reported defects, all ADDITIVELY (no LOCKED public contract broken; the pass does touch locked Stage 01/04 UI/print files with owner authorization). Migration **0006** (schema v6, forward/idempotent): nullable `sales.walkin_name/walkin_phone/walkin_address` snapshot columns + new `parties.ledger` permission (existing `sales.void`/`purchases.void` extended to Manager/Accountant). (1) Sales Invoice refined — clearer Customer→info→items→payment→totals→save/print flow, **Registered/Walk-in** customer toggle, inline Qty/Price/Discount line editing + double-click item replace + delete. (2) **Walk-in/general customer** — name/phone/address snapshotted onto the sale (prints on the invoice) with NO permanent party record; walk-in credit rejected (no anonymous receivable). (3) Pre-post line edit/delete never moves stock; **safe posted-sale Void** (`SalesDocumentService.void_sale`) reverses inventory (ADJUSTMENT_IN)+ledger (reversing JV)+customer balance and stamps VOID, keeping the original document + returns-block guard. (4) **Customer/Supplier account ledger** — new `PartyLedgerRepository`/`PartyLedgerService` + `PartyLedgerPage` (Account Reports): running balance + Total Sales/Received/Receivable (or Purchases/Paid/Payable), derived from the authoritative ledger; dual customer+supplier identity is one party. (5) **Responsive** — reusable `vscroll` scroll-body + pinned action bar on the Stage 05 money entry pages so Save/Print/Close never fall off small windows; widened list actions column. (6) **Company logo on printed bills** — `CompanyInfo.logo_path` rendered in the invoice + voucher print headers with aspect-preserve + graceful letter-mark fallback; persists across restart. **368 tests pass** (+18). 20-step on-disk acceptance (walk-in, void reversal, ledgers, restart, re-open+print, integrity/fk clean). Self-inspected EN/Dari screenshots (sales EN/Dari/walk-in/small-window, customer+supplier ledger, sales-list Void, A4/A5 EN + A4 Dari invoices with logo); 2 self-found UI defects fixed (totals-band scroll regression; list actions clipping + stale filter label). See §13L. |
+| 2026-08-17 | 2.0 | **Stage 05 — Receipts, Payments & Expenses implemented (READY FOR OWNER REVIEW; not locked, not merged).** Built additively on locked Stage 04. Migration 0005 (schema v5, forward/idempotent): `accounts.is_fund`, additive party/method/posting columns on `receipts`/`payments`/`expenses`, `expense_categories.account_id`; seeded funds (Cash/Bank/Petty Cash), expense accounts + categories, RCP/PAY/EXP sequences, 10 permissions + grants. New `money_s5` repos and `ReceiptService`/`PaymentService`/`ExpenseService` — atomic post (header + metadata + balanced ledger + party balance + numbering + audit) reusing the LOCKED double-entry ledger + party-balance derivation; FY enforcement, RBAC, Decimal-safe strict validation; balances derived (never editable). Reusable keyboard-first `MoneyEntryPage` + `MoneyListPage` on the locked design system, wired into Receipts & Payments; A4/A5 EN/Dari `VoucherPrintDocument` (receipt/payment/expense) reusing the locked print language + preview. **350 tests pass** (+37). 17-step on-disk acceptance (ledger balanced, integrity ok, restart, backup/restore). Self-inspected EN/Dari screenshots + vouchers; 2 self-found UI defects fixed. Records the confirmed future Opening-Stock inventory requirement (§13K.1). No Stage 01–04 locked contract changed. See §13K. |
+| 2026-08-16 | 1.9 | **Stage 04 — Sales, Purchases & Returns declared LOCKED (owner-approved).** Owner accepted the final UI/UX, responsive behavior, EN/Dari RTL, document workflows, print preview and all Stage 04 functionality after two design-consistency/polish passes (LabeledField metadata + shared tokens; fixed a 1366×768 invoice-grid collapse via a grid min-height + a single compact totals strip; compacted the Return source row). Stage 04 public contracts (§8, §13J) frozen. **313 tests pass.** Stages 01–04 are now all locked baselines; future stages must preserve backward compatibility and must not modify Stage 04 without explicit owner authorization. Accepted known limitation: RTL phone-number bidi reordering inside the LOCKED Stage 01 `SearchSelector` dropdown (cosmetic; persistent data unaffected). No business logic / DB schema / migrations / RBAC changed during the polish passes. Stage 05 NOT STARTED. See §13J.1. |
+| 2026-08-14 | 1.8 | **Stage 04 — Sales, Purchases & Returns implemented (READY FOR OWNER REVIEW; not locked, not merged).** Fresh branch from locked `main` `184ae4a`; 277-test gate re-verified first. Migration 0004 (schema v4, forward/idempotent): sales/purchase return tables, additive `sales.party_id`/`purchases.party_id`/`purchases.supplier_reference`, SRET/PRET numbering, 4 permissions + role grants. New `documents_s4` repos and `SalesDocumentService`/`PurchaseDocumentService` (atomic post across header+lines+inventory+balanced ledger+party balance+numbering+audit; **financial-year enforcement now wired**; unified `parties` via additive party links; over-return/stock guards). Real keyboard-first entry, list and from-original return screens wired into Buy & Sell; **live dashboard** (real today totals, recent sales, low stock; no mock data). Per-document print via `print_builder` reusing the locked A4/A5 engine + preview extended additively with an optional `title_key`. **311 tests pass** (+34). 22-step on-disk acceptance (ledger balanced, health ok, backup/restore) + self-inspected EN/Dari screenshots & prints. No Stage 01/02/03 locked contract changed. See §13J. |
 | 2026-08-11 | 0.1 | Initial constitution captured from Master Spec v1.0 at Stage 00. No production code or schema created. Awaiting Prompt 01 — Project Foundation. |
 | 2026-08-11 | 0.2 | Stage 01 (Project Foundation) implemented on feature branch: project structure, config, identity, logging, exceptions/global handler, SQLite infrastructure (connection + transactions + health, FK on, WAL), i18n/RTL-LTR, centralized UI design system, top-nav shell + branded home + status bar, security readiness (PBKDF2 passwords, licensing boundary), 60 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
 | 2026-08-11 | 0.3 | Stage 01B (UI/UX refinement) on the same feature branch: three-tier top chrome (navy HeaderBar + white PrimaryNav + contextual ContextBar), redesigned composed home (hero + readiness + reserved quick-access), expanded semantic design system (colors, typography hierarchy, control dims, FieldWidth XS–XL, reusable components), form + table + dialog + empty-state standards, RTL/LTR visual pass. Backend foundation unchanged. 70 passing tests. **No business tables.** Ready for owner review; not LOCKED. |
