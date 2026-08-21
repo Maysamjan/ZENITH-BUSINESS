@@ -211,3 +211,72 @@ def test_report_renders_in_dari(qapp, biz):
     assert page._g_val.text() == "500.00"
     page.retranslate(Translator(LANG_DARI))
     assert page._g_val.text() == "500.00"
+
+
+# ---- A4-only Sales Report print (requirement change) --------------------
+
+def test_report_preview_exposes_a4_not_a5(qapp):
+    """A detailed report has nine columns; A5 is intentionally not offered."""
+    from zenith_business.ui.documents.sales_report_preview import SalesReportPreviewPage
+    prev = SalesReportPreviewPage(_en(), on_back=lambda: None)
+    assert "A4" in prev._paper_buttons
+    assert "A5" not in prev._paper_buttons        # the A5 button is removed
+    assert prev._paper_key == "A4"
+    # any attempt to switch to A5 (programmatic) is ignored — stays A4
+    prev._set_paper("A5"); assert prev._paper_key == "A4"
+    prev.set_paper("A5"); assert prev._paper_key == "A4"
+
+
+def test_report_preview_renders_a4_en_and_dari(qapp, biz):
+    from zenith_business.ui.documents.sales_report_preview import SalesReportPreviewPage
+    from zenith_business.ui.documents.print_builder import build_sales_report_print
+    _sale(biz, qty="5", paid="500")
+    page = _report_page(biz)
+    _run_june(page)
+    data = build_sales_report_print(biz, page._last)
+    for lang in (LANG_ENGLISH, LANG_DARI):
+        prev = SalesReportPreviewPage(Translator(lang), on_back=lambda: None)
+        prev._lang = lang
+        prev.show_report(data)
+        assert prev._paper_key == "A4"
+        assert prev._base is not None
+        # A4 portrait width — the sheet is the full A4 width, never squeezed to A5
+        from zenith_business.ui.print.invoice_document import PAPERS
+        assert prev._base.width() == PAPERS["A4"].w
+
+
+def test_report_print_document_keeps_all_columns_and_totals(qapp, biz):
+    from PyQt6.QtWidgets import QTableWidget
+    from zenith_business.core.i18n import Translator
+    from zenith_business.ui.documents.print_builder import build_sales_report_print
+    from zenith_business.ui.print.invoice_document import PAPERS
+    from zenith_business.ui.print.sales_report_document import SalesReportPrintDocument
+    _sale(biz, qty="5", paid="500")
+    page = _report_page(biz)
+    _run_june(page)
+    data = build_sales_report_print(biz, page._last)
+    doc = SalesReportPrintDocument(data, Translator(LANG_ENGLISH), PAPERS["A4"])
+    table = doc.findChild(QTableWidget)
+    # nine columns preserved: Date, Invoice #, Customer, Type, Gross, Paid,
+    # Credit, Returned, Net
+    assert table.columnCount() == 9
+    # one detail row + a Total row
+    assert table.rowCount() == 2
+    total_label = table.item(1, 0).text()
+    assert total_label == Translator(LANG_ENGLISH).gettext("rep.total")
+    # totals column (Net) sums correctly
+    assert table.item(1, 8).text() == "500.00"
+    # no document-level horizontal scrollbar on the printed sheet
+    from PyQt6.QtCore import Qt
+    assert table.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+
+
+def test_a5_still_available_for_vouchers(qapp):
+    """A5 must NOT be globally removed — vouchers/invoices still offer it."""
+    from zenith_business.core.i18n import Translator
+    from zenith_business.ui.documents.voucher_preview import VoucherPreviewPage
+    from zenith_business.ui.pages.print_preview import PrintPreviewPage
+    voucher = VoucherPreviewPage(Translator(LANG_ENGLISH), on_back=lambda: None)
+    assert "A5" in voucher._paper_buttons and "A4" in voucher._paper_buttons
+    invoice = PrintPreviewPage(Translator(LANG_ENGLISH))
+    assert "A5" in invoice._paper_buttons and "A4" in invoice._paper_buttons

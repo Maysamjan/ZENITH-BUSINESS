@@ -195,6 +195,10 @@ class SalesReportPrintDocument(QWidget):
         table.setShowGrid(False)
         table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        # A4 is guaranteed wide enough for all nine columns (Customer stretches to
+        # absorb the slack), so the printed sheet must never show a horizontal
+        # scrollbar or clip a column.
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         hh = table.horizontalHeader(); hh.setHighlightSections(False)
         for i, (_h, key, _a) in enumerate(cols):
             hh.setSectionResizeMode(
