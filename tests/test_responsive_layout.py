@@ -72,6 +72,36 @@ def test_receipt_entry_actions_reachable(biz, qapp, w, h):
     pg.close()
 
 
+def test_walkin_customer_fields_clear_and_stable(biz, qapp):
+    """Walk-in fields are full-height labelled inputs and stay usable after
+    switching Registered <-> Walk-in several times (no compression / stale gaps).
+    """
+    from zenith_business.ui.design.theme import build_stylesheet
+    from zenith_business.ui.documents.entry_page import DocumentEntryPage
+    from zenith_business.ui.design.tokens import ControlSize
+
+    QApplication.instance().setStyleSheet(build_stylesheet())
+    pg = DocumentEntryPage(biz, Translator(), mode="sale")
+    pg.resize(1366, 768)
+    pg.show()
+    for _ in range(4):  # stability across repeated toggles
+        pg._set_customer_mode("walkin")
+        pg._set_customer_mode("registered")
+    pg._set_customer_mode("walkin")
+    QApplication.processEvents()
+    QApplication.processEvents()
+    assert pg._walkin_wrap.isVisible()
+    for edit in (pg._walkin_name, pg._walkin_phone, pg._walkin_address):
+        assert edit.isVisibleTo(pg._walkin_wrap)
+        # NOT the old compact styling (26px muted inputs that caused the crush)
+        assert edit.property("size") != "compact"
+        # full professional input height under the app stylesheet
+        assert edit.height() >= int(ControlSize.INPUT_HEIGHT)
+    # Address/Note gets more width than Phone (stretch 4 vs 2)
+    assert pg._walkin_address.width() > pg._walkin_phone.width()
+    pg.close()
+
+
 def test_form_dialog_footer_within_screen(qapp):
     from zenith_business.ui.master.framework import FormDialog
 

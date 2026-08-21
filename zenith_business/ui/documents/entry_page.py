@@ -186,28 +186,41 @@ class DocumentEntryPage(QWidget):
         # entered details are snapshotted onto the sale.
         if self._mode == "sale":
             panel = QFrame()
+            panel.setObjectName("WalkinPanel")
+            # Scope the tint to the panel itself (object-name selector) so it does
+            # not cascade onto the child inputs and strip their white fill.
             panel.setStyleSheet(
-                "QFrame { background: #eef4fb; border: 1px solid #c8d7ec;"
+                "QFrame#WalkinPanel { background: #eef4fb; border: 1px solid #c8d7ec;"
                 " border-radius: 8px; }")
             pv = QVBoxLayout(panel)
-            pv.setContentsMargins(Spacing.SM, Spacing.XS, Spacing.SM, Spacing.XS)
-            pv.setSpacing(Spacing.XXS)
+            pv.setContentsMargins(Spacing.CARD_PAD_H, Spacing.CARD_PAD_V,
+                                  Spacing.CARD_PAD_H, Spacing.CARD_PAD_V)
+            pv.setSpacing(Spacing.SM)
             self._walkin_head = eyebrow(t.gettext("s4.walkin_head"))
+            self._walkin_head.setWordWrap(True)
             pv.addWidget(self._walkin_head)
+
             self._walkin_name = QLineEdit()
             self._walkin_name.setPlaceholderText(t.gettext("s4.walkin_name_ph"))
-            self._walkin_phone = QLineEdit(); self._walkin_address = QLineEdit()
-            wrow = QHBoxLayout(); wrow.setSpacing(Spacing.LG)
-            self._walkin_fields = [
-                ("s4.walkin_name", self._walkin_name, FieldWidth.LG),
-                ("s4.walkin_phone", self._walkin_phone, FieldWidth.MD),
-                ("s4.walkin_address", self._walkin_address, FieldWidth.LG),
+            self._walkin_phone = QLineEdit()
+            self._walkin_address = QLineEdit()
+            # Full-height labelled fields (NOT compact) with a sensible minimum
+            # width each, then share the remaining width by stretch factor:
+            # Address/Note widest, then Name, then Phone. No fixed pixel geometry.
+            walkin_specs = [
+                ("s4.walkin_name", self._walkin_name, FieldWidth.MD, 3),
+                ("s4.walkin_phone", self._walkin_phone, FieldWidth.SM, 2),
+                ("s4.walkin_address", self._walkin_address, FieldWidth.MD, 4),
             ]
+            wrow = QHBoxLayout(); wrow.setSpacing(Spacing.LG)
             self._walkin_lfs: list[tuple[str, LabeledField]] = []
-            for key, ctrl, width in self._walkin_fields:
-                lf = LabeledField(t.gettext(key), ctrl, width=width, compact=True)
-                self._walkin_lfs.append((key, lf)); wrow.addWidget(lf)
-            wrow.addStretch(1)
+            for key, ctrl, minw, stretch in walkin_specs:
+                ctrl.setMinimumWidth(int(minw))
+                ctrl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+                lf = LabeledField(t.gettext(key), ctrl)
+                lf.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+                self._walkin_lfs.append((key, lf))
+                wrow.addWidget(lf, stretch)
             pv.addLayout(wrow)
             self._walkin_wrap = panel
             self._walkin_wrap.setVisible(False)
