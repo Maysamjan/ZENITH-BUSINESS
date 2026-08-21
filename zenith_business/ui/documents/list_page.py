@@ -195,6 +195,13 @@ class DocumentListPage(QWidget):
         status = self._status_filter.currentData() if hasattr(self, "_status_filter") else None
         if self._mode == "sale":
             self._rows = self._ctx.sales_documents.list(term=term, status=status)
+            # Walk-in sales have no party_id (party_name is NULL) but carry the
+            # entered name in sales.walkin_name — show that, else a localized
+            # "Walk-in Customer" fallback, so the party column is never blank.
+            for row in self._rows:
+                if not row.get("party_name"):
+                    row["party_name"] = (row.get("walkin_name")
+                                         or self._t.gettext("s4.walkin"))
         elif self._mode == "purchase":
             self._rows = self._ctx.purchase_documents.list(term=term, status=status)
         elif self._mode == "sales_return":

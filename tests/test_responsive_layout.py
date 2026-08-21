@@ -114,18 +114,21 @@ def test_walkin_panel_not_clipped_in_real_main_window(biz, qapp):
     QApplication.instance().setStyleSheet(build_stylesheet())
     cfg = AppConfig(); cfg.ui.language = LANG_DARI
     win = MainWindow(cfg, database=biz.db, current_user=biz.session.user, context=biz)
-    win.resize(1366, 768)
     entry = win._s4_sales_entry
     win.content.setCurrentWidget(entry)
     entry._set_customer_mode("walkin")
-    win.show()
-    QApplication.processEvents()
-    QApplication.processEvents()
     panel = entry._walkin_wrap
-    # the panel gets its full content height (was clipped to ~78px before the fix)
-    assert panel.height() >= panel.minimumSizeHint().height() - 1
-    # and the action bar stays on-screen
-    assert entry._btn_post.mapTo(win, entry._btn_post.rect().bottomLeft()).y() <= win.height()
+    # Even at heights well below 768 (which is what Windows DISPLAY SCALING / DPI
+    # effectively produces) the walk-in panel must stay at full height — the body
+    # scrolls instead of the header being compressed — and Save stays reachable.
+    for h in (768, 640, 560, 480):
+        win.resize(1366, h)
+        win.show()
+        QApplication.processEvents()
+        QApplication.processEvents()
+        assert panel.height() >= panel.minimumSizeHint().height() - 1, f"clipped at {h}"
+        bottom = entry._btn_post.mapTo(win, entry._btn_post.rect().bottomLeft()).y()
+        assert bottom <= win.height(), f"Save off-screen at {h}"
     win.close()
 
 

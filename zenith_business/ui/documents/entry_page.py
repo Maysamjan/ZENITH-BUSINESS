@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QScrollArea,
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
@@ -95,13 +96,28 @@ class DocumentEntryPage(QWidget):
         root.setSpacing(Spacing.XXS)  # tight so the items table keeps the space (§5)
 
         root.addLayout(self._build_titlebar())
-        # The line grid (stretch, internal scroll, floored min-height) absorbs any
-        # vertical squeeze, so the totals band and the action bar below it stay
-        # visible on small windows while the grand total is always in view.
-        root.addWidget(self._build_header())
-        root.addWidget(self._build_grid_card(), stretch=1)  # entry row + line grid
-        root.addLayout(self._build_bottom_band())
-        root.addWidget(self._build_action_bar())
+        # The invoice body (customer/invoice header + items grid + totals band)
+        # lives inside a vertical QScrollArea, with the action bar PINNED below it.
+        # This is DPI/size-proof: when the effective window height is small — a
+        # short window OR Windows display scaling that shrinks Qt's logical height
+        # — the body scrolls instead of Qt compressing the header and clipping the
+        # walk-in customer fields. When there is room (widgetResizable), the body
+        # fills the viewport so the Expanding items grid still dominates the screen.
+        body = QWidget()
+        bcol = QVBoxLayout(body)
+        bcol.setContentsMargins(0, 0, 0, 0)
+        bcol.setSpacing(Spacing.XXS)
+        bcol.addWidget(self._build_header())
+        bcol.addWidget(self._build_grid_card(), stretch=1)  # entry row + line grid
+        bcol.addLayout(self._build_bottom_band())
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(body)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._body_scroll = scroll
+        root.addWidget(scroll, stretch=1)
+        root.addWidget(self._build_action_bar())  # pinned — always reachable
 
         self._reload_meta_sources()
         if self._mode == "sale":

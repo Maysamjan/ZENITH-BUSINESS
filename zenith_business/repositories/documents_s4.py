@@ -62,6 +62,7 @@ class SalesExtRepository(BaseRepository):
         return self._all(
             "SELECT s.id, s.document_no, s.sale_date, s.grand_total, s.amount_paid,"
             " s.remaining_amount, s.status, s.warehouse_id, p.name AS party_name,"
+            " s.walkin_name AS walkin_name,"
             " w.name AS warehouse_name, u.full_name AS user_name FROM sales s"
             " LEFT JOIN parties p ON p.id = s.party_id"
             " LEFT JOIN warehouses w ON w.id = s.warehouse_id"
