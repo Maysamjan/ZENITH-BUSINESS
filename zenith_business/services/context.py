@@ -52,6 +52,7 @@ from zenith_business.repositories.money_s5 import (
 from zenith_business.repositories.financial_years import FinancialYearRepository
 from zenith_business.repositories.ledger_s6 import PartyLedgerRepository
 from zenith_business.repositories.parties import PartyRepository
+from zenith_business.repositories.reports import SalesReportRepository
 from zenith_business.repositories.system import (
     AppSettingsRepository,
     AuditRepository,
@@ -89,6 +90,7 @@ from zenith_business.services.purchases import PurchaseService
 from zenith_business.services.sales_documents import SalesDocumentService
 from zenith_business.services.roles import RoleService
 from zenith_business.services.sales import SalesService
+from zenith_business.services.sales_reports import SalesReportService
 from zenith_business.services.search_providers import ItemSearchProvider, PartySearchProvider
 from zenith_business.services.session import SessionContext
 from zenith_business.services.setup import InitialSetupService
@@ -223,6 +225,11 @@ class ApplicationContext:
         # ---- owner-fix party ledger service (defect #4) ----
         self.party_ledger = PartyLedgerService(
             self.party_ledger_repo, self.parties_repo, self.authz)
+
+        # ---- Sales Reporting (read-only over authoritative POSTED documents) ----
+        self.sales_report_repo = SalesReportRepository(db)
+        self.sales_reports = SalesReportService(
+            self.sales_report_repo, self.session, self.authz)
 
         # ---- reusable search providers (§12, §16) ----
         self.item_search = ItemSearchProvider(self.items_repo)

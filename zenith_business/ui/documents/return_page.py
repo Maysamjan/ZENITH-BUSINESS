@@ -201,7 +201,18 @@ class ReturnEntryPage(QWidget):
             matches = self._ctx.sales_documents.list(term=term, status="POSTED")
         else:
             matches = self._ctx.purchase_documents.list(term=term, status="POSTED")
-        doc = next((d for d in matches if d["document_no"].lower() == term.lower()), None)
+        # Accept the exact document number first; otherwise a partial number the
+        # user typed (e.g. "2" or "000002") is fine as long as it identifies ONE
+        # posted invoice — so the operator does not have to type the full code.
+        low = term.lower()
+        doc = next((d for d in matches if d["document_no"].lower() == low), None)
+        if doc is None:
+            if len(matches) == 1:
+                doc = matches[0]
+            elif len(matches) > 1:
+                self._show_error(self._t.gettext("s4.msg_source_ambiguous"))
+                self._clear_table()
+                return
         if doc is None:
             self._show_error(self._t.gettext("s4.msg_source_not_found"))
             self._clear_table()

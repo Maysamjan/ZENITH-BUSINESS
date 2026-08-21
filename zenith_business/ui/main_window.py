@@ -200,6 +200,7 @@ class MainWindow(QMainWindow):
             self._build_stage04_pages()
             self._build_stage05_pages()
             self._build_owner_fix_pages()
+            self._build_sales_report_page()
 
         layout.addWidget(self.content, stretch=1)
 
@@ -443,6 +444,36 @@ class MainWindow(QMainWindow):
             self._account_settings.reload()
         self.content.setCurrentWidget(self._account_settings)
 
+    # ---- Sales Reporting (Stage 05 final) --------------------------------
+
+    def _build_sales_report_page(self) -> None:
+        """Register the Sales Report screen + its print-preview, under Account Reports."""
+        from zenith_business.ui.documents.sales_report_page import SalesReportPage
+        from zenith_business.ui.documents.sales_report_preview import SalesReportPreviewPage
+        ctx, t = self._context, self._translator
+        self._sales_report_preview = SalesReportPreviewPage(
+            t, on_back=lambda: self._sales_report_back())
+        self._sales_report_back = self.show_home
+        self._sales_report = SalesReportPage(
+            ctx, t, on_close=self.show_home, on_print=self._open_sales_report_print)
+        self.content.addWidget(self._sales_report)
+        self.content.addWidget(self._sales_report_preview)
+        self._stage03_actions["sales_report"] = lambda: self._show_sales_report()
+        self._stage03_commands.setdefault("menu.account_reports", []).insert(
+            0, ("rep.nav_sales", True, "sales_report"))
+
+    def _show_sales_report(self) -> None:
+        if hasattr(self._sales_report, "reload"):
+            self._sales_report.reload()
+        self.content.setCurrentWidget(self._sales_report)
+
+    def _open_sales_report_print(self, payload: dict) -> None:
+        from zenith_business.ui.documents.print_builder import build_sales_report_print
+        data = build_sales_report_print(self._context, payload)
+        self._sales_report_back = lambda: self.content.setCurrentWidget(self._sales_report)
+        self._sales_report_preview.show_report(data)
+        self.content.setCurrentWidget(self._sales_report_preview)
+
     # ---- Stage 05: real Receipts / Payments / Expenses -------------------
 
     def _build_stage05_pages(self) -> None:
@@ -678,6 +709,10 @@ class MainWindow(QMainWindow):
             self._doc_preview.retranslate(self._translator)
         if hasattr(self, "_voucher_preview"):
             self._voucher_preview.retranslate(self._translator)
+        if hasattr(self, "_sales_report"):
+            self._sales_report.retranslate(self._translator)
+        if hasattr(self, "_sales_report_preview"):
+            self._sales_report_preview.retranslate(self._translator)
         self._refresh_status()
         self._apply_identity()
         # Restore the contextual command state for the active view.

@@ -326,6 +326,35 @@ class SalesDocumentService:
 
     # ---- correct a posted sale (safe void-and-replace) ------------------
 
+    def _correction_diff(self, old_lines: list[dict], new_lines: list[SaleLine]) -> str:
+        """Human-readable summary of what a correction changed, per item.
+
+        Aggregates by item so the audit note reads like 'Rice qty 5 → 3;
+        Sugar 2 removed; Oil 4 added'. Pure text for the audit log — it does not
+        affect any posting.
+        """
+        def _name(item_id: int) -> str:
+            it = self._items.get(item_id)
+            return (it or {}).get("name") or (it or {}).get("item_code") or f"item {item_id}"
+
+        old_q: dict[int, D] = {}
+        for ln in old_lines:
+            old_q[ln["item_id"]] = old_q.get(ln["item_id"], D(0)) + D(ln["quantity"])
+        new_q: dict[int, D] = {}
+        for sl in new_lines:
+            new_q[sl.item_id] = new_q.get(sl.item_id, D(0)) + D(sl.quantity)
+
+        parts: list[str] = []
+        for item_id in sorted(set(old_q) | set(new_q)):
+            o, n = old_q.get(item_id), new_q.get(item_id)
+            if o is not None and n is None:
+                parts.append(f"{_name(item_id)} {o} removed")
+            elif o is None and n is not None:
+                parts.append(f"{_name(item_id)} {n} added")
+            elif o != n:
+                parts.append(f"{_name(item_id)} qty {o} → {n}")
+        return "; ".join(parts)
+
     def correct_sale(self, *, sale_id: int, currency_code: str, lines: list[SaleLine],
                      party_id: int | None = None, warehouse_id: int | None = None,
                      amount_paid=0, exchange_rate=1, sale_date: str | None = None,
@@ -358,6 +387,10 @@ class SalesDocumentService:
             allow_backorder=False, walkin_name=walkin_name, walkin_phone=walkin_phone,
             walkin_address=walkin_address)
         uid = self._session.user_id
+        # Build a human-readable line-level diff BEFORE the original is voided, so
+        # the audit note records exactly what changed (Rice qty 5→3; Sugar removed;
+        # Oil added) in addition to the old→new totals.
+        change_summary = self._correction_diff(self._sales.lines_for(sale_id), lines)
         with self._db.transaction():
             self._do_void_sale(original, prep["date"], uid,
                                reason=f"Corrected → replacement invoice",
@@ -368,9 +401,10 @@ class SalesDocumentService:
             self._audit.record(
                 action="sales.correct", user_id=uid, username=self._session.username,
                 entity_type="sale", entity_id=new_id, document_no=new_no,
-                details=(f"corrected {original['document_no']} "
-                         f"old_total={original['grand_total']} new_total={prep['grand_total']} "
-                         f"reason={reason or ''}"))
+                details=(f"corrected {original['document_no']} → {new_no} "
+                         f"old_total={original['grand_total']} new_total={prep['grand_total']}; "
+                         f"changes: {change_summary or 'none'}"
+                         + (f"; reason={reason}" if reason else "")))
         _logger.info("Corrected sale %s → %s", original["document_no"], new_no)
         return PostedDocument(new_id, new_no, str(prep["grand_total"]), str(prep["remaining"]))
 

@@ -49,6 +49,28 @@ def _company_info(ctx: ApplicationContext) -> CompanyInfo:
     )
 
 
+def build_sales_report_print(ctx: ApplicationContext, payload: dict):
+    """Build the printable Sales Report from the last-run report payload.
+
+    Uses the CUSTOMER's own business identity from Company settings (logo / name /
+    address / phone) — never the Zenith Soft developer identity — because this is
+    the owner's accounting report about their own sales.
+    """
+    from zenith_business.ui.print.sales_report_document import (
+        ReportCompany,
+        SalesReportPrintData,
+    )
+
+    ci = _company_info(ctx)
+    company = ReportCompany(name=ci.name, address=ci.address, phone=ci.phone,
+                            email=ci.email, logo_path=ci.logo_path)
+    return SalesReportPrintData(
+        company=company,
+        date_from=payload["date_from"], date_to=payload["date_to"],
+        summary=payload["summary"], rows=payload["detail"],
+    )
+
+
 def _lines_from(ctx: ApplicationContext, rows: list[dict]) -> list[InvoiceLine]:
     unit_by_id: dict = {u["id"]: u for u in ctx.units_repo.list_all()}
     item_by_id: dict = {}
