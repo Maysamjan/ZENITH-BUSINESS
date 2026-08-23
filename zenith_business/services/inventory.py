@@ -34,10 +34,18 @@ class InventoryService:
         self._authz = authz
 
     def record_opening(
-        self, *, item_id: int, warehouse_id: int, quantity_on_hand, unit_id: int | None = None,
-        movement_date: str | None = None,
+        self, *, item_id: int, warehouse_id: int | None, quantity_on_hand,
+        unit_id: int | None = None, movement_date: str | None = None,
     ) -> int:
         self._authz.require("inventory.adjust")
+        # Stock has to live somewhere. Refusing here means an operator who enters an
+        # opening quantity before creating a warehouse is told so, instead of the
+        # quantity being silently dropped and the item selling as "out of stock".
+        if warehouse_id is None:
+            raise ValidationError(
+                "Opening stock needs a warehouse.",
+                user_message="Choose a warehouse for the opening stock. Create one under"
+                             " Base Data → Warehouses first if there is none.")
         qty = quantity(parse_money_input(quantity_on_hand, field="opening quantity"))
         with self._db.transaction():
             mid = self._inventory.add_movement(
@@ -115,3 +123,16 @@ class InventoryService:
     def on_hand(self, item_id: int, warehouse_id: int | None = None) -> str:
         self._authz.require("inventory.view")
         return self._inventory.stock_on_hand(item_id, warehouse_id)
+
+    def opening(self, item_id: int, warehouse_id: int | None = None) -> str:
+        """The item's opening stock — fixed at creation, never moved by trading."""
+        self._authz.require("inventory.view")
+        return self._inventory.opening_stock(item_id, warehouse_id)
+
+    def stock_columns(self, item_ids: list[int]) -> dict[int, dict[str, str]]:
+        """``item_id -> {opening, current}`` for a list screen, in two queries."""
+        self._authz.require("inventory.view")
+        opening = self._inventory.opening_stock_map(item_ids)
+        current = self._inventory.stock_on_hand_map(item_ids)
+        return {i: {"opening": opening.get(i, "0"), "current": current.get(i, "0")}
+                for i in item_ids}

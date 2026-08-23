@@ -157,6 +157,19 @@ class SalesReturnRepository(BaseRepository):
         return self._all("SELECT * FROM sales_returns WHERE sale_id = ? ORDER BY id DESC",
                          (sale_id,))
 
+    def posted_totals_for_sales(self, sale_ids: list[int]) -> list[dict]:
+        """(sale_id, grand_total) for every POSTED return against these sales.
+
+        Returned as raw rows so the caller sums them with ``Decimal`` — money is
+        never aggregated as a SQL float.
+        """
+        if not sale_ids:
+            return []
+        marks = ",".join("?" * len(sale_ids))
+        return self._all(
+            f"SELECT sale_id, grand_total FROM sales_returns"
+            f" WHERE status = 'POSTED' AND sale_id IN ({marks})", tuple(sale_ids))
+
     def list_recent(self, limit: int = 200) -> list[dict]:
         return self._all(
             "SELECT sr.id, sr.document_no, sr.return_date, sr.grand_total, sr.status,"

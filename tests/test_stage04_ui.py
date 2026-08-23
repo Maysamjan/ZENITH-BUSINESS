@@ -51,13 +51,13 @@ def test_sales_entry_posts_real_sale(qapp, biz):
     page.set_party(biz.customer_search.search("Cust")[0])
     page.add_line(biz.item_search.search("Rice")[0].payload, qty="10", price="120")
     assert page.line_count == 1
-    page.set_amount_paid("600")
+    page.set_payment_type("credit")          # whole total left on account
     page._post(print_after=False)
     assert page.last_saved_id is not None
     sale = biz.sales_documents.get(page.last_saved_id)
     assert sale["grand_total"] == "1200.00"
     assert sale["party_id"] == biz.cust
-    assert biz.sales_documents.receivable(biz.cust) == "600.00"
+    assert biz.sales_documents.receivable(biz.cust) == "1200.00"
     assert biz.inventory.on_hand(biz.item, biz.wh) == "90.000"
     # form reset after posting
     assert page.line_count == 0

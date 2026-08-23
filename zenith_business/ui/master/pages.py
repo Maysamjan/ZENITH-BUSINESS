@@ -77,6 +77,10 @@ class ItemsPage(_BasePage):
             Column("barcode", "items.col_barcode", width=120),
             Column("purchase_display", "items.col_purchase", width=110, align="r"),
             Column("sale_display", "items.col_sale", width=110, align="r"),
+            # Opening stock is the figure entered when the item was created and
+            # never moves; current stock follows every sale/purchase/return.
+            Column("opening_display", "items.col_opening_stock", width=110, align="r"),
+            Column("current_display", "items.col_current_stock", width=110, align="r"),
             Column("is_active", "items.col_status", width=110, kind="status"),
         ]
         self.page = ManagementPage(
@@ -90,9 +94,16 @@ class ItemsPage(_BasePage):
 
     def reload(self) -> None:
         rows = self._ctx.items.list()
+        stock = self._ctx.inventory.stock_columns([r["id"] for r in rows])
         for r in rows:
             r["purchase_display"] = format_money(r["purchase_price"])
             r["sale_display"] = format_money(r["default_sale_price"])
+            counts = stock.get(r["id"], {"opening": "0", "current": "0"})
+            if r.get("track_inventory"):
+                r["opening_display"] = format_money(counts["opening"])
+                r["current_display"] = format_money(counts["current"])
+            else:
+                r["opening_display"] = r["current_display"] = "—"
         self.page.set_rows(rows)
 
     def _dialog(self, existing: dict | None) -> None:
@@ -163,6 +174,13 @@ class ItemsPage(_BasePage):
             _select(unit, existing["base_unit_id"]); _select(cat, existing.get("category_id"))
 
         def submit() -> None:
+            # Check the opening stock BEFORE creating anything: an operator who
+            # enters a quantity with no warehouse to put it in gets told so, rather
+            # than having the item created and the quantity quietly dropped.
+            if (existing is None and stockable.isChecked()
+                    and D(opening_qty.text() or "0") > 0
+                    and opening_wh.currentData() is None):
+                dlg.set_error(_t(t, "items.msg_opening_needs_wh")); return
             try:
                 if existing:
                     self._ctx.items.update(
@@ -180,10 +198,8 @@ class ItemsPage(_BasePage):
                         track_inventory=stockable.isChecked())
                     # Record opening stock via the EXISTING inventory service (one
                     # OPENING movement) when a stockable item is created with a
-                    # positive opening quantity and a warehouse is chosen.
-                    if (stockable.isChecked()
-                            and D(opening_qty.text() or "0") > 0
-                            and opening_wh.currentData() is not None):
+                    # positive opening quantity.
+                    if stockable.isChecked() and D(opening_qty.text() or "0") > 0:
                         self._ctx.inventory.record_opening(
                             item_id=new_id, warehouse_id=opening_wh.currentData(),
                             quantity_on_hand=opening_qty.text())

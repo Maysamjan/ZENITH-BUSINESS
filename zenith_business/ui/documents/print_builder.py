@@ -121,9 +121,21 @@ def build_sale_invoice(ctx: ApplicationContext, sale_id: int) -> tuple[InvoiceDa
         customer_name=cust_name,
         customer_phone=cust_phone,
         customer_address=cust_address,
-        lines=_lines_from(ctx, ctx.sales_repo.lines_for(sale_id)),
+        # Print the invoice's CURRENT position: quantities net of anything the
+        # customer returned, with fully-returned items dropped. The sale document
+        # itself is unchanged — the netting is derived from the return documents.
+        lines=_lines_from(ctx, _net_sale_lines(ctx, sale_id)),
         paid=_f(sale["amount_paid"]))
     return data, TITLE_SALE
+
+
+def _net_sale_lines(ctx: ApplicationContext, sale_id: int) -> list[dict]:
+    """Sale lines with returned quantity deducted; fully-returned lines removed."""
+    view = ctx.sales_documents.net_view(sale_id)
+    if view is None or not view["has_returns"]:
+        return ctx.sales_repo.lines_for(sale_id)
+    return [{**ln, "quantity": ln["net_quantity"], "discount": ln["net_discount"]}
+            for ln in view["active_lines"]]
 
 
 def build_purchase_invoice(ctx: ApplicationContext, purchase_id: int) -> tuple[InvoiceData, str]:

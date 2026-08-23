@@ -270,6 +270,48 @@ class InventoryRepository(BaseRepository):
         total = sum((D(r["quantity"]) for r in rows), D(0))
         return qty_to_db(total)
 
+    def opening_stock(self, item_id: int, warehouse_id: int | None = None) -> str:
+        """Sum of the item's OPENING movements — the stock it started life with.
+
+        Distinct from :meth:`stock_on_hand`: opening stock is a fixed historical
+        figure that sales, purchases and returns never change, while current stock
+        moves with every transaction. Summed with Decimal, never a SQL float.
+        """
+        sql = ("SELECT quantity FROM inventory_movements"
+               " WHERE item_id = ? AND movement_type = 'OPENING'")
+        params: list = [item_id]
+        if warehouse_id is not None:
+            sql += " AND warehouse_id = ?"
+            params.append(warehouse_id)
+        rows = self._all(sql, tuple(params))
+        return qty_to_db(sum((D(r["quantity"]) for r in rows), D(0)))
+
+    def opening_stock_map(self, item_ids: list[int]) -> dict[int, str]:
+        """``item_id -> opening stock`` for many items in one query (list screens)."""
+        if not item_ids:
+            return {}
+        marks = ",".join("?" * len(item_ids))
+        rows = self._all(
+            f"SELECT item_id, quantity FROM inventory_movements"
+            f" WHERE movement_type = 'OPENING' AND item_id IN ({marks})", tuple(item_ids))
+        totals: dict[int, object] = {}
+        for r in rows:
+            totals[r["item_id"]] = D(totals.get(r["item_id"], D(0))) + D(r["quantity"])
+        return {k: qty_to_db(v) for k, v in totals.items()}
+
+    def stock_on_hand_map(self, item_ids: list[int]) -> dict[int, str]:
+        """``item_id -> current stock`` for many items in one query (list screens)."""
+        if not item_ids:
+            return {}
+        marks = ",".join("?" * len(item_ids))
+        rows = self._all(
+            f"SELECT item_id, quantity FROM inventory_movements"
+            f" WHERE item_id IN ({marks})", tuple(item_ids))
+        totals: dict[int, object] = {}
+        for r in rows:
+            totals[r["item_id"]] = D(totals.get(r["item_id"], D(0))) + D(r["quantity"])
+        return {k: qty_to_db(v) for k, v in totals.items()}
+
     def movements_for(self, item_id: int, limit: int = 100) -> list[dict]:
         return self._all(
             "SELECT * FROM inventory_movements WHERE item_id = ?"

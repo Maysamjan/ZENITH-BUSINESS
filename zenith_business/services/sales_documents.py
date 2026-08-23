@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from zenith_business.core.clock import today_iso
 from zenith_business.core.document_ref import candidates
 from zenith_business.core.logging_setup import get_logger
-from zenith_business.core.money import D, money
+from zenith_business.core.money import D, money, money_to_db, qty_to_db
 from zenith_business.database.connection import Database
 from zenith_business.repositories.documents import (
     FinancialRepository,
@@ -110,9 +110,24 @@ class SalesDocumentService:
 
     def list(self, *, term=None, status=None, date_from=None, date_to=None,
              limit=200) -> list[dict]:
+        """Sales list rows, each carrying its CURRENT position after returns.
+
+        ``grand_total`` stays the amount originally invoiced; ``returned_total`` and
+        ``net_total`` are derived from the posted return documents, so the list can
+        show what the invoice is worth now without storing a second copy of the
+        figure. Money is summed with ``Decimal``, never a SQL float.
+        """
         self._authz.require("sales.view")
-        return self._ext.list_documents(term=term, status=status, date_from=date_from,
+        rows = self._ext.list_documents(term=term, status=status, date_from=date_from,
                                         date_to=date_to, limit=limit)
+        returned: dict[int, D] = {}
+        for r in self._returns.posted_totals_for_sales([row["id"] for row in rows]):
+            returned[r["sale_id"]] = returned.get(r["sale_id"], D(0)) + D(r["grand_total"])
+        for row in rows:
+            back = returned.get(row["id"], D(0))
+            row["returned_total"] = money_to_db(back)
+            row["net_total"] = money_to_db(money(row["grand_total"]) - back)
+        return rows
 
     def get(self, sale_id: int) -> dict | None:
         self._authz.require("sales.view")
@@ -159,6 +174,52 @@ class SalesDocumentService:
             returned = D(self._ext.returned_qty_for_line(ln["id"]))
             out[ln["id"]] = str(sold - returned)
         return out
+
+    def net_view(self, sale_id: int) -> dict | None:
+        """The invoice's CURRENT position after any posted returns.
+
+        The sale itself is never rewritten by a return — the sold quantities and
+        the original total stay on the document as the historical record, and the
+        return documents stay intact for audit. What changed is derived here, so
+        there is exactly one place that answers "what does this invoice look like
+        now": the invoice screen, the printed copy and the Sales List all read it.
+
+        Each line carries ``sold`` / ``returned`` / ``net_quantity`` with the
+        recomputed ``net_line_total``; ``active_lines`` drops any line whose whole
+        quantity came back. Totals give ``gross_total`` (as invoiced),
+        ``returned_total`` and ``net_total`` = gross − returned.
+        """
+        self._authz.require("sales.view")
+        sale = self._sales.get(sale_id)
+        if sale is None:
+            return None
+        lines: list[dict] = []
+        returned_total = D(0)
+        for ln in self._sales.lines_for(sale_id):
+            sold = D(ln["quantity"])
+            returned = D(self._ext.returned_qty_for_line(ln["id"]))
+            net_qty = sold - returned
+            # Discount is spread per unit so a partial return keeps the same
+            # effective price the customer was charged.
+            per_unit_disc = (money(ln["discount"]) / sold) if sold else D(0)
+            net_line_total = money(net_qty * money(ln["unit_price"]) - net_qty * per_unit_disc)
+            returned_total += money(returned * money(ln["unit_price"])
+                                    - returned * per_unit_disc)
+            lines.append({**ln, "sold": qty_to_db(sold), "returned": qty_to_db(returned),
+                          "net_quantity": qty_to_db(net_qty),
+                          "net_discount": money_to_db(money(net_qty * per_unit_disc)),
+                          "net_line_total": money_to_db(net_line_total),
+                          "fully_returned": net_qty <= 0})
+        gross = money(sale["grand_total"])
+        returned_total = money(returned_total)
+        return {
+            "sale": sale, "lines": lines,
+            "active_lines": [ln for ln in lines if not ln["fully_returned"]],
+            "gross_total": money_to_db(gross),
+            "returned_total": money_to_db(returned_total),
+            "net_total": money_to_db(gross - returned_total),
+            "has_returns": returned_total > 0,
+        }
 
     # ---- post a sale ----------------------------------------------------
 
@@ -571,6 +632,19 @@ class SalesDocumentService:
 
     # ---- post a sales return -------------------------------------------
 
+    def _return_note(self, computed) -> str:
+        """Readable summary of a return — 'Rice — Qty 1 returned; Sugar — Qty 2 returned.'
+
+        Used when the caller supplies no note of its own, so every return document
+        carries a human-readable record of what came back.
+        """
+        parts = []
+        for src, qty, *_rest in computed:
+            item = self._items.get(src["item_id"]) or {}
+            name = item.get("name") or item.get("item_code") or f"item {src['item_id']}"
+            parts.append(f"{name} — Qty {qty.normalize():f} returned")
+        return "; ".join(parts) + ("." if parts else "")
+
     def post_return(self, *, sale_id: int, lines: list[ReturnLine],
                     reason: str | None = None, notes: str | None = None,
                     return_date: str | None = None) -> PostedDocument:
@@ -613,6 +687,10 @@ class SalesDocumentService:
         grand_total = money(subtotal - discount_total)
         uid = self._session.user_id
         party_id = sale["party_id"]
+        # Always leave a readable record of what came back. The caller may supply
+        # its own note (the UI passes a localized one); otherwise summarise the
+        # returned lines — "Rice — Qty 1 returned."
+        notes = (notes or "").strip() or self._return_note(computed)
 
         with self._db.transaction():
             document_no = self._numbering.allocate("SRET")

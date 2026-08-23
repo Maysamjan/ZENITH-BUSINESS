@@ -286,6 +286,23 @@ class ReturnEntryPage(QWidget):
                 out.append((ln["line_id"], text))
         return out
 
+    def _return_note(self, picked: list[tuple]) -> str:
+        """Readable note in the operator's language — 'Rice — Qty 1 returned.'
+
+        Built here because this is where the active language is known; the service
+        falls back to its own summary when a caller supplies none.
+        """
+        by_line = {ln["line_id"]: ln for ln in self._lines}
+        template = self._t.gettext("s4.return_note_line")
+        parts = []
+        for line_id, qty in picked:
+            row = by_line.get(line_id)
+            if row is None:
+                continue
+            text = str(D(qty).normalize()) if str(qty).strip() else str(qty)
+            parts.append(template.replace("{item}", row["name"]).replace("{qty}", text))
+        return " ".join(parts)
+
     def _post(self, *, print_after: bool) -> None:
         self.clear_error()
         if self._source_id is None:
@@ -300,7 +317,8 @@ class ReturnEntryPage(QWidget):
             if self._mode == "sales_return":
                 lines = [ReturnLine(sale_line_id=lid, quantity=q) for lid, q in picked]
                 posted = self._ctx.sales_documents.post_return(
-                    sale_id=self._source_id, lines=lines, reason=reason)
+                    sale_id=self._source_id, lines=lines, reason=reason,
+                    notes=self._return_note(picked))
             else:
                 lines = [PurchaseReturnLine(purchase_line_id=lid, quantity=q) for lid, q in picked]
                 posted = self._ctx.purchase_documents.post_return(

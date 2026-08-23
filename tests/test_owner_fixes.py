@@ -209,7 +209,9 @@ def test_sales_entry_walkin_toggle_and_line_edit(biz, qapp):
     # inline-edit the qty cell 2 -> 5 and confirm the grand total recomputes
     pg._table.item(0, C_QTY).setText("5")
     assert pg._grand_value.text().replace(",", "") == "500.00"
-    pg.set_amount_paid("500")
+    # Cash is the default payment type, so the 500 total is paid in full — a
+    # walk-in may not be left on credit.
+    assert pg.amount_paid.replace(",", "") == "500.00"
     pg._post(print_after=False)
     assert pg.last_saved_id is not None
     row = biz.sales_repo.get(pg.last_saved_id)

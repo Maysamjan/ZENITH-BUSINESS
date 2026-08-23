@@ -21,11 +21,13 @@ from typing import Callable
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QButtonGroup,
     QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QRadioButton,
     QScrollArea,
     QSizePolicy,
     QTableWidget,
@@ -463,9 +465,26 @@ class DocumentEntryPage(QWidget):
         for w in (items_w, sub_w, disc_w):
             row.addWidget(w)
         row.addStretch(1)
-        self._seg_cash = chip(t.gettext("si.pay_cash"), "success")
-        self._seg_credit = chip(t.gettext("si.pay_credit"), "neutral")
+        # Payment type is the OPERATOR's choice, never inferred from the numbers.
+        # The two options are mutually exclusive (one QButtonGroup) and drive the
+        # paid/remaining figures, which are derived from the grand total below.
+        self._pay_label = QLabel(t.gettext("si.payment_type"))
+        self._pay_label.setProperty("role", "total-label")
+        self._seg_cash = QRadioButton(t.gettext("si.pay_cash"))
+        self._seg_credit = QRadioButton(t.gettext("si.pay_credit"))
+        self._pay_group = QButtonGroup(self)
+        self._pay_group.setExclusive(True)
+        self._pay_group.addButton(self._seg_cash)
+        self._pay_group.addButton(self._seg_credit)
+        self._seg_cash.setChecked(True)          # a cash sale is the common case
+        for b in (self._seg_cash, self._seg_credit):
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.toggled.connect(self._on_payment_type_changed)
+        row.addWidget(self._pay_label)
         row.addWidget(self._seg_cash); row.addWidget(self._seg_credit)
+        # Sales only — a purchase keeps its own manually-entered amount paid.
+        for w in (self._pay_label, self._seg_cash, self._seg_credit):
+            w.setVisible(self._mode == "sale")
         gt = QFrame(); gt.setProperty("role", "grand-total-strong")
         gtl = QHBoxLayout(gt); gtl.setContentsMargins(Spacing.LG, Spacing.XS, Spacing.LG, Spacing.XS)
         gtl.setSpacing(Spacing.MD)
@@ -482,7 +501,13 @@ class DocumentEntryPage(QWidget):
         row2.addStretch(1)
         self._recv_label = QLabel(t.gettext("s4.amount_paid")); self._recv_label.setProperty("role", "total-label")
         self._recv_edit = self._num_edit("0.00"); self._recv_edit.setFixedWidth(int(FieldWidth.SM))
-        self._recv_edit.textEdited.connect(self._recompute_totals)
+        if self._mode == "sale":
+            # Derived from the payment type + the grand total — the operator never
+            # types it, so it can never drift out of step with the invoice.
+            self._recv_edit.setReadOnly(True)
+            self._recv_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        else:
+            self._recv_edit.textEdited.connect(self._recompute_totals)
         row2.addWidget(self._recv_label); row2.addWidget(self._recv_edit)
         self._rem_label = QLabel(t.gettext("si.remaining")); self._rem_label.setProperty("role", "total-label")
         self._rem_value = QLabel("—"); self._rem_value.setProperty("role", "total-value")
@@ -724,6 +749,27 @@ class DocumentEntryPage(QWidget):
 
     # ---- totals ----------------------------------------------------------
 
+    # ---- payment type (operator's choice) --------------------------------
+
+    def payment_type(self) -> str:
+        """``'cash'`` or ``'credit'`` — whichever the operator selected."""
+        if not hasattr(self, "_seg_credit"):
+            return "cash"
+        return "credit" if self._seg_credit.isChecked() else "cash"
+
+    def set_payment_type(self, kind: str) -> None:
+        """Select Cash or Credit and refresh the derived payment figures."""
+        target = self._seg_credit if kind == "credit" else self._seg_cash
+        if not target.isChecked():
+            target.setChecked(True)          # exclusive group clears the other
+        else:
+            self._recompute_totals()
+
+    def _on_payment_type_changed(self, checked: bool) -> None:
+        # QButtonGroup fires twice per switch (one off, one on); recompute once.
+        if checked:
+            self._recompute_totals()
+
     def _recompute_totals(self, *_a) -> None:
         subtotal = sum((D(ln["qty"]) * D(ln["price"]) for ln in self._lines), D(0))
         discount = sum((D(ln["discount"]) for ln in self._lines), D(0))
@@ -732,21 +778,21 @@ class DocumentEntryPage(QWidget):
         self._sub_value.setText(format_money(subtotal))
         self._disc_value.setText(format_money(discount))
         self._grand_value.setText(format_money(grand))
-        try:
-            paid = money(self._recv_edit.text() or "0")
-        except Exception:
-            paid = D(0)
+        if self._mode == "sale":
+            # Payment follows the operator's chosen type and the SAME grand total
+            # computed above — there is no second total calculation anywhere.
+            paid = grand if self.payment_type() == "cash" else D(0)
+            self._recv_edit.setText(format_money(paid))
+        else:
+            try:
+                paid = money(self._recv_edit.text() or "0")
+            except Exception:
+                paid = D(0)
         remaining = money(grand - paid)
         self._rem_value.setText(format_money(remaining))
         self._rem_value.setProperty("money", "negative" if remaining > 0 else "positive")
         self._rem_value.style().unpolish(self._rem_value)
         self._rem_value.style().polish(self._rem_value)
-        # cash when fully settled, otherwise credit (mirrors the Stage 01 demo).
-        cash = remaining <= 0 and grand > 0
-        self._seg_cash.setProperty("chip", "success" if cash else "neutral")
-        self._seg_credit.setProperty("chip", "neutral" if cash else "warning")
-        for c in (self._seg_cash, self._seg_credit):
-            c.style().unpolish(c); c.style().polish(c)
         # Previous balance and the balance this invoice would leave the customer
         # (round 2): the unpaid remainder adds to what they owe.
         self._prev_value.setText(format_money(self._prev_balance))
@@ -818,11 +864,13 @@ class DocumentEntryPage(QWidget):
         self._set_chip(self._chip_phone, "—", "neutral")
         self._set_chip(self._chip_balance, "—", "neutral")
         self._qty_edit.clear(); self._price_edit.clear(); self._disc_edit.clear()
-        self._recv_edit.clear()
         self._date_edit.setText(self._ctx_today())
         self._title.setText(self._t.gettext(self._title_key()))
         if self._mode == "sale":
             self._set_customer_mode("registered")  # back to the default customer mode
+            self._seg_cash.setChecked(True)        # next invoice starts as Cash
+        else:
+            self._recv_edit.clear()
         self._recompute_totals()
 
     # ---- load a posted sale for safe correction (round 2 §9) ------------
@@ -878,7 +926,9 @@ class DocumentEntryPage(QWidget):
                 "discount": str(ln["discount"]), "total": str(ln["line_total"]),
                 "wh_id": ln.get("warehouse_id"),
                 "wh_name": self._wh_combo.currentText()})
-        self._recv_edit.setText(str(sale.get("amount_paid") or "0"))
+        # Reflect how the invoice was settled: nothing outstanding = Cash.
+        self.set_payment_type("credit" if D(sale.get("remaining_amount") or 0) > 0
+                              else "cash")
         self._render_lines()
         self._recompute_totals()
         self._title.setText(
@@ -905,8 +955,15 @@ class DocumentEntryPage(QWidget):
         self._party_selector.set_text(row.values[1] if len(row.values) > 1 else row.values[0])
         self._on_party_selected(row)
 
-    def set_amount_paid(self, value: str) -> None:
-        self._recv_edit.setText(value); self._recompute_totals()
+    @property
+    def amount_paid(self) -> str:
+        """The derived amount paid currently shown on the invoice."""
+        return self._recv_edit.text()
+
+    @property
+    def remaining(self) -> str:
+        """The derived remaining/credit currently shown on the invoice."""
+        return self._rem_value.text()
 
     @property
     def line_count(self) -> int:
@@ -955,6 +1012,7 @@ class DocumentEntryPage(QWidget):
         self._kbd_note.setText(translator.gettext("s4.keyboard_hint"))
         self._seg_cash.setText(translator.gettext("si.pay_cash"))
         self._seg_credit.setText(translator.gettext("si.pay_credit"))
+        self._pay_label.setText(translator.gettext("si.payment_type"))
         self._add_btn.setText(escape_amp(translator.gettext("s4.add_line")))
         self._btn_new.setText(escape_amp(translator.gettext("s4.act_new")))
         self._btn_post.setText(escape_amp(translator.gettext("s4.act_post")))

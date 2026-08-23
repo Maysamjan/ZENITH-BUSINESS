@@ -140,6 +140,19 @@ class DocumentListPage(QWidget):
                     ("s4.col_total", "grand_total", "r"),
                     ("s4.col_status", "status", "c")]
         date_key = "sale_date" if self._mode == "sale" else "purchase_date"
+        if self._mode == "sale":
+            # A sale shows what it is worth NOW: the amount invoiced, what came
+            # back on returns, and the resulting net (both stay auditable).
+            return [("s4.col_docno", "document_no", "l"),
+                    ("s4.col_date", date_key, "l"),
+                    ("s4.col_party", "party_name", "l"),
+                    ("s4.col_warehouse", "warehouse_name", "l"),
+                    ("s4.col_gross", "grand_total", "r"),
+                    ("s4.col_returned_total", "returned_total", "r"),
+                    ("s4.col_total", "net_total", "r"),
+                    ("s4.col_paid", "amount_paid", "r"),
+                    ("s4.col_remaining", "remaining_amount", "r"),
+                    ("s4.col_status", "status", "c")]
         return [("s4.col_docno", "document_no", "l"),
                 ("s4.col_date", date_key, "l"),
                 ("s4.col_party", "party_name", "l"),
@@ -218,7 +231,8 @@ class DocumentListPage(QWidget):
         # the list is re-rendered (e.g. reopened from the nav).
         self._table.setRowCount(0)
         self._table.setRowCount(len(self._rows))
-        money_keys = {"grand_total", "amount_paid", "remaining_amount"}
+        money_keys = {"grand_total", "amount_paid", "remaining_amount",
+                      "returned_total", "net_total"}
         for r, data in enumerate(self._rows):
             for c, (_h, key, align) in enumerate(cols):
                 if key == "status":

@@ -168,7 +168,7 @@ def test_invoice_shows_previous_and_updated_balance(biz, qapp):
     pg.set_party(SearchRow(values=["C1", "Kabul Store"], payload={"party_id": biz.cust}))
     pg.add_line({"item_id": biz.rice, "base_unit_id": biz.bag, "item_code": "RICE",
                  "name": "Rice", "unit_symbol": "bag", "sale_price": "100"}, qty="3", price="100")
-    pg.set_amount_paid("0")
+    pg.set_payment_type("credit")
     assert pg._prev_value.text().replace(",", "") == "500.00"
     assert pg._upd_value.text().replace(",", "") == "800.00"  # 500 + 300 new credit
 
