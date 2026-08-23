@@ -53,14 +53,18 @@ def _sale(ctx, item, qty, price, **kw):
 # ---- posted-invoice correction (§9) --------------------------------------
 
 def test_correction_replaces_item_and_reconciles(biz):
+    """Swapping the item amends the SAME invoice — one document, no replacement."""
     s = _sale(biz, biz.oil, "10", "80", party_id=biz.cust, amount_paid="0")  # wrong item
     assert biz.sales_documents.receivable(biz.cust) == "800.00"
     new = biz.sales_documents.correct_sale(
         sale_id=s.id, currency_code="AFN", warehouse_id=biz.wh, party_id=biz.cust,
         amount_paid="0", lines=[SaleLine(item_id=biz.rice, unit_id=biz.bag,
                                          quantity="10", unit_price="100")], reason="wrong item")
-    assert biz.sales_repo.get(s.id)["status"] == "VOID"
-    assert biz.sales_repo.get(new.id)["corrected_from_id"] == s.id
+    # same record, same number, still posted — and no second sale anywhere
+    assert new.id == s.id and new.document_no == s.document_no
+    assert biz.sales_repo.get(s.id)["status"] == "POSTED"
+    assert biz.db.connection().execute(
+        "SELECT COUNT(*) FROM sales").fetchone()[0] == 1
     assert biz.sales_documents.receivable(biz.cust) == "1000.00"
     assert biz.inventory_repo.stock_on_hand(biz.oil, biz.wh) == "1000.000"  # oil restored
     assert biz.inventory_repo.stock_on_hand(biz.rice, biz.wh) == "990.000"  # rice sold

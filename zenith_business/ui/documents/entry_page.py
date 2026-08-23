@@ -781,8 +781,8 @@ class DocumentEntryPage(QWidget):
                     walkin_phone=self._walkin_phone.text() if walkin else None,
                     walkin_address=self._walkin_address.text() if walkin else None)
                 if self._correction_sale_id is not None:
-                    # Safe correction of a posted invoice: voids the original and
-                    # posts this replacement atomically (round 2 §9).
+                    # Correction of a posted invoice: amends that SAME invoice in
+                    # place — same record, same document number, no second sale.
                     posted = self._ctx.sales_documents.correct_sale(
                         sale_id=self._correction_sale_id, **sale_kwargs)
                 else:
@@ -828,8 +828,8 @@ class DocumentEntryPage(QWidget):
     # ---- load a posted sale for safe correction (round 2 §9) ------------
 
     def load_for_correction(self, sale_id: int) -> None:
-        """Load a posted sale into the form so it can be corrected. Saving posts a
-        replacement invoice and voids the original (see ``correct_sale``)."""
+        """Load a posted sale into the form so it can be corrected. Saving amends
+        that same invoice in place — same number, no new sale (see ``correct_sale``)."""
         sale = self._ctx.sales_repo.get(sale_id)
         if sale is None or sale.get("status") != "POSTED":
             self._show_error(self._t.gettext("s4.msg_correct_only_posted"))

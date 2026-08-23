@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from zenith_business.core.clock import today_iso
+from zenith_business.core.document_ref import candidates
 from zenith_business.core.logging_setup import get_logger
 from zenith_business.core.money import D, money
 from zenith_business.database.connection import Database
@@ -117,6 +118,31 @@ class SalesDocumentService:
         self._authz.require("sales.view")
         return self._sales.get(sale_id)
 
+    def find_by_reference(self, term: str, *, status: str | None = "POSTED") -> dict | None:
+        """Resolve a typed invoice reference to ONE sale — read-only.
+
+        Accepts the number in any form an operator would type: ``SALE-000002``,
+        ``000002`` or just ``2`` all resolve to the same invoice, because the
+        *number* is resolved against the live numbering scheme rather than matched
+        as a substring (``LIKE '%2%'`` would also hit SALE-000012 and SALE-000020,
+        so a bare number could never identify one document). Falls back to a
+        search — customer name or a partial number — when that names exactly one
+        document. Returns ``None`` when nothing matches. Never writes.
+        """
+        self._authz.require("sales.view")
+        text = (term or "").strip()
+        if not text:
+            return None
+        seq = self._numbering.sequence("SALE") or {}
+        refs = candidates(text, seq.get("prefix") or "SALE-", seq.get("padding") or 6)
+        found = self._sales.find_by_document_no(refs, status=status)
+        if found is not None:
+            return found
+        matches = self._ext.list_documents(term=text, status=status)
+        if len(matches) == 1:
+            return self._sales.get(matches[0]["id"])
+        return None
+
     def lines(self, sale_id: int) -> list[dict]:
         self._authz.require("sales.view")
         return self._sales.lines_for(sale_id)
@@ -161,8 +187,15 @@ class SalesDocumentService:
     # ---- shared sale preparation + transaction body ---------------------
 
     def _prepare_sale(self, *, currency_code, lines, party_id, warehouse_id, amount_paid,
-                      sale_date, allow_backorder, walkin_name, walkin_phone, walkin_address):
-        """Validate + compute a sale (no writes). Shared by post and correct."""
+                      sale_date, allow_backorder, walkin_name, walkin_phone, walkin_address,
+                      released=None):
+        """Validate + compute a sale (no writes). Shared by post and correct.
+
+        ``released`` maps ``(item_id, warehouse_id)`` to a quantity that this same
+        invoice is currently holding and will give back as part of the operation.
+        A correction adds it to the available stock, so amending an invoice that
+        already consumed the stock it is re-using is not rejected as an oversell.
+        """
         date = sale_date or today_iso()
         self._fy.assert_postable(date)  # financial-year enforcement (§7)
         if not lines:
@@ -194,8 +227,9 @@ class SalesDocumentService:
             computed.append((ln, c, wh, bool(item["track_inventory"])))
 
         if not allow_backorder:
+            back = released or {}
             for (item_id, wh), qty in needed.items():
-                on_hand = D(self._inventory.stock_on_hand(item_id, wh))
+                on_hand = D(self._inventory.stock_on_hand(item_id, wh)) + D(back.get((item_id, wh), 0))
                 if qty > on_hand:
                     raise InsufficientStockError(
                         f"Item {item_id} @ wh {wh}: need {qty}, have {on_hand}.",
@@ -324,7 +358,7 @@ class SalesDocumentService:
                            document_no=sale["document_no"],
                            details=f"void total={sale['grand_total']} reason={reason or ''}")
 
-    # ---- correct a posted sale (safe void-and-replace) ------------------
+    # ---- correct a posted sale (in-place amendment) ---------------------
 
     def _correction_diff(self, old_lines: list[dict], new_lines: list[SaleLine]) -> str:
         """Human-readable summary of what a correction changed, per item.
@@ -361,15 +395,23 @@ class SalesDocumentService:
                      notes: str | None = None, walkin_name: str | None = None,
                      walkin_phone: str | None = None, walkin_address: str | None = None,
                      reason: str | None = None) -> PostedDocument:
-        """Safely correct a POSTED sale without overwriting history (round 2).
+        """Correct a POSTED sale **in place** — same record, same document number.
 
-        The original invoice is reversed exactly like a Void (stock + ledger back
-        out, status VOID, audit) and a NEW corrected invoice is posted in the SAME
-        transaction, linked to the original via ``corrected_from_id``. Both the old
-        and new documents/journals are preserved, the change is audited old→new, and
-        the whole operation is atomic (all-or-nothing). If the invoice has dependent
-        documents (a sales return), the correction is blocked and the operator is
-        directed to the Return/Void workflow instead of an unsafe silent rewrite.
+        Amending an invoice is not a new sale, so no second document is created and
+        no number is consumed: the operator sees exactly ONE invoice in the Sales
+        List before and after. Inside a single atomic transaction the correction
+
+        * gives back the stock the old lines consumed (a compensating
+          ``ADJUSTMENT_IN`` per line, so the movement history stays truthful),
+        * replaces the lines with the new set and takes the new stock out,
+        * updates the header totals / amount paid / remaining in place,
+        * posts a **difference-only** adjusting journal (revenue, cash and
+          receivable each move by new − old) so the accounts land on the corrected
+          figures without a duplicate sale entry, and
+        * writes an audit record describing what changed.
+
+        A correction is blocked when the invoice already has a sales return: the
+        return references the invoice's lines, so amending them would strand it.
         """
         self._authz.require("sales.correct")
         original = self._sales.get(sale_id)
@@ -381,32 +423,126 @@ class SalesDocumentService:
                 "Sale has dependent returns; correction blocked.",
                 user_message="This invoice already has a return. Reverse the return, or use"
                              " Void, before correcting.")
+        old_lines = self._sales.lines_for(sale_id)
+        # Stock this invoice currently holds — released by the correction, so
+        # re-using it (e.g. trimming 5 Rice to 3) is not rejected as an oversell.
+        released: dict[tuple, D] = {}
+        for ln in old_lines:
+            if ln["warehouse_id"] is not None:
+                key = (ln["item_id"], ln["warehouse_id"])
+                released[key] = D(released.get(key, D(0))) + D(ln["quantity"])
         prep = self._prepare_sale(
             currency_code=currency_code, lines=lines, party_id=party_id,
             warehouse_id=warehouse_id, amount_paid=amount_paid, sale_date=sale_date,
             allow_backorder=False, walkin_name=walkin_name, walkin_phone=walkin_phone,
-            walkin_address=walkin_address)
+            walkin_address=walkin_address, released=released)
         uid = self._session.user_id
-        # Build a human-readable line-level diff BEFORE the original is voided, so
-        # the audit note records exactly what changed (Rice qty 5→3; Sugar removed;
-        # Oil added) in addition to the old→new totals.
-        change_summary = self._correction_diff(self._sales.lines_for(sale_id), lines)
+        document_no = original["document_no"]
+        # Human-readable line diff, built BEFORE the old lines are replaced.
+        change_summary = self._correction_diff(old_lines, lines)
+
         with self._db.transaction():
-            self._do_void_sale(original, prep["date"], uid,
-                               reason=f"Corrected → replacement invoice",
-                               action="sales.correct_void")
-            new_id, new_no = self._do_post_sale(
-                prep, party_id=party_id, warehouse_id=warehouse_id,
-                exchange_rate=exchange_rate, notes=notes, uid=uid, corrected_from_id=sale_id)
+            self._do_correct_sale(original, old_lines, prep, party_id=party_id,
+                                  warehouse_id=warehouse_id, exchange_rate=exchange_rate,
+                                  notes=notes, uid=uid)
             self._audit.record(
                 action="sales.correct", user_id=uid, username=self._session.username,
-                entity_type="sale", entity_id=new_id, document_no=new_no,
-                details=(f"corrected {original['document_no']} → {new_no} "
+                entity_type="sale", entity_id=sale_id, document_no=document_no,
+                details=(f"corrected {document_no} in place "
                          f"old_total={original['grand_total']} new_total={prep['grand_total']}; "
                          f"changes: {change_summary or 'none'}"
                          + (f"; reason={reason}" if reason else "")))
-        _logger.info("Corrected sale %s → %s", original["document_no"], new_no)
-        return PostedDocument(new_id, new_no, str(prep["grand_total"]), str(prep["remaining"]))
+        _logger.info("Corrected sale %s in place (total %s → %s)", document_no,
+                     original["grand_total"], prep["grand_total"])
+        return PostedDocument(sale_id, document_no, str(prep["grand_total"]),
+                              str(prep["remaining"]))
+
+    def _do_correct_sale(self, original, old_lines, prep, *, party_id, warehouse_id,
+                         exchange_rate, notes, uid) -> None:
+        """Amend one posted sale in place. Runs inside an open transaction."""
+        sale_id = original["id"]
+        date = prep["date"]
+
+        # 1. Give back the stock the current lines consumed.
+        for ln in old_lines:
+            if ln["warehouse_id"] is not None:
+                self._inventory.add_movement(
+                    item_id=ln["item_id"], warehouse_id=ln["warehouse_id"],
+                    movement_type="ADJUSTMENT_IN", quantity=D(ln["quantity"]),
+                    movement_date=date, unit_id=ln["unit_id"],
+                    reference_type="SALE_CORRECTION", reference_id=sale_id,
+                    reference_line_id=ln["id"], created_by=uid)
+
+        # 2. Replace the lines and take the corrected stock out.
+        self._sales.delete_lines(sale_id)
+        for idx, (ln, c, wh, stockable) in enumerate(prep["computed"], start=1):
+            line_id = self._sales.add_line(
+                sale_id=sale_id, line_no=idx, item_id=ln.item_id, unit_id=ln.unit_id,
+                warehouse_id=wh, quantity=c.quantity, unit_price=c.unit_price,
+                discount=c.discount, line_total=c.line_total)
+            if stockable:
+                self._inventory.add_movement(
+                    item_id=ln.item_id, warehouse_id=wh, movement_type="SALE",
+                    quantity=-c.quantity, movement_date=date, unit_id=ln.unit_id,
+                    reference_type="SALE", reference_id=sale_id,
+                    reference_line_id=line_id, created_by=uid)
+
+        # 3. Header in place — document_no, status and posting stamps untouched.
+        self._sales.update_header(
+            sale_id, sale_date=date, currency_id=prep["currency"]["id"],
+            warehouse_id=warehouse_id, exchange_rate=exchange_rate,
+            subtotal=prep["subtotal"], discount_total=prep["discount_total"],
+            grand_total=prep["grand_total"], amount_paid=prep["paid"],
+            remaining_amount=prep["remaining"], notes=notes)
+        self._ext.set_party(sale_id, party_id)
+        wk_name, wk_phone, wk_address = prep["wk"]
+        if party_id is None:
+            self._ext.set_walkin(sale_id, wk_name, wk_phone, wk_address)
+
+        # 4. Difference-only journal so the accounts reach the corrected figures.
+        self._post_correction_ledger(original, prep, date, party_id, uid)
+
+    def _post_correction_ledger(self, original, prep, date, party_id, uid) -> None:
+        """Post the new − old delta for revenue, cash and receivable.
+
+        Only the movement is journalled, never the whole invoice again, so a
+        corrected sale is never counted twice in the accounts. A correction that
+        changes nothing financial posts no journal at all.
+        """
+        d_revenue = money(D(prep["grand_total"]) - D(original["grand_total"]))
+        d_cash = money(D(prep["paid"]) - D(original["amount_paid"]))
+        d_ar = money(D(prep["remaining"]) - D(original["remaining_amount"]))
+        if d_revenue == 0 and d_cash == 0 and d_ar == 0:
+            return
+        currency_id = prep["currency"]["id"]
+        entry_no = self._numbering.allocate("JV")
+        entry_id = self._financial.create_entry(
+            entry_no=entry_no, entry_date=date, source_type="SALE_CORRECTION",
+            source_id=original["id"],
+            description=f"Correction {original['document_no']}", created_by=uid)
+
+        def _line(account_code, amount, **kw):
+            """Post |amount| on the natural side, flipping when the delta is negative."""
+            if amount == 0:
+                return
+            account_id = self._accounts.id_by_code(account_code)
+            natural_debit = kw.pop("natural_debit")
+            debit_side = natural_debit if amount > 0 else not natural_debit
+            value = abs(amount)
+            if debit_side:
+                self._financial.add_line(entry_id=entry_id, account_id=account_id,
+                                         debit=value, currency_id=currency_id, **kw)
+            else:
+                self._financial.add_line(entry_id=entry_id, account_id=account_id,
+                                         credit=value, currency_id=currency_id, **kw)
+
+        # Revenue is naturally credited; cash and receivable are naturally debited.
+        _line(_ACCT_SALES, d_revenue, natural_debit=False, memo="Correction: revenue change")
+        _line(_ACCT_CASH, d_cash, natural_debit=True, memo="Correction: cash change")
+        _line(_ACCT_AR, d_ar, natural_debit=True, party_type="CUSTOMER",
+              party_id=party_id if party_id is not None else original["party_id"],
+              memo="Correction: receivable change")
+        assert_journal_balanced(self._financial, entry_id)
 
     def _post_void_ledger(self, sale, date, uid) -> None:
         grand = money(sale["grand_total"]); paid = money(sale["amount_paid"])

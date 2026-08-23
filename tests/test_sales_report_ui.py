@@ -83,18 +83,21 @@ def test_return_lookup_nonexistent_rejected(qapp, biz):
     assert page._table.rowCount() == 0
 
 
-def test_return_lookup_ambiguous_flagged(qapp, biz):
-    """Two invoices whose numbers both contain the fragment → ask for the full no."""
-    _sale(biz)                          # SALE-000001
+def test_return_lookup_bare_number_is_not_ambiguous(qapp, biz):
+    """A bare number resolves the NUMBER, not a substring.
+
+    With SALE-000001 … SALE-000010 all posted, '1' must load SALE-000001 — the old
+    substring match saw 000001/000010/000011… and could never pick one.
+    """
+    first = _sale(biz)                   # SALE-000001
     for _ in range(9):
-        _sale(biz)                      # up to SALE-000010
+        _sale(biz)                       # up to SALE-000010
     from zenith_business.ui.documents.return_page import ReturnEntryPage
     page = ReturnEntryPage(biz, _en(), mode="sales_return")
-    page._src_edit.setText("1")         # matches 000001 and 000010 (both contain '1')
+    page._src_edit.setText("1")
     page._load_source()
-    assert page._source_id is None
-    assert page._error.isVisibleTo(page)
-    assert page._error.text() == Translator(LANG_ENGLISH).gettext("s4.msg_source_ambiguous")
+    assert page._source_id == first.id
+    assert not page._error.isVisibleTo(page)
 
 
 def test_return_lookup_partial_return_completes(qapp, biz):

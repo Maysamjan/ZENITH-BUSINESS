@@ -106,16 +106,20 @@ def test_gross_equals_paid_plus_credit(biz):
 
 
 def test_corrected_invoice_counted_once(biz):
-    """The VOID original must never inflate Gross; only the replacement counts."""
+    """A corrected invoice appears ONCE, at its corrected value."""
     ids = _seed_period(biz)
     s = biz.sales_reports.summary(date_from="2026-06-01", date_to="2026-06-30")
-    # If the void were double-counted, Gross would be 3000+800 = 3800.
+    # The invoice was corrected 800 → 300; counting both would give 3800.
     assert s["gross"] == "3000.00"
     txns = biz.sales_reports.transactions(
         date_from="2026-06-01", date_to="2026-06-30", walkin_label="Walk-in")
     docs = [t["document_no"] for t in txns]
-    assert ids["orig"].document_no not in docs      # VOID excluded
-    assert ids["corr"].document_no in docs          # replacement present
+    # Correction amends in place, so it is the SAME document — listed exactly once…
+    assert ids["corr"].document_no == ids["orig"].document_no
+    assert docs.count(ids["corr"].document_no) == 1
+    # …carrying the corrected figure, not the original 800.
+    row = next(t for t in txns if t["document_no"] == ids["corr"].document_no)
+    assert row["gross"] == "300.00"
 
 
 def test_later_receipt_is_not_sales(biz):

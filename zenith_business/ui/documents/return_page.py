@@ -44,7 +44,7 @@ from zenith_business.ui.components import (
 )
 from zenith_business.ui.design.tokens import ControlSize, FieldWidth, Spacing
 
-R_NO, R_CODE, R_NAME, R_UNIT, R_SOLD, R_RETURNABLE, R_RETURN = range(7)
+R_NO, R_CODE, R_NAME, R_UNIT, R_SOLD, R_RETURNED, R_RETURNABLE, R_RETURN = range(8)
 
 
 class ReturnEntryPage(QWidget):
@@ -133,7 +133,8 @@ class ReturnEntryPage(QWidget):
         self._lines_title.setProperty("role", "card-title"); self._lines_title.setProperty("accent", "brand")
         card.body.addWidget(self._lines_title)
         headers = ["si.col_row", "si.col_item_code", "si.col_item_name", "si.col_unit",
-                   "si.col_qty", "s4.col_returnable", "s4.col_return_qty"]
+                   "si.col_qty", "s4.col_returned_already", "s4.col_returnable",
+                   "s4.col_return_qty"]
         self._headers = headers
         self._table = QTableWidget(0, len(headers))
         self._table.setHorizontalHeaderLabels([self._t.gettext(k) for k in headers])
@@ -144,7 +145,8 @@ class ReturnEntryPage(QWidget):
         self._table.setShowGrid(False)
         hh = self._table.horizontalHeader(); hh.setHighlightSections(False)
         hh.setSectionResizeMode(R_NAME, QHeaderView.ResizeMode.Stretch)
-        widths = {R_NO: 40, R_CODE: 110, R_UNIT: 70, R_SOLD: 90, R_RETURNABLE: 110, R_RETURN: 130}
+        widths = {R_NO: 40, R_CODE: 110, R_UNIT: 70, R_SOLD: 90, R_RETURNED: 120,
+                  R_RETURNABLE: 110, R_RETURN: 130}
         for col, w in widths.items():
             self._table.setColumnWidth(col, w)
         self._table.verticalHeader().setDefaultSectionSize(ControlSize.TABLE_ROW_HEIGHT + 4)
@@ -197,30 +199,18 @@ class ReturnEntryPage(QWidget):
         if not term:
             self._show_error(self._t.gettext("s4.msg_no_source"))
             return
-        if self._mode == "sales_return":
-            matches = self._ctx.sales_documents.list(term=term, status="POSTED")
-        else:
-            matches = self._ctx.purchase_documents.list(term=term, status="POSTED")
-        # Accept the exact document number first; otherwise a partial number the
-        # user typed (e.g. "2" or "000002") is fine as long as it identifies ONE
-        # posted invoice — so the operator does not have to type the full code.
-        low = term.lower()
-        doc = next((d for d in matches if d["document_no"].lower() == low), None)
-        if doc is None:
-            if len(matches) == 1:
-                doc = matches[0]
-            elif len(matches) > 1:
-                self._show_error(self._t.gettext("s4.msg_source_ambiguous"))
-                self._clear_table()
-                return
+        # Resolve the typed reference to ONE posted document. The service matches
+        # the NUMBER against the live numbering scheme, so "SALE-000002", "000002"
+        # and "2" all load the same invoice. Read-only — nothing is created or
+        # modified by a lookup.
+        service = (self._ctx.sales_documents if self._mode == "sales_return"
+                   else self._ctx.purchase_documents)
+        doc = service.find_by_reference(term, status="POSTED")
         if doc is None:
             self._show_error(self._t.gettext("s4.msg_source_not_found"))
             self._clear_table()
             return
-        # list rows carry id + document_no; fetch full record for party etc.
-        full = (self._ctx.sales_documents.get(doc["id"]) if self._mode == "sales_return"
-                else self._ctx.purchase_documents.get(doc["id"]))
-        self._populate(full or doc)
+        self._populate(doc)
 
     def _populate(self, doc: dict) -> None:
         self._source_id = doc["id"]
@@ -246,6 +236,8 @@ class ReturnEntryPage(QWidget):
                 "name": item.get("name", ""),
                 "unit": unit.get("symbol") or unit.get("name_en") or "",
                 "sold": ln["quantity"], "returnable": returnable.get(ln[line_key], "0"),
+                # Sold − still-returnable = what earlier returns already took back.
+                "returned": str(D(ln["quantity"]) - D(returnable.get(ln[line_key], "0"))),
             })
         self._render_lines()
 
@@ -256,8 +248,9 @@ class ReturnEntryPage(QWidget):
         for r, ln in enumerate(self._lines):
             cells = {R_NO: str(r + 1), R_CODE: ln["code"], R_NAME: ln["name"],
                      R_UNIT: ln["unit"], R_SOLD: format_money(ln["sold"]),
+                     R_RETURNED: format_money(ln.get("returned", "0")),
                      R_RETURNABLE: format_money(ln["returnable"])}
-            numeric = {R_SOLD, R_RETURNABLE}
+            numeric = {R_SOLD, R_RETURNED, R_RETURNABLE}
             for col, text in cells.items():
                 item = QTableWidgetItem(text)
                 align = (Qt.AlignmentFlag.AlignRight if col in numeric

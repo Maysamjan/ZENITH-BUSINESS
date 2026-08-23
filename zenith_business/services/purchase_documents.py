@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from zenith_business.core.clock import today_iso
+from zenith_business.core.document_ref import candidates
 from zenith_business.core.logging_setup import get_logger
 from zenith_business.core.money import D, money
 from zenith_business.database.connection import Database
@@ -104,6 +105,26 @@ class PurchaseDocumentService:
     def get(self, purchase_id: int) -> dict | None:
         self._authz.require("purchases.view")
         return self._purchases.get(purchase_id)
+
+    def find_by_reference(self, term: str, *, status: str | None = "POSTED") -> dict | None:
+        """Resolve a typed purchase reference to ONE purchase — read-only.
+
+        Same rule as the sales lookup: ``PUR-000002``, ``000002`` and ``2`` all name
+        the same document, with a search fallback when the term names exactly one.
+        """
+        self._authz.require("purchases.view")
+        text = (term or "").strip()
+        if not text:
+            return None
+        seq = self._numbering.sequence("PUR") or {}
+        refs = candidates(text, seq.get("prefix") or "PUR-", seq.get("padding") or 6)
+        found = self._purchases.find_by_document_no(refs, status=status)
+        if found is not None:
+            return found
+        matches = self._ext.list_documents(term=text, status=status)
+        if len(matches) == 1:
+            return self._purchases.get(matches[0]["id"])
+        return None
 
     def lines(self, purchase_id: int) -> list[dict]:
         self._authz.require("purchases.view")

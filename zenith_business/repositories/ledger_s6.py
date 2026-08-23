@@ -16,7 +16,8 @@ from zenith_business.repositories.base import BaseRepository
 # Business document number resolved from the journal's source, so the ledger shows
 # real doc numbers (SALE-…, RCP-…, SRET-…, PUR-…, PAY-…, PRET-…) not the JV number.
 _DOC_JOINS = (
-    " LEFT JOIN sales s ON fe.source_type IN ('SALE','SALE_VOID') AND s.id = fe.source_id"
+    " LEFT JOIN sales s ON fe.source_type IN ('SALE','SALE_VOID','SALE_CORRECTION')"
+    " AND s.id = fe.source_id"
     " LEFT JOIN sales_returns sr ON fe.source_type = 'SALES_RETURN' AND sr.id = fe.source_id"
     " LEFT JOIN purchases pu ON fe.source_type IN ('PURCHASE','PURCHASE_VOID') AND pu.id = fe.source_id"
     " LEFT JOIN purchase_returns pr ON fe.source_type = 'PURCHASE_RETURN' AND pr.id = fe.source_id"

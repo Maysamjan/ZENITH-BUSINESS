@@ -65,11 +65,69 @@ class SalesRepository(BaseRepository):
             (sale_id, line_no, item_id, unit_id, warehouse_id, qty_to_db(quantity),
              money_to_db(unit_price), money_to_db(discount), money_to_db(line_total), now_iso()))
 
+    def update_header(
+        self,
+        sale_id: int,
+        *,
+        sale_date: str,
+        currency_id: int,
+        warehouse_id: int | None,
+        exchange_rate,
+        subtotal,
+        discount_total,
+        grand_total,
+        amount_paid,
+        remaining_amount,
+        notes: str | None = None,
+    ) -> None:
+        """Amend a sale's header in place (correction of a posted invoice).
+
+        Deliberately does NOT touch ``document_no``, ``status`` or the posting
+        stamps: a corrected invoice stays the SAME document, keeps its number, and
+        remains posted. Only the money/date/warehouse figures move.
+        """
+        self._exec(
+            "UPDATE sales SET sale_date = ?, currency_id = ?, warehouse_id = ?,"
+            " exchange_rate = ?, subtotal = ?, discount_total = ?, grand_total = ?,"
+            " amount_paid = ?, remaining_amount = ?, notes = ?, updated_at = ?"
+            " WHERE id = ?",
+            (sale_date, currency_id, warehouse_id, rate_to_db(exchange_rate),
+             money_to_db(subtotal), money_to_db(discount_total), money_to_db(grand_total),
+             money_to_db(amount_paid), money_to_db(remaining_amount), notes, now_iso(),
+             sale_id))
+
+    def delete_lines(self, sale_id: int) -> None:
+        """Remove a sale's current lines so a correction can write the new set.
+
+        ``sales_return_lines`` references ``sales_lines`` with ON DELETE RESTRICT,
+        so this raises rather than silently orphaning a return — the service blocks
+        correcting an invoice that already has returns before ever calling this.
+        """
+        self._exec("DELETE FROM sales_lines WHERE sale_id = ?", (sale_id,))
+
     def get(self, sale_id: int) -> dict | None:
         return self._one("SELECT * FROM sales WHERE id = ?", (sale_id,))
 
     def get_by_document_no(self, document_no: str) -> dict | None:
         return self._one("SELECT * FROM sales WHERE document_no = ?", (document_no,))
+
+    def find_by_document_no(self, candidates: list[str],
+                            *, status: str | None = None) -> dict | None:
+        """First sale whose number matches one of ``candidates`` (case-insensitive).
+
+        Candidate order is significant — it carries the caller's preference — so
+        each is tried in turn rather than matched as an unordered set.
+        """
+        for candidate in candidates:
+            sql = "SELECT * FROM sales WHERE UPPER(document_no) = ?"
+            params: list = [candidate.upper()]
+            if status:
+                sql += " AND status = ?"
+                params.append(status)
+            row = self._one(sql, tuple(params))
+            if row is not None:
+                return row
+        return None
 
     def lines_for(self, sale_id: int) -> list[dict]:
         return self._all(
@@ -147,6 +205,20 @@ class PurchaseRepository(BaseRepository):
 
     def get(self, purchase_id: int) -> dict | None:
         return self._one("SELECT * FROM purchases WHERE id = ?", (purchase_id,))
+
+    def find_by_document_no(self, candidates: list[str],
+                            *, status: str | None = None) -> dict | None:
+        """First purchase whose number matches one of ``candidates`` (case-insensitive)."""
+        for candidate in candidates:
+            sql = "SELECT * FROM purchases WHERE UPPER(document_no) = ?"
+            params: list = [candidate.upper()]
+            if status:
+                sql += " AND status = ?"
+                params.append(status)
+            row = self._one(sql, tuple(params))
+            if row is not None:
+                return row
+        return None
 
     def lines_for(self, purchase_id: int) -> list[dict]:
         return self._all(

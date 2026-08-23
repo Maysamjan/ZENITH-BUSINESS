@@ -42,6 +42,7 @@ from zenith_business.ui.widgets.search_selector import SearchRow, SearchSelector
 # source_type -> localized transaction-type label
 _TYPE_KEYS = {
     "SALE": "led.t_sale", "SALE_VOID": "led.t_void", "SALES_RETURN": "led.t_sales_return",
+    "SALE_CORRECTION": "led.t_sale_correction",
     "PURCHASE": "led.t_purchase", "PURCHASE_RETURN": "led.t_purchase_return",
     "RECEIPT": "led.t_receipt", "PAYMENT": "led.t_payment",
 }

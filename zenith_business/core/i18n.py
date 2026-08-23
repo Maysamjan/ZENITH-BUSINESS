@@ -713,9 +713,6 @@ _CATALOG: dict[str, dict[str, str]] = {
                                LANG_DARI: "برای حداقل یک قلم مقدار برگشت وارد کنید."},
     "s4.msg_source_not_found": {LANG_ENGLISH: "Document not found.",
                                 LANG_DARI: "سند یافت نشد."},
-    "s4.msg_source_ambiguous": {
-        LANG_ENGLISH: "Several invoices match — enter the full document number.",
-        LANG_DARI: "چند فاکتور مطابقت دارد — شماره کامل سند را وارد کنید."},
     # -- list screens --
     "s4.sales_list_title": {LANG_ENGLISH: "Sales", LANG_DARI: "فروش‌ها"},
     "s4.purchases_list_title": {LANG_ENGLISH: "Purchases", LANG_DARI: "خریدها"},
@@ -765,6 +762,8 @@ _CATALOG: dict[str, dict[str, str]] = {
     "led.t_sale": {LANG_ENGLISH: "Sale", LANG_DARI: "فروش"},
     "led.t_void": {LANG_ENGLISH: "Sale Void", LANG_DARI: "ابطال فروش"},
     "led.t_sales_return": {LANG_ENGLISH: "Sales Return", LANG_DARI: "برگشت فروش"},
+    "led.t_sale_correction": {LANG_ENGLISH: "Invoice Correction",
+                              LANG_DARI: "تصحیح فاکتور"},
     "led.t_purchase": {LANG_ENGLISH: "Purchase", LANG_DARI: "خرید"},
     "led.t_purchase_return": {LANG_ENGLISH: "Purchase Return", LANG_DARI: "برگشت خرید"},
     "led.t_receipt": {LANG_ENGLISH: "Receipt", LANG_DARI: "دریافت"},
@@ -776,6 +775,8 @@ _CATALOG: dict[str, dict[str, str]] = {
     "s4.source_doc": {LANG_ENGLISH: "Source Document #", LANG_DARI: "شماره سند مبنا"},
     "s4.source_ph": {LANG_ENGLISH: "Enter document number…", LANG_DARI: "شماره سند را وارد کنید…"},
     "s4.load": {LANG_ENGLISH: "Load", LANG_DARI: "بارگیری"},
+    "s4.col_returned_already": {LANG_ENGLISH: "Already Returned",
+                                LANG_DARI: "برگشت‌شده قبلی"},
     "s4.col_returnable": {LANG_ENGLISH: "Returnable", LANG_DARI: "قابل برگشت"},
     "s4.col_return_qty": {LANG_ENGLISH: "Return Qty", LANG_DARI: "مقدار برگشت"},
     "s4.reason": {LANG_ENGLISH: "Reason", LANG_DARI: "دلیل"},
