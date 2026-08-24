@@ -71,17 +71,24 @@ def test_correction_replaces_item_and_reconciles(biz):
     assert _balanced(biz)
 
 
-def test_correction_blocked_when_return_exists(biz):
+def test_correction_with_a_return_respects_what_came_back(biz):
+    """Stage 06 relaxed the blanket block: only quantities below the return are refused."""
     s = _sale(biz, biz.rice, "10", "100", party_id=biz.cust, amount_paid="0")
     lid = biz.sales_repo.lines_for(s.id)[0]["id"]
     biz.sales_documents.post_return(sale_id=s.id, lines=[ReturnLine(sale_line_id=lid, quantity="2")])
+    # 8 >= the 2 already returned, so this correction is legitimate
+    biz.sales_documents.correct_sale(
+        sale_id=s.id, currency_code="AFN", warehouse_id=biz.wh, party_id=biz.cust,
+        amount_paid="0", lines=[SaleLine(item_id=biz.rice, unit_id=biz.bag,
+                                         quantity="8", unit_price="100")])
+    assert biz.sales_repo.get(s.id)["status"] == "POSTED"
+    assert biz.sales_repo.get(s.id)["grand_total"] == "800.00"
+    # …but correcting below the returned quantity is refused
     with pytest.raises(ValidationError):
         biz.sales_documents.correct_sale(
             sale_id=s.id, currency_code="AFN", warehouse_id=biz.wh, party_id=biz.cust,
             amount_paid="0", lines=[SaleLine(item_id=biz.rice, unit_id=biz.bag,
-                                             quantity="8", unit_price="100")])
-    # original stays intact and POSTED (not voided)
-    assert biz.sales_repo.get(s.id)["status"] == "POSTED"
+                                             quantity="1", unit_price="100")])
 
 
 def test_correction_requires_permission(biz):

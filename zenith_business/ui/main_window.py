@@ -201,6 +201,7 @@ class MainWindow(QMainWindow):
             self._build_stage05_pages()
             self._build_owner_fix_pages()
             self._build_sales_report_page()
+            self._build_inventory_pages()
 
         layout.addWidget(self.content, stretch=1)
 
@@ -466,6 +467,60 @@ class MainWindow(QMainWindow):
         if hasattr(self._sales_report, "reload"):
             self._sales_report.reload()
         self.content.setCurrentWidget(self._sales_report)
+
+    # ---- Stage 06: inventory & stock management --------------------------
+
+    def _build_inventory_pages(self) -> None:
+        """Register the inventory screens under Item Reports."""
+        from zenith_business.ui.documents.inventory_pages import (
+            InventoryStockPage,
+            StockAdjustmentPage,
+            StockMovementPage,
+            WarehouseTransferPage,
+        )
+        from zenith_business.ui.documents.inventory_report_page import InventoryReportPage
+        from zenith_business.ui.documents.inventory_report_preview import (
+            InventoryReportPreviewPage,
+        )
+        ctx, t = self._context, self._translator
+        self._inv_report_preview = InventoryReportPreviewPage(
+            t, on_back=lambda: self._inventory_report_back())
+        self._inventory_report_back = self.show_home
+        self._inventory_pages = {
+            "inv_stock": InventoryStockPage(ctx, t, on_close=self.show_home),
+            "inv_adjust": StockAdjustmentPage(ctx, t, on_close=self.show_home),
+            "inv_transfer": WarehouseTransferPage(ctx, t, on_close=self.show_home),
+            "inv_movements": StockMovementPage(ctx, t, on_close=self.show_home),
+            "inv_reports": InventoryReportPage(ctx, t, on_close=self.show_home,
+                                               on_print=self._open_inventory_report_print),
+        }
+        for page in list(self._inventory_pages.values()) + [self._inv_report_preview]:
+            self.content.addWidget(page)
+        for name in self._inventory_pages:
+            self._stage03_actions[name] = lambda n=name: self._show_inventory(n)
+        self._stage03_commands["menu.item_reports"] = [
+            ("inv.nav_stock", True, "inv_stock"),
+            ("inv.nav_movements", True, "inv_movements"),
+            ("inv.nav_adjust", True, "inv_adjust"),
+            ("inv.nav_transfer", True, "inv_transfer"),
+            ("inv.nav_reports", True, "inv_reports"),
+        ]
+
+    def _show_inventory(self, name: str) -> None:
+        page = self._inventory_pages.get(name)
+        if page is None:
+            return
+        if hasattr(page, "reload"):
+            page.reload()
+        self.content.setCurrentWidget(page)
+
+    def _open_inventory_report_print(self, payload: dict) -> None:
+        from zenith_business.ui.documents.print_builder import build_inventory_report_print
+        data = build_inventory_report_print(self._context, payload)
+        self._inventory_report_back = lambda: self.content.setCurrentWidget(
+            self._inventory_pages["inv_reports"])
+        self._inv_report_preview.show_report(data)
+        self.content.setCurrentWidget(self._inv_report_preview)
 
     def _open_sales_report_print(self, payload: dict) -> None:
         from zenith_business.ui.documents.print_builder import build_sales_report_print

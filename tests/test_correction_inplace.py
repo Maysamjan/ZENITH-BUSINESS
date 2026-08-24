@@ -212,14 +212,41 @@ def test_correction_audits_what_changed(biz):
     assert "reason=fix order" in details
 
 
-def test_correction_still_blocked_when_a_return_exists(biz):
+def test_an_invoice_with_a_return_can_still_be_corrected(biz):
+    """Stage 06: correcting a returned invoice is allowed while the return stays valid."""
+    s = _two_item_sale(biz)          # 5 Rice + 2 Sugar
+    sl = biz.sales_repo.lines_for(s.id)[0]["id"]   # the Rice line
+    biz.sales_documents.post_return(sale_id=s.id, return_date="2026-06-11",
+                                    lines=[ReturnLine(sale_line_id=sl, quantity="2")])
+    # Correct Rice 5 -> 4; 2 already came back, so 4 is still legitimate.
+    c = _correct(biz, s.id,
+                 [SaleLine(item_id=biz.rice, unit_id=biz.bag, quantity="4", unit_price="100"),
+                  SaleLine(item_id=biz.sugar, unit_id=biz.bag, quantity="2", unit_price="80")])
+    assert c.id == s.id and c.document_no == s.document_no
+    # the return still points at a live line, and the returned quantity is intact
+    assert biz.sales_repo.lines_for(s.id)[0]["id"] == sl
+    assert Decimal(biz.sales_documents.returnable_quantities(s.id)[sl]) == Decimal("2")
+
+
+def test_correcting_below_the_returned_quantity_is_blocked(biz):
+    s = _two_item_sale(biz)
+    sl = biz.sales_repo.lines_for(s.id)[0]["id"]
+    biz.sales_documents.post_return(sale_id=s.id, return_date="2026-06-11",
+                                    lines=[ReturnLine(sale_line_id=sl, quantity="3")])
+    with pytest.raises(ValidationError):   # 3 came back; cannot say only 2 were sold
+        _correct(biz, s.id,
+                 [SaleLine(item_id=biz.rice, unit_id=biz.bag, quantity="2", unit_price="100"),
+                  SaleLine(item_id=biz.sugar, unit_id=biz.bag, quantity="2", unit_price="80")])
+
+
+def test_removing_a_returned_item_is_blocked(biz):
     s = _two_item_sale(biz)
     sl = biz.sales_repo.lines_for(s.id)[0]["id"]
     biz.sales_documents.post_return(sale_id=s.id, return_date="2026-06-11",
                                     lines=[ReturnLine(sale_line_id=sl, quantity="2")])
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError):   # Rice has returns; it cannot vanish
         _correct(biz, s.id,
-                 [SaleLine(item_id=biz.rice, unit_id=biz.bag, quantity="5", unit_price="100")])
+                 [SaleLine(item_id=biz.sugar, unit_id=biz.bag, quantity="2", unit_price="80")])
 
 
 def test_failed_correction_leaves_the_invoice_untouched(biz):

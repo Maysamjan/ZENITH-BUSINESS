@@ -75,13 +75,15 @@ class ItemsPage(_BasePage):
             Column("name", "items.col_name", stretch=True),
             Column("alternate_name", "items.col_altname", width=160),
             Column("barcode", "items.col_barcode", width=120),
-            Column("purchase_display", "items.col_purchase", width=110, align="r"),
+            Column("unit_display", "inv.col_unit", width=80),
             Column("sale_display", "items.col_sale", width=110, align="r"),
             # Opening stock is the figure entered when the item was created and
             # never moves; current stock follows every sale/purchase/return.
             Column("opening_display", "items.col_opening_stock", width=110, align="r"),
             Column("current_display", "items.col_current_stock", width=110, align="r"),
-            Column("is_active", "items.col_status", width=110, kind="status"),
+            Column("warehouse_display", "inv.col_warehouse", width=150),
+            Column("stock_status", "inv.col_status", width=110),
+            Column("is_active", "items.col_status", width=100, kind="status"),
         ]
         self.page = ManagementPage(
             translator, title_key="items.title", subtitle_key=None, columns=columns,
@@ -93,17 +95,27 @@ class ItemsPage(_BasePage):
         lay.addWidget(self.page)
 
     def reload(self) -> None:
+        from zenith_business.ui.documents.inventory_pages import stock_status_key
         rows = self._ctx.items.list()
-        stock = self._ctx.inventory.stock_columns([r["id"] for r in rows])
+        # One shared read of the movement ledger, so the product list can never
+        # disagree with the Inventory screen or with a sale's stock check.
+        overview = {o["item_id"]: o for o in self._ctx.inventory.stock_overview()}
         for r in rows:
             r["purchase_display"] = format_money(r["purchase_price"])
             r["sale_display"] = format_money(r["default_sale_price"])
-            counts = stock.get(r["id"], {"opening": "0", "current": "0"})
-            if r.get("track_inventory"):
-                r["opening_display"] = format_money(counts["opening"])
-                r["current_display"] = format_money(counts["current"])
-            else:
+            info = overview.get(r["id"])
+            if info is None:                      # not stock-tracked
+                r["unit_display"] = ""
                 r["opening_display"] = r["current_display"] = "—"
+                r["warehouse_display"] = ""
+                r["stock_status"] = "—"
+                continue
+            r["unit_display"] = info["unit"]
+            r["opening_display"] = format_money(info["opening"])
+            r["current_display"] = format_money(info["current"])
+            r["warehouse_display"] = info["warehouses"]
+            r["stock_status"] = _t(self._t, stock_status_key(info["current"],
+                                                             info["minimum"]))
         self.page.set_rows(rows)
 
     def _dialog(self, existing: dict | None) -> None:

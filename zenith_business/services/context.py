@@ -50,6 +50,7 @@ from zenith_business.repositories.money_s5 import (
     ReceiptExtRepository,
 )
 from zenith_business.repositories.financial_years import FinancialYearRepository
+from zenith_business.repositories.inventory_s6 import InventoryReadRepository
 from zenith_business.repositories.ledger_s6 import PartyLedgerRepository
 from zenith_business.repositories.parties import PartyRepository
 from zenith_business.repositories.reports import SalesReportRepository
@@ -71,6 +72,7 @@ from zenith_business.services.company import CompanyService
 from zenith_business.services.financial import FinancialService
 from zenith_business.services.financial_year import FinancialYearService
 from zenith_business.services.inventory import InventoryService
+from zenith_business.services.inventory_reports import InventoryReportService
 from zenith_business.services.items import ItemService
 from zenith_business.services.master_data import (
     CategoryService,
@@ -168,8 +170,10 @@ class ApplicationContext:
             db, self.purchases_repo, self.inventory_repo, self.financial_repo,
             self.accounts_repo, self.currencies_repo, self.items_repo, self.numbering,
             self.audit_repo, self.session, self.authz)
+        self.inventory_read_repo = InventoryReadRepository(db)
         self.inventory = InventoryService(
-            db, self.inventory_repo, self.audit_repo, self.session, self.authz)
+            db, self.inventory_repo, self.audit_repo, self.session, self.authz,
+            read=self.inventory_read_repo)
         self.backup = BackupService(
             db, backups_dir or Path("."), self.audit_repo, self.session, self.authz)
 
@@ -225,6 +229,9 @@ class ApplicationContext:
         # ---- owner-fix party ledger service (defect #4) ----
         self.party_ledger = PartyLedgerService(
             self.party_ledger_repo, self.parties_repo, self.authz)
+
+        # ---- Stage 06 inventory reports (read-only over the movement ledger) ----
+        self.inventory_reports = InventoryReportService(self.inventory, self.authz)
 
         # ---- Sales Reporting (read-only over authoritative POSTED documents) ----
         self.sales_report_repo = SalesReportRepository(db)

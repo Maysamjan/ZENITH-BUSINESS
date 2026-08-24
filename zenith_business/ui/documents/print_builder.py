@@ -71,6 +71,26 @@ def build_sales_report_print(ctx: ApplicationContext, payload: dict):
     )
 
 
+def build_inventory_report_print(ctx: ApplicationContext, payload: dict):
+    """Build the printable inventory report from the last-run report payload.
+
+    Uses the CUSTOMER's business identity, like every other customer-facing
+    document — never the Zenith Soft developer identity.
+    """
+    from zenith_business.ui.documents.inventory_report_page import _MONEY_KEYS
+    from zenith_business.ui.print.inventory_report_document import InventoryReportPrintData
+    from zenith_business.ui.print.sales_report_document import ReportCompany
+
+    ci = _company_info(ctx)
+    company = ReportCompany(name=ci.name, address=ci.address, phone=ci.phone,
+                            email=ci.email, logo_path=ci.logo_path)
+    # Title and headers arrive already translated by the screen, so the printed
+    # sheet always matches the language the operator is looking at.
+    return InventoryReportPrintData(
+        company=company, title=payload["title"], columns=payload["columns"],
+        rows=payload["rows"], money_keys=frozenset(_MONEY_KEYS))
+
+
 def _lines_from(ctx: ApplicationContext, rows: list[dict]) -> list[InvoiceLine]:
     unit_by_id: dict = {u["id"]: u for u in ctx.units_repo.list_all()}
     item_by_id: dict = {}

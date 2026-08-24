@@ -1783,10 +1783,76 @@ not started.
 
 ---
 
+## 14A. Stage 06 — Inventory & Stock Management (READY FOR OWNER REVIEW)
+
+Stock was already a signed movement ledger, and Stage 06 keeps it that way: every
+figure the app shows — the Inventory screen, the product list, the reports, and the
+stock a sale is validated against — is the `Decimal` sum of `inventory_movements`.
+Nothing stores a stock number, so no two screens can disagree.
+
+**Migration 0008 (schema v8, forward/idempotent)** — one column and three indexes:
+`inventory_movements.notes` (the reason an adjustment was made, what a transfer was
+for). Previously a reason reached only the audit log, so the history the operator
+reads could not show it. No new permission: `inventory.view/adjust/transfer` already
+existed and were granted.
+
+**Engine.** New `InventoryReadRepository` + Stage 06 service reads:
+`movement_history` (date, item, warehouse, type, in/out, **source document number**
+resolved by joining sales/purchases/returns, user, note), `stock_overview`
+(opening / current / unit / warehouses / minimum / low flag),
+`stock_by_warehouse`, `low_stock`. `adjust` now **requires a reason**, stores it on
+the movement, and refuses to remove more than a warehouse holds. `transfer` and
+`record_opening` carry notes. New `InventoryReportService` builds the five reports
+— Current Stock, Opening vs Current, Stock by Warehouse, Item Movement (stock card
+with a running balance), Low Stock.
+
+**Integration fix to locked Stage 05 (the one exception, required for the mandatory
+workflow).** `correct_sale` deleted and re-inserted lines, so
+`sales_return_lines.sale_line_id` (ON DELETE RESTRICT) forced a blanket block on
+correcting any invoice that had a return — the owner's flow (sale 10 → return 2 →
+correct to 5) was impossible. Correction now **updates surviving lines in place**,
+keeping their ids so the return stays valid, and refuses only what is genuinely
+contradictory: removing an item that has returns, or correcting a quantity below
+what already came back.
+
+**UI.** Inventory (code / name / unit / opening / current / minimum / warehouse /
+low-stock status, with search and a low-stock filter), Stock Adjustment (in/out,
+mandatory reason), Warehouse Transfer (over-transfer blocked, shows available),
+Stock Movement history (item / warehouse / type filters), and Inventory Reports
+with **A4-only** print using the CUSTOMER's business identity. All under Item
+Reports, EN + Dari RTL. The product list gained Unit, Opening Stock, Current Stock,
+Warehouse and Stock Status columns.
+
+**Verification.** Full suite **495 pass** (+28 in `tests/test_stage06_inventory.py`).
+The owner's mandatory workflow was run on a real on-disk database through the real
+screens and reconciled on every surface:
+
+| Step | Expected | Actual |
+|------|----------|--------|
+| Opening 100 (entered in the real product form) | 100 | 100 ✓ |
+| Purchase +20 | 120 | 120 ✓ |
+| Sale 10 | 110 | 110 ✓ |
+| Sales Return 2 | 112 | 112 ✓ |
+| Correct sale 10 → 5 (2 already returned) | 117 | 117 ✓ |
+| Adjustment +3 | 120 | 120 ✓ |
+| Transfer 10 Main → Warehouse 2 | 110 / 10, total 120 | 110 / 10 / 120 ✓ |
+
+The same figures agree in the Product List, Inventory, Stock Movement (9 movements
+summing to 120), Sales (one invoice, original number, corrected line 5), Sales
+Return (history preserved, 3 still returnable) and all five reports; the ledger
+stays balanced. Two self-found UI defects were fixed during screenshot review (a
+clipped Low-Stock chip; printed report headers rendering in the wrong language).
+
+**Recommendation:** *READY FOR OWNER REVIEW.* Stage 06 is **not locked and not
+merged**; Stage 07 not started.
+
+---
+
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-08-24 | 2.4 | **Stage 06 — Inventory & Stock Management implemented (READY FOR OWNER REVIEW; not locked, not merged).** Stock stays a single signed movement ledger — every figure on every screen is the `Decimal` sum of `inventory_movements`, so nothing can disagree. Migration **0008** (schema v8, forward/idempotent): `inventory_movements.notes` + three reporting indexes; no new permission. New `InventoryReadRepository` and Stage 06 service reads — `movement_history` (date/item/warehouse/type/in/out/**source document number**/user/note), `stock_overview` (opening vs current, unit, warehouses, minimum, low flag), `stock_by_warehouse`, `low_stock`. `adjust` now **requires a reason**, stores it on the movement and cannot remove more than a warehouse holds; `transfer`/`record_opening` carry notes. New `InventoryReportService`: Current Stock, Opening vs Current, Stock by Warehouse, Item Movement (running balance), Low Stock. **Integration fix to locked Stage 05** (the one exception, required by the mandatory workflow): `correct_sale` deleted+reinserted lines, so a return's `sale_line_id` (ON DELETE RESTRICT) forced a blanket block on correcting a returned invoice; correction now **updates surviving lines in place**, keeping their ids, and refuses only removing a returned item or correcting below what came back. New UI under Item Reports — Inventory, Stock Adjustment, Warehouse Transfer, Stock Movement history, Inventory Reports with **A4-only** print on the customer's business identity — EN + Dari RTL; the product list gained Unit / Opening / Current / Warehouse / Stock Status. **495 tests pass** (+28). The mandatory workflow (opening 100 → +20 → −10 → +2 → correct to 5 → +3 → transfer 10) was run on a real on-disk DB through the real screens and reconciled across Product List, Inventory, Stock Movement, Sales, Sales Return and all five reports, with the ledger balanced. Two self-found UI defects fixed (clipped Low-Stock chip; printed report headers in the wrong language). See §14A. |
 | 2026-08-21 | 2.3 | **Stage 05 final — Sales Reporting system + Sales-Return lookup fix + correction audit (Stage 05 still READY FOR OWNER REVIEW; not locked, not merged).** Additive; **no** accounting/inventory/ledger/numbering/auth/RBAC/licensing change and **no** migration (schema stays **v7**); reads only the authoritative `sales`/`sales_returns` tables. **P1** — the Sales Return page now loads a persisted invoice by a **unique partial number** (e.g. `2` → `SALE-000002`), flags an ambiguous fragment, and still rejects a nonexistent one (was: exact-match only → "not found"). **P2/P3** — confirmed `correct_sale` (void-and-replace) does **not** duplicate the invoice or double-count (VOID original excluded, replacement counts once); the `sales.correct` audit note now carries a **human-readable line diff** ("Rice qty 5 → 3; Sugar removed") plus old→new totals and reason. **P6** — new **Sales Reporting** engine (`repositories/reports.py` + `services/sales_reports.py`): **Gross/Paid/Credit/Returns/Net** for Today/Week/Month/Year/**Custom** + daily/monthly/yearly breakdowns and per-invoice detail; **partial payments split** paid vs credit, **later receipts excluded**, **corrected invoices counted once**, **Gross/Returns distinguishable** (Net = Gross − Returns); filters for date range/warehouse/customer/payment-status/registered-walk-in; `Decimal` sums. New **Sales Report screen** (`ui/documents/sales_report_page.py`) with presets, custom range, filters, five summary tiles and Transactions/Daily/Monthly views under **Account Reports** (EN + Dari RTL), and a **printable report** (`ui/print/sales_report_document.py` + preview) using the **customer's** business identity (logo/name/address/phone), never the developer identity. Per owner decision the Sales Report prints **A4 only** (a nine-column report is unreadable on A5) — the report preview exposes A4 exclusively (EN + Dari); A5 stays available for invoices/receipts/vouchers. **431 tests pass** (+34). Real on-disk E2E reconciles by hand (Gross 3000 / Paid 2000 / Credit 1000 / Returns 300 / Net 2700; stock 481/490; ledger balanced). Self-inspected EN/Dari report + A4 EN/Dari print + return-lookup screenshots. See §13O. |
 | 2026-08-19 | 2.2 | **Owner review round 2 — Sales Invoice restructure + correction + account settings + responsive (Stage 05 still READY FOR OWNER REVIEW; not locked, not merged).** All additive (no LOCKED public contract broken; touches locked Stage 01/03/04 UI with owner authorization). Migration **0007** (schema v7, forward/idempotent): `sales.corrected_from_id` link column + `sales.correct` permission (Admin/Manager/Accountant). **Sales Invoice restructured** to the owner's reference layout — compact customer+invoice header, **dominant Expanding items table** (5 rows at 1024×768/1366×768, ~15 at 1080p, internal scroll for many lines), single entry strip with a **per-line Unit selector** + obvious **Add / Edit Line / Delete Line** (full item/qty/unit/price/discount edit before posting), and a two-row totals/payment/balance strip showing **Previous + Updated customer balance**. **Walk-in** is now a clearly-labelled bordered panel (name/phone/address). **Safe posted-invoice correction** (`SalesDocumentService.correct_sale`): atomic void-of-original + linked replacement invoice, audited old→new, **blocks when a dependent return exists** (directs to Return/Void). **Self-service Account Settings** (`UserService.change_own_password` / `change_own_username`): current-password verified, policy-enforced, hashed, id-preserving, audited; new `AccountSettingsPage` under Tools. **Contextual ledger** access — "View Account" from the Customers list and the Receipts/Payments lists opens that party's ledger directly (`ManagementPage.on_view`, `MoneyListPage.set_view_account_handler`, `PartyLedgerPage.show_party`). **Responsive** fixes: dominant table via Expanding grid card + tightened header/entry/totals so Save/Print/Close stay reachable at 1024×768/1280×720/1366×768/1080p; list stretch column has a legible minimum. **377 tests pass** (+9 in `tests/test_round2.py`). 13-step round-2 on-disk acceptance (correction reconciles stock+ledger+balance, dependency block, password/username change, restart persistence, integrity/fk clean). Self-inspected EN/Dari screenshots incl. 1024×768; fixed the items-table compression found in review. See §13M. |
 | 2026-08-18 | 2.1 | **Owner manual-test hardening pass (Stage 05 still READY FOR OWNER REVIEW; not locked, not merged).** Fixed six owner-reported defects, all ADDITIVELY (no LOCKED public contract broken; the pass does touch locked Stage 01/04 UI/print files with owner authorization). Migration **0006** (schema v6, forward/idempotent): nullable `sales.walkin_name/walkin_phone/walkin_address` snapshot columns + new `parties.ledger` permission (existing `sales.void`/`purchases.void` extended to Manager/Accountant). (1) Sales Invoice refined — clearer Customer→info→items→payment→totals→save/print flow, **Registered/Walk-in** customer toggle, inline Qty/Price/Discount line editing + double-click item replace + delete. (2) **Walk-in/general customer** — name/phone/address snapshotted onto the sale (prints on the invoice) with NO permanent party record; walk-in credit rejected (no anonymous receivable). (3) Pre-post line edit/delete never moves stock; **safe posted-sale Void** (`SalesDocumentService.void_sale`) reverses inventory (ADJUSTMENT_IN)+ledger (reversing JV)+customer balance and stamps VOID, keeping the original document + returns-block guard. (4) **Customer/Supplier account ledger** — new `PartyLedgerRepository`/`PartyLedgerService` + `PartyLedgerPage` (Account Reports): running balance + Total Sales/Received/Receivable (or Purchases/Paid/Payable), derived from the authoritative ledger; dual customer+supplier identity is one party. (5) **Responsive** — reusable `vscroll` scroll-body + pinned action bar on the Stage 05 money entry pages so Save/Print/Close never fall off small windows; widened list actions column. (6) **Company logo on printed bills** — `CompanyInfo.logo_path` rendered in the invoice + voucher print headers with aspect-preserve + graceful letter-mark fallback; persists across restart. **368 tests pass** (+18). 20-step on-disk acceptance (walk-in, void reversal, ledgers, restart, re-open+print, integrity/fk clean). Self-inspected EN/Dari screenshots (sales EN/Dari/walk-in/small-window, customer+supplier ledger, sales-list Void, A4/A5 EN + A4 Dari invoices with logo); 2 self-found UI defects fixed (totals-band scroll regression; list actions clipping + stale filter label). See §13L. |

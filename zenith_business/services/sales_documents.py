@@ -450,6 +450,40 @@ class SalesDocumentService:
                 parts.append(f"{_name(item_id)} qty {o} → {n}")
         return "; ".join(parts)
 
+    def _assert_correction_keeps_returns_valid(self, old_lines, new_lines) -> None:
+        """Refuse a correction that would contradict an already-posted return.
+
+        Returned goods are a fact: the customer physically brought them back. So a
+        correction may not delete an item that has returns, nor reduce a quantity
+        below what came back — either would leave the return referring to something
+        that never happened.
+        """
+        returned_by_item: dict[int, D] = {}
+        for ln in old_lines:
+            back = D(self._ext.returned_qty_for_line(ln["id"]))
+            if back > 0:
+                returned_by_item[ln["item_id"]] = (
+                    returned_by_item.get(ln["item_id"], D(0)) + back)
+        if not returned_by_item:
+            return
+        new_by_item: dict[int, D] = {}
+        for sl in new_lines:
+            new_by_item[sl.item_id] = (new_by_item.get(sl.item_id, D(0))
+                                       + D(parse_money_input(sl.quantity, field="quantity")))
+        for item_id, back in returned_by_item.items():
+            name = (self._items.get(item_id) or {}).get("name") or f"item {item_id}"
+            kept = new_by_item.get(item_id)
+            if kept is None:
+                raise ValidationError(
+                    f"Item {item_id} has {back} returned; it cannot be removed.",
+                    user_message=f"{name} already has {back} returned, so it cannot be"
+                                 " removed from this invoice. Reverse the return first.")
+            if kept < back:
+                raise ValidationError(
+                    f"Item {item_id}: corrected qty {kept} is below {back} already returned.",
+                    user_message=f"{name} already has {back} returned, so the quantity"
+                                 f" cannot be corrected below {back}.")
+
     def correct_sale(self, *, sale_id: int, currency_code: str, lines: list[SaleLine],
                      party_id: int | None = None, warehouse_id: int | None = None,
                      amount_paid=0, exchange_rate=1, sale_date: str | None = None,
@@ -471,20 +505,18 @@ class SalesDocumentService:
           figures without a duplicate sale entry, and
         * writes an audit record describing what changed.
 
-        A correction is blocked when the invoice already has a sales return: the
-        return references the invoice's lines, so amending them would strand it.
+        An invoice that already has a return CAN be corrected: the surviving lines
+        keep their ids so the return still points at them. Only two things are
+        refused — dropping an item that has already been returned, and correcting a
+        quantity below what the customer already gave back.
         """
         self._authz.require("sales.correct")
         original = self._sales.get(sale_id)
         if original is None or original["status"] != "POSTED":
             raise ValidationError("Only a posted sale can be corrected.",
                                   user_message="This invoice cannot be corrected.")
-        if self._returns.list_for_sale(sale_id):
-            raise ValidationError(
-                "Sale has dependent returns; correction blocked.",
-                user_message="This invoice already has a return. Reverse the return, or use"
-                             " Void, before correcting.")
         old_lines = self._sales.lines_for(sale_id)
+        self._assert_correction_keeps_returns_valid(old_lines, lines)
         # Stock this invoice currently holds — released by the correction, so
         # re-using it (e.g. trimming 5 Rice to 3) is not rejected as an oversell.
         released: dict[tuple, D] = {}
@@ -534,19 +566,37 @@ class SalesDocumentService:
                     reference_type="SALE_CORRECTION", reference_id=sale_id,
                     reference_line_id=ln["id"], created_by=uid)
 
-        # 2. Replace the lines and take the corrected stock out.
-        self._sales.delete_lines(sale_id)
+        # 2. Rewrite the lines and take the corrected stock out. A line whose item
+        #    survives the correction KEEPS its id, so any sales return pointing at
+        #    it stays valid; only lines whose item is gone are deleted, and only
+        #    genuinely new items are inserted.
+        reusable: dict[int, list[int]] = {}
+        for ln in old_lines:
+            reusable.setdefault(ln["item_id"], []).append(ln["id"])
+        consumed: set[int] = set()
         for idx, (ln, c, wh, stockable) in enumerate(prep["computed"], start=1):
-            line_id = self._sales.add_line(
-                sale_id=sale_id, line_no=idx, item_id=ln.item_id, unit_id=ln.unit_id,
-                warehouse_id=wh, quantity=c.quantity, unit_price=c.unit_price,
-                discount=c.discount, line_total=c.line_total)
+            pool = reusable.get(ln.item_id) or []
+            line_id = pool.pop(0) if pool else None
+            if line_id is not None:
+                consumed.add(line_id)
+                self._sales.update_line(
+                    line_id, line_no=idx, item_id=ln.item_id, unit_id=ln.unit_id,
+                    warehouse_id=wh, quantity=c.quantity, unit_price=c.unit_price,
+                    discount=c.discount, line_total=c.line_total)
+            else:
+                line_id = self._sales.add_line(
+                    sale_id=sale_id, line_no=idx, item_id=ln.item_id, unit_id=ln.unit_id,
+                    warehouse_id=wh, quantity=c.quantity, unit_price=c.unit_price,
+                    discount=c.discount, line_total=c.line_total)
             if stockable:
                 self._inventory.add_movement(
                     item_id=ln.item_id, warehouse_id=wh, movement_type="SALE",
                     quantity=-c.quantity, movement_date=date, unit_id=ln.unit_id,
                     reference_type="SALE", reference_id=sale_id,
                     reference_line_id=line_id, created_by=uid)
+        for ln in old_lines:
+            if ln["id"] not in consumed:
+                self._sales.delete_line(ln["id"])
 
         # 3. Header in place — document_no, status and posting stamps untouched.
         self._sales.update_header(

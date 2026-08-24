@@ -96,6 +96,26 @@ class SalesRepository(BaseRepository):
              money_to_db(amount_paid), money_to_db(remaining_amount), notes, now_iso(),
              sale_id))
 
+    def update_line(self, line_id: int, *, line_no: int, item_id: int, unit_id: int,
+                    warehouse_id: int | None, quantity, unit_price, discount,
+                    line_total) -> None:
+        """Rewrite one sale line, KEEPING its id.
+
+        A correction reuses the existing row wherever the item survives, so a
+        sales return that references this line by id stays valid instead of being
+        orphaned by a delete-and-reinsert.
+        """
+        self._exec(
+            "UPDATE sales_lines SET line_no = ?, item_id = ?, unit_id = ?, warehouse_id = ?,"
+            " quantity = ?, unit_price = ?, discount = ?, line_total = ? WHERE id = ?",
+            (line_no, item_id, unit_id, warehouse_id, qty_to_db(quantity),
+             money_to_db(unit_price), money_to_db(discount), money_to_db(line_total),
+             line_id))
+
+    def delete_line(self, line_id: int) -> None:
+        """Remove one sale line (only ever called for a line with no returns)."""
+        self._exec("DELETE FROM sales_lines WHERE id = ?", (line_id,))
+
     def delete_lines(self, sale_id: int) -> None:
         """Remove a sale's current lines so a correction can write the new set.
 
@@ -245,14 +265,15 @@ class InventoryRepository(BaseRepository):
         reference_id: int | None = None,
         reference_line_id: int | None = None,
         created_by: int | None = None,
+        notes: str | None = None,
     ) -> int:
         return self._insert(
             "INSERT INTO inventory_movements (item_id, warehouse_id, movement_type, quantity,"
             " unit_id, reference_type, reference_id, reference_line_id, movement_date,"
-            " created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " created_by, created_at, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (item_id, warehouse_id, movement_type, qty_to_db(quantity), unit_id,
              reference_type, reference_id, reference_line_id, movement_date,
-             created_by, now_iso()))
+             created_by, now_iso(), notes))
 
     def stock_on_hand(self, item_id: int, warehouse_id: int | None = None) -> str:
         """Signed sum of movement quantities → current stock (canonical string).
