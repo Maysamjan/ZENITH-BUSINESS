@@ -1,14 +1,14 @@
-# Zenith Business — Stage 05 Owner Test Build (corrected)
+# Zenith Business — Stage 06 Owner Test Build
 
 This is a **self-contained Windows test build** of Zenith Business, including the
-locked **Stages 01–04** and the completed **Stage 05 (Receipts · Payments ·
-Expenses · Cash/Fund movements)**. It ships with a **fresh test database already
-loaded with sample data** so you can run the full acceptance test without typing
-any setup.
+locked **Stages 01–05** and the completed **Stage 06 (Inventory & Stock
+Management)**. It ships with a **fresh test database already loaded with sample
+data** so you can run the full acceptance test without typing any setup.
 
-> **This build also contains the six manual-test fixes you reported.** A short
-> checklist to verify them is in section 5 below; the original 8 acceptance
-> scenarios remain in section 3.
+> **New in this build:** Opening Stock and Warehouse on the product form, the
+> Inventory / Stock Adjustment / Warehouse Transfer / Stock Movement screens, the
+> five inventory reports (A4), and a sales return that updates the original
+> invoice everywhere it is shown.
 
 Nothing is installed on your PC. Everything lives inside this one folder. You do
 **not** need Python or an internet connection to run it.
@@ -188,5 +188,5 @@ For this portable build, all data stays inside this folder under **`appdata\`**
 `appdata_seed\` holds the pristine copy used by **Reset-Test-Data.bat**. Deleting
 the whole folder removes every trace of the test build from your PC.
 
-> Note: this is a **test** build for acceptance only. Stage 05 is **not locked or
+> Note: this is a **test** build for acceptance only. Stage 06 is **not locked or
 > merged** yet — it is waiting for your approval after you finish testing.

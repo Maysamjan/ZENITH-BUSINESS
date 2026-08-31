@@ -1846,12 +1846,57 @@ clipped Low-Stock chip; printed report headers rendering in the wrong language).
 **Recommendation:** *READY FOR OWNER REVIEW.* Stage 06 is **not locked and not
 merged**; Stage 07 not started.
 
+### 14A.1 Owner verification round — a return must update the original sale visibly
+
+The owner asked for proof of one requirement before manual testing: returning an
+item has to change what the **original invoice** shows, everywhere it is shown.
+Verified on a real on-disk database with the owner's own example (Rice 5 × 100 =
+500, return 1). The sale document is deliberately **never rewritten** — the sold
+quantity and the invoiced total remain the historical record — and the current
+position is derived from the return documents by `SalesDocumentService.net_view`,
+so there is exactly one answer to "what is this invoice worth now".
+
+| Surface | Before the return | After returning Rice 1 |
+|---------|-------------------|------------------------|
+| Stock on hand | 5 | **6** |
+| Sales invoices in the list | 1 (`SALE-000001`) | **1 (`SALE-000001`, POSTED)** |
+| Sales List — Invoiced / Returned / Net | 500 / 0 / 500 | 500 / **100** / **400** |
+| Sales List — Remaining owed | 500 | **400** |
+| Invoice line — sold / returned / net | 5 / 0 / 5 | 5 / **1** / **4** (400) |
+| Printed invoice | Rice 5 → 500 | **Rice 4 → 400** |
+| Sales Report — Gross / Returns / Net | 500 / 0 / 500 | 500 / **100** / **400** |
+| Customer receivable | 500 | **400** |
+| Stock movements | OPENING, SALE −5 | + **SALE_RETURN +1** (no second SALE) |
+
+Three gaps that verification exposed, and the fixes:
+
+1. **The Sales List "Remaining" column still showed the invoiced remaining (500)
+   after a return**, disagreeing with the customer's ledger (400). `list()` now
+   also derives `net_remaining` = net total − paid and the column shows it. On a
+   *paid* invoice this correctly goes negative (a refund owed back), matching the
+   receivable exactly.
+2. **The human-readable note was stored but visible nowhere.** The Sales Return
+   list gained a **Note** column (the note is the widest field, so it takes the
+   stretch column), showing "Rice — Qty 1 returned." beside the source invoice.
+3. **The Dari note used the item's English name.** It now uses the item's second
+   (Dari) name when one exists — "برنج به تعداد 1 دانه برگشت شد." The note is
+   stored in the language the operator posted it in, as written at the time.
+
+This behaviour previously had **no regression tests at all**; it now has 16 in
+`tests/test_return_reflects_on_invoice.py`. Full suite **511 pass**.
+
+The Windows test build was also renamed from Stage 05 to Stage 06: the workflow
+takes the stage from a single `env.STAGE`, publishing tag `stage06-test-build`
+and `ZenithBusiness-Stage06-TestBuild-win64.zip`, and retiring the old
+`stage05-test-build` release so only one download link exists.
+
 ---
 
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-08-31 | 2.5 | **Owner verification round — a sales return must update the ORIGINAL sale visibly (Stage 06 still READY FOR OWNER REVIEW; not locked, not merged).** Verified the owner's example (Rice 5 × 100 = 500, return 1) on a real on-disk database through the real screens: stock 5 → **6**; still **one** invoice `SALE-000001` (POSTED, never rewritten); Sales List Invoiced 500 / Returned **100** / Net **400**; invoice line sold 5 / returned **1** / net **4** = 400; printed invoice **Rice 4 → 400**; Sales Report Gross 500 / Returns **100** / Net **400**; customer receivable **400**; movements gain one `SALE_RETURN +1` with no second `SALE`. No migration; no accounting/numbering/inventory-posting change. Three gaps the verification exposed were fixed: (1) the Sales List **Remaining** column still showed the invoiced 500 after a return — `list()` now derives `net_remaining` = net total − paid (correctly negative = refund owed on a paid invoice, matching the receivable); (2) the human-readable note was stored but shown nowhere — the Sales Return list gained a **Note** column (stretch) beside the source invoice; (3) the **Dari note used the English item name** — it now uses the item's Dari (alternate) name: "برنج به تعداد 1 دانه برگشت شد." This behaviour had **no regression tests**; added 16 in `tests/test_return_reflects_on_invoice.py`. **511 tests pass** (+16). Windows test build **renamed Stage 05 → Stage 06**: the workflow reads a single `env.STAGE`, publishes tag `stage06-test-build` + `ZenithBusiness-Stage06-TestBuild-win64.zip`, and retires the old `stage05-test-build` release; launcher/README/seed headers updated. See §14A.1. |
 | 2026-08-24 | 2.4 | **Stage 06 — Inventory & Stock Management implemented (READY FOR OWNER REVIEW; not locked, not merged).** Stock stays a single signed movement ledger — every figure on every screen is the `Decimal` sum of `inventory_movements`, so nothing can disagree. Migration **0008** (schema v8, forward/idempotent): `inventory_movements.notes` + three reporting indexes; no new permission. New `InventoryReadRepository` and Stage 06 service reads — `movement_history` (date/item/warehouse/type/in/out/**source document number**/user/note), `stock_overview` (opening vs current, unit, warehouses, minimum, low flag), `stock_by_warehouse`, `low_stock`. `adjust` now **requires a reason**, stores it on the movement and cannot remove more than a warehouse holds; `transfer`/`record_opening` carry notes. New `InventoryReportService`: Current Stock, Opening vs Current, Stock by Warehouse, Item Movement (running balance), Low Stock. **Integration fix to locked Stage 05** (the one exception, required by the mandatory workflow): `correct_sale` deleted+reinserted lines, so a return's `sale_line_id` (ON DELETE RESTRICT) forced a blanket block on correcting a returned invoice; correction now **updates surviving lines in place**, keeping their ids, and refuses only removing a returned item or correcting below what came back. New UI under Item Reports — Inventory, Stock Adjustment, Warehouse Transfer, Stock Movement history, Inventory Reports with **A4-only** print on the customer's business identity — EN + Dari RTL; the product list gained Unit / Opening / Current / Warehouse / Stock Status. **495 tests pass** (+28). The mandatory workflow (opening 100 → +20 → −10 → +2 → correct to 5 → +3 → transfer 10) was run on a real on-disk DB through the real screens and reconciled across Product List, Inventory, Stock Movement, Sales, Sales Return and all five reports, with the ledger balanced. Two self-found UI defects fixed (clipped Low-Stock chip; printed report headers in the wrong language). See §14A. |
 | 2026-08-21 | 2.3 | **Stage 05 final — Sales Reporting system + Sales-Return lookup fix + correction audit (Stage 05 still READY FOR OWNER REVIEW; not locked, not merged).** Additive; **no** accounting/inventory/ledger/numbering/auth/RBAC/licensing change and **no** migration (schema stays **v7**); reads only the authoritative `sales`/`sales_returns` tables. **P1** — the Sales Return page now loads a persisted invoice by a **unique partial number** (e.g. `2` → `SALE-000002`), flags an ambiguous fragment, and still rejects a nonexistent one (was: exact-match only → "not found"). **P2/P3** — confirmed `correct_sale` (void-and-replace) does **not** duplicate the invoice or double-count (VOID original excluded, replacement counts once); the `sales.correct` audit note now carries a **human-readable line diff** ("Rice qty 5 → 3; Sugar removed") plus old→new totals and reason. **P6** — new **Sales Reporting** engine (`repositories/reports.py` + `services/sales_reports.py`): **Gross/Paid/Credit/Returns/Net** for Today/Week/Month/Year/**Custom** + daily/monthly/yearly breakdowns and per-invoice detail; **partial payments split** paid vs credit, **later receipts excluded**, **corrected invoices counted once**, **Gross/Returns distinguishable** (Net = Gross − Returns); filters for date range/warehouse/customer/payment-status/registered-walk-in; `Decimal` sums. New **Sales Report screen** (`ui/documents/sales_report_page.py`) with presets, custom range, filters, five summary tiles and Transactions/Daily/Monthly views under **Account Reports** (EN + Dari RTL), and a **printable report** (`ui/print/sales_report_document.py` + preview) using the **customer's** business identity (logo/name/address/phone), never the developer identity. Per owner decision the Sales Report prints **A4 only** (a nine-column report is unreadable on A5) — the report preview exposes A4 exclusively (EN + Dari); A5 stays available for invoices/receipts/vouchers. **431 tests pass** (+34). Real on-disk E2E reconciles by hand (Gross 3000 / Paid 2000 / Credit 1000 / Returns 300 / Net 2700; stock 481/490; ledger balanced). Self-inspected EN/Dari report + A4 EN/Dari print + return-lookup screenshots. See §13O. |
 | 2026-08-19 | 2.2 | **Owner review round 2 — Sales Invoice restructure + correction + account settings + responsive (Stage 05 still READY FOR OWNER REVIEW; not locked, not merged).** All additive (no LOCKED public contract broken; touches locked Stage 01/03/04 UI with owner authorization). Migration **0007** (schema v7, forward/idempotent): `sales.corrected_from_id` link column + `sales.correct` permission (Admin/Manager/Accountant). **Sales Invoice restructured** to the owner's reference layout — compact customer+invoice header, **dominant Expanding items table** (5 rows at 1024×768/1366×768, ~15 at 1080p, internal scroll for many lines), single entry strip with a **per-line Unit selector** + obvious **Add / Edit Line / Delete Line** (full item/qty/unit/price/discount edit before posting), and a two-row totals/payment/balance strip showing **Previous + Updated customer balance**. **Walk-in** is now a clearly-labelled bordered panel (name/phone/address). **Safe posted-invoice correction** (`SalesDocumentService.correct_sale`): atomic void-of-original + linked replacement invoice, audited old→new, **blocks when a dependent return exists** (directs to Return/Void). **Self-service Account Settings** (`UserService.change_own_password` / `change_own_username`): current-password verified, policy-enforced, hashed, id-preserving, audited; new `AccountSettingsPage` under Tools. **Contextual ledger** access — "View Account" from the Customers list and the Receipts/Payments lists opens that party's ledger directly (`ManagementPage.on_view`, `MoneyListPage.set_view_account_handler`, `PartyLedgerPage.show_party`). **Responsive** fixes: dominant table via Expanding grid card + tightened header/entry/totals so Save/Print/Close stay reachable at 1024×768/1280×720/1366×768/1080p; list stretch column has a legible minimum. **377 tests pass** (+9 in `tests/test_round2.py`). 13-step round-2 on-disk acceptance (correction reconciles stock+ledger+balance, dependency block, password/username change, restart persistence, integrity/fk clean). Self-inspected EN/Dari screenshots incl. 1024×768; fixed the items-table compression found in review. See §13M. |

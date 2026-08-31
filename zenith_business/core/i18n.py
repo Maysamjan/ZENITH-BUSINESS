@@ -738,6 +738,7 @@ _CATALOG: dict[str, dict[str, str]] = {
     "s4.col_remaining": {LANG_ENGLISH: "Remaining", LANG_DARI: "باقی‌مانده"},
     "s4.col_status": {LANG_ENGLISH: "Status", LANG_DARI: "وضعیت"},
     "s4.col_source": {LANG_ENGLISH: "Source Doc", LANG_DARI: "سند مبنا"},
+    "s4.col_note": {LANG_ENGLISH: "Note", LANG_DARI: "یادداشت"},
     "s4.status_posted": {LANG_ENGLISH: "Posted", LANG_DARI: "ثبت‌شده"},
     "s4.status_draft": {LANG_ENGLISH: "Draft", LANG_DARI: "پیش‌نویس"},
     "s4.status_void": {LANG_ENGLISH: "Cancelled", LANG_DARI: "لغوشده"},

@@ -112,10 +112,17 @@ class SalesDocumentService:
              limit=200) -> list[dict]:
         """Sales list rows, each carrying its CURRENT position after returns.
 
-        ``grand_total`` stays the amount originally invoiced; ``returned_total`` and
-        ``net_total`` are derived from the posted return documents, so the list can
-        show what the invoice is worth now without storing a second copy of the
-        figure. Money is summed with ``Decimal``, never a SQL float.
+        ``grand_total`` stays the amount originally invoiced; ``returned_total``,
+        ``net_total`` and ``net_remaining`` are derived from the posted return
+        documents, so the list can show what the invoice is worth now without
+        storing a second copy of the figure. Money is summed with ``Decimal``,
+        never a SQL float.
+
+        ``net_remaining`` = net total − paid: what the customer still owes on this
+        invoice after the return, matching the credit the return posted to their
+        receivable. It goes negative when a paid invoice is returned against — a
+        refund owed back to the customer — which is the financially correct sign
+        and agrees with the customer's ledger balance.
         """
         self._authz.require("sales.view")
         rows = self._ext.list_documents(term=term, status=status, date_from=date_from,
@@ -125,8 +132,10 @@ class SalesDocumentService:
             returned[r["sale_id"]] = returned.get(r["sale_id"], D(0)) + D(r["grand_total"])
         for row in rows:
             back = returned.get(row["id"], D(0))
+            net = money(row["grand_total"]) - back
             row["returned_total"] = money_to_db(back)
-            row["net_total"] = money_to_db(money(row["grand_total"]) - back)
+            row["net_total"] = money_to_db(net)
+            row["net_remaining"] = money_to_db(net - money(row["amount_paid"]))
         return rows
 
     def get(self, sale_id: int) -> dict | None:

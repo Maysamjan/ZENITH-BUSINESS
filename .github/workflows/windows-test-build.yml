@@ -2,11 +2,15 @@ name: Windows Test Build
 
 # Builds a self-contained Windows test package (ZenithBusiness.exe + a fresh
 # pre-seeded sample database + launcher + owner instructions) and uploads it as a
-# downloadable artifact. This does NOT change any Stage 01-05 functionality — it
+# downloadable artifact. This does NOT change any application functionality — it
 # only packages the current source exactly as it is.
 #
 # Run it manually from the Actions tab (Run workflow), or it runs automatically
-# on pushes to the Stage 05 branch that touch the app or the packaging kit.
+# on pushes to the development branch that touch the app or the packaging kit.
+#
+# The stage the build belongs to is set ONCE in env.STAGE below: it names the
+# release tag, its title and the ZIP, so moving to the next stage is a one-line
+# change instead of a hunt through this file.
 
 on:
   workflow_dispatch: {}
@@ -20,6 +24,12 @@ on:
 
 permissions:
   contents: write   # needed to publish the ZIP as a GitHub Release asset
+
+env:
+  STAGE: "06"
+  # Releases from earlier stages, removed once the new one is published so the
+  # owner never has two differently-named ZIPs to choose between.
+  SUPERSEDED_TAGS: "stage05-test-build"
 
 jobs:
   build:
@@ -74,20 +84,20 @@ jobs:
       - name: Upload Windows test package
         uses: actions/upload-artifact@v4
         with:
-          name: ZenithBusiness-Stage05-TestBuild-win64
+          name: ZenithBusiness-Stage${{ env.STAGE }}-TestBuild-win64
           path: dist/package
           retention-days: 14
           if-no-files-found: error
 
       # Delivery-only: zip the portable package and attach it to a GitHub Release
       # so it has a permanent, one-click Download link (no Actions navigation, no
-      # expiry). This does not change the application, Stage 05, or any source.
+      # expiry). This does not change the application or any source.
       - name: Zip the portable package
         shell: pwsh
         run: |
-          Compress-Archive -Path dist/package/* `
-            -DestinationPath ZenithBusiness-Stage05-TestBuild-win64.zip -Force
-          Write-Host ("Zip size: {0:N1} MB" -f ((Get-Item ZenithBusiness-Stage05-TestBuild-win64.zip).Length/1MB))
+          $zip = "ZenithBusiness-Stage${env:STAGE}-TestBuild-win64.zip"
+          Compress-Archive -Path dist/package/* -DestinationPath $zip -Force
+          Write-Host ("Zip size: {0:N1} MB" -f ((Get-Item $zip).Length/1MB))
 
       - name: Publish as a GitHub Release
         shell: bash
@@ -95,13 +105,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG="stage05-test-build"
+          TAG="stage${STAGE}-test-build"
+          ZIP="ZenithBusiness-Stage${STAGE}-TestBuild-win64.zip"
           # Replace any previous copy so the download link is always the latest build.
           gh release delete "$TAG" --cleanup-tag --yes || true
-          gh release create "$TAG" ZenithBusiness-Stage05-TestBuild-win64.zip \
+          gh release create "$TAG" "$ZIP" \
             --target "$GITHUB_SHA" \
             --prerelease \
-            --title "Zenith Business — Stage 05 Windows Test Build" \
-            --notes "Self-contained Windows test build including the locked Stages 01-04 and completed Stage 05, with a fresh pre-seeded sample database. Download the ZIP, unzip, and double-click Run-ZenithBusiness.bat. Log in as admin / Admin@123. Full click-by-click test steps are in READ-ME-FIRST inside the package. This is a TEST build for owner acceptance — Stage 05 is not locked or merged."
+            --title "Zenith Business — Stage ${STAGE} Windows Test Build" \
+            --notes "Self-contained Windows test build including the locked Stages 01-05 and completed Stage 06 (Inventory & Stock Management), with a fresh pre-seeded sample database. Download the ZIP, unzip, and double-click Run-ZenithBusiness.bat. Log in as admin / Admin@123. Full click-by-click test steps are in READ-ME-FIRST inside the package. This is a TEST build for owner acceptance — Stage 06 is not locked or merged."
+          # Retire the earlier stage's release so only one download link exists.
+          for old in $SUPERSEDED_TAGS; do
+            gh release delete "$old" --cleanup-tag --yes || true
+          done
           echo "Release published:"
           gh release view "$TAG" --json url --jq .url

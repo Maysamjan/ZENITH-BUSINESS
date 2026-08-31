@@ -133,10 +133,14 @@ class DocumentListPage(QWidget):
         """(header_key, row_key, align)."""
         if self._is_return:
             src_key = "sale_no" if self._mode == "sales_return" else "purchase_no"
+            # The note is the human-readable record of what came back
+            # ("Rice — Qty 1 returned."), so it belongs on the screen the owner
+            # uses to review returns — not only in the stored document.
             return [("s4.col_docno", "document_no", "l"),
                     ("s4.col_date", "return_date", "l"),
                     ("s4.col_source", src_key, "l"),
                     ("s4.col_party", "party_name", "l"),
+                    ("s4.col_note", "notes", "l"),
                     ("s4.col_total", "grand_total", "r"),
                     ("s4.col_status", "status", "c")]
         date_key = "sale_date" if self._mode == "sale" else "purchase_date"
@@ -151,7 +155,9 @@ class DocumentListPage(QWidget):
                     ("s4.col_returned_total", "returned_total", "r"),
                     ("s4.col_total", "net_total", "r"),
                     ("s4.col_paid", "amount_paid", "r"),
-                    ("s4.col_remaining", "remaining_amount", "r"),
+                    # Remaining is the NET amount still owed (net total − paid),
+                    # so a returned invoice shows what the customer actually owes.
+                    ("s4.col_remaining", "net_remaining", "r"),
                     ("s4.col_status", "status", "c")]
         return [("s4.col_docno", "document_no", "l"),
                 ("s4.col_date", date_key, "l"),
@@ -180,7 +186,11 @@ class DocumentListPage(QWidget):
         hh.setMinimumSectionSize(96)
         # party column stretches; status holds a chip widget so it needs a fixed
         # width wide enough for the pill (ResizeToContents clips the widget).
-        stretch_idx = next((i for i, (_h, k, _a) in enumerate(cols) if k == "party_name"), 0)
+        # On returns the note is the widest, most variable text, so it takes the
+        # stretch column instead of the party name (ResizeToContents would let a
+        # long note push every other column off screen).
+        stretch_key = "notes" if self._is_return else "party_name"
+        stretch_idx = next((i for i, (_h, k, _a) in enumerate(cols) if k == stretch_key), 0)
         status_idx = next((i for i, (_h, k, _a) in enumerate(cols) if k == "status"), -1)
         for i in range(len(cols)):
             if i == stretch_idx:
@@ -232,7 +242,7 @@ class DocumentListPage(QWidget):
         self._table.setRowCount(0)
         self._table.setRowCount(len(self._rows))
         money_keys = {"grand_total", "amount_paid", "remaining_amount",
-                      "returned_total", "net_total"}
+                      "returned_total", "net_total", "net_remaining"}
         for r, data in enumerate(self._rows):
             for c, (_h, key, align) in enumerate(cols):
                 if key == "status":

@@ -1,4 +1,4 @@
-"""Generate a fresh, pre-loaded TEST database for owner acceptance of Stage 05.
+"""Generate a fresh, pre-loaded TEST database for owner acceptance of Stage 06.
 
 This does NOT change any Stage 01-05 functionality. It only *drives the existing
 services* to create sample master data and a few posted documents, so the owner

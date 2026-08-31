@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from zenith_business.core.exceptions import ZenithError
-from zenith_business.core.i18n import Translator
+from zenith_business.core.i18n import LANG_DARI, Translator
 from zenith_business.core.money import D, format_money
 from zenith_business.services.purchase_documents import PurchaseReturnLine
 from zenith_business.services.sales_documents import ReturnLine
@@ -234,6 +234,9 @@ class ReturnEntryPage(QWidget):
             self._lines.append({
                 "line_id": ln[line_key], "code": item.get("item_code", ""),
                 "name": item.get("name", ""),
+                # The item's second (Dari) name, used so a Dari note reads
+                # "برنج به تعداد ۱ دانه برگشت شد." rather than the English name.
+                "alt_name": item.get("alternate_name") or "",
                 "unit": unit.get("symbol") or unit.get("name_en") or "",
                 "sold": ln["quantity"], "returnable": returnable.get(ln[line_key], "0"),
                 # Sold − still-returnable = what earlier returns already took back.
@@ -294,13 +297,16 @@ class ReturnEntryPage(QWidget):
         """
         by_line = {ln["line_id"]: ln for ln in self._lines}
         template = self._t.gettext("s4.return_note_line")
+        dari = self._t.language == LANG_DARI
         parts = []
         for line_id, qty in picked:
             row = by_line.get(line_id)
             if row is None:
                 continue
             text = str(D(qty).normalize()) if str(qty).strip() else str(qty)
-            parts.append(template.replace("{item}", row["name"]).replace("{qty}", text))
+            # In Dari, name the item by its Dari name when the item has one.
+            name = (row.get("alt_name") or row["name"]) if dari else row["name"]
+            parts.append(template.replace("{item}", name).replace("{qty}", text))
         return " ".join(parts)
 
     def _post(self, *, print_after: bool) -> None:

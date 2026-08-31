@@ -1,6 +1,6 @@
 @echo off
 rem ============================================================================
-rem  Zenith Business - Stage 05 Owner Test Build (portable launcher)
+rem  Zenith Business - Stage 06 Owner Test Build (portable launcher)
 rem
 rem  Double-click this file to start the application.
 rem

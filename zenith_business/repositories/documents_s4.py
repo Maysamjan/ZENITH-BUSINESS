@@ -173,7 +173,7 @@ class SalesReturnRepository(BaseRepository):
     def list_recent(self, limit: int = 200) -> list[dict]:
         return self._all(
             "SELECT sr.id, sr.document_no, sr.return_date, sr.grand_total, sr.status,"
-            " s.document_no AS sale_no, p.name AS party_name FROM sales_returns sr"
+            " sr.notes, s.document_no AS sale_no, p.name AS party_name FROM sales_returns sr"
             " JOIN sales s ON s.id = sr.sale_id"
             " LEFT JOIN parties p ON p.id = sr.party_id"
             " ORDER BY sr.return_date DESC, sr.id DESC LIMIT ?", (limit,))
@@ -217,7 +217,8 @@ class PurchaseReturnRepository(BaseRepository):
     def list_recent(self, limit: int = 200) -> list[dict]:
         return self._all(
             "SELECT pr.id, pr.document_no, pr.return_date, pr.grand_total, pr.status,"
-            " p.document_no AS purchase_no, pa.name AS party_name FROM purchase_returns pr"
+            " pr.notes, p.document_no AS purchase_no, pa.name AS party_name"
+            " FROM purchase_returns pr"
             " JOIN purchases p ON p.id = pr.purchase_id"
             " LEFT JOIN parties pa ON pa.id = pr.party_id"
             " ORDER BY pr.return_date DESC, pr.id DESC LIMIT ?", (limit,))
