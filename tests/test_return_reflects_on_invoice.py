@@ -231,3 +231,150 @@ def test_return_history_survives_and_limits_further_returns(biz):
     line_id = biz.sales_repo.lines_for(sale.id)[0]["id"]
     assert len(biz.sales_returns_repo.list_for_sale(sale.id)) == 1
     assert Decimal(biz.sales_documents.returnable_quantities(sale.id)[line_id]) == Decimal("4")
+
+
+# ---- 7. returning the WHOLE invoice ---------------------------------------
+#
+# The full return is the sharp edge of the same contract: the invoice nets to
+# zero and its item table becomes legitimately EMPTY. Every figure must reach
+# zero, the invoice must stay a single POSTED document, and the printed sheet
+# must still explain itself instead of looking like a blank form.
+
+def _return_all_five(biz, sale, notes=None):
+    line_id = biz.sales_repo.lines_for(sale.id)[0]["id"]
+    return biz.sales_documents.post_return(
+        sale_id=sale.id, return_date="2026-06-11", notes=notes,
+        lines=[ReturnLine(sale_line_id=line_id, quantity="5")])
+
+
+def test_full_return_puts_all_five_back_in_the_warehouse(biz):
+    sale = _sell_five(biz)
+    assert Decimal(biz.inventory.on_hand(biz.rice, biz.main)) == Decimal("5")
+    _return_all_five(biz, sale)
+    assert Decimal(biz.inventory.on_hand(biz.rice, biz.main)) == Decimal("10")
+    assert Decimal(biz.inventory.on_hand(biz.rice)) == Decimal("10")
+
+
+def test_full_return_zeroes_the_sales_list_row(biz):
+    sale = _sell_five(biz)
+    _return_all_five(biz, sale)
+    row = biz.sales_documents.list()[0]
+    assert row["grand_total"] == "500.00"       # what was invoiced, still auditable
+    assert row["returned_total"] == "500.00"    # the whole invoice came back
+    assert row["net_total"] == "0.00"
+    assert row["net_remaining"] == "0.00"
+
+
+def test_full_return_clears_the_customer_debt(biz):
+    sale = _sell_five(biz)
+    assert Decimal(biz.sales_documents.receivable(biz.cust)) == Decimal("500")
+    _return_all_five(biz, sale)
+    assert Decimal(biz.sales_documents.receivable(biz.cust)) == Decimal("0")
+
+
+def test_full_return_creates_no_second_invoice(biz):
+    sale = _sell_five(biz)
+    _return_all_five(biz, sale)
+    rows = biz.sales_documents.list()
+    assert len(rows) == 1
+    assert rows[0]["document_no"] == sale.document_no
+    assert rows[0]["status"] == "POSTED"
+    kinds = [m["movement_type"] for m in biz.inventory.movement_history(item_id=biz.rice)]
+    assert kinds.count("SALE") == 1
+    assert kinds.count("SALE_RETURN") == 1
+
+
+def test_full_return_leaves_no_active_lines_and_nothing_returnable(biz):
+    sale = _sell_five(biz)
+    _return_all_five(biz, sale)
+    view = biz.sales_documents.net_view(sale.id)
+    assert view["lines"][0]["fully_returned"] is True
+    assert view["active_lines"] == []
+    assert view["net_total"] == "0.00"
+    line_id = biz.sales_repo.lines_for(sale.id)[0]["id"]
+    assert Decimal(biz.sales_documents.returnable_quantities(sale.id)[line_id]) == Decimal("0")
+
+
+def test_full_return_note_is_visible_in_the_returns_list_in_dari(biz, qapp):
+    """Posted from the Dari screen, the note names the item in Dari and shows up."""
+    from zenith_business.ui.documents.list_page import DocumentListPage
+    from zenith_business.ui.documents.return_page import ReturnEntryPage
+    sale = _sell_five(biz)
+    page = ReturnEntryPage(biz, Translator(LANG_DARI), mode="sales_return",
+                           on_close=lambda: None, on_print=lambda i: None)
+    page._src_edit.setText(sale.document_no)
+    page._load_source()
+    page._return_edits[0].setText("5")
+    page._post(print_after=False)
+
+    saved = biz.sales_returns_repo.get(page._last_saved_id)
+    assert saved["notes"] == "برنج به تعداد 5 دانه برگشت شد."
+    listing = DocumentListPage(biz, Translator(LANG_DARI), mode="sales_return")
+    heads = [listing._table.horizontalHeaderItem(i).text()
+             for i in range(listing._table.columnCount())]
+    note_col = heads.index("یادداشت")
+    assert listing._table.item(0, note_col).text() == "برنج به تعداد 5 دانه برگشت شد."
+
+
+def test_fully_returned_invoice_prints_an_explanation_not_a_blank_sheet(biz, qapp):
+    """An empty item table with a zero total would otherwise read as a blank form."""
+    from zenith_business.ui.documents.print_builder import build_sale_invoice
+    sale = _sell_five(biz)
+    _return_all_five(biz, sale)
+    data, _title = build_sale_invoice(biz, sale.id)
+    assert data.lines == []
+    assert data.grand_total == 0.0
+    assert data.note_key == "print.fully_returned"
+
+
+def test_printed_note_follows_the_language_toggle(biz, qapp):
+    """The note is a KEY, so switching EN/Dari in the preview re-renders it."""
+    from PyQt6.QtWidgets import QLabel
+
+    from zenith_business.ui.documents.print_builder import build_sale_invoice
+    from zenith_business.ui.print.invoice_document import PAPERS, InvoicePrintDocument
+    sale = _sell_five(biz)
+    _return_all_five(biz, sale)
+    data, _title = build_sale_invoice(biz, sale.id)
+    for language in (LANG_ENGLISH, LANG_DARI):
+        translator = Translator(language)
+        doc = InvoicePrintDocument(data, translator, PAPERS["A4"])
+        texts = [w.text() for w in doc.findChildren(QLabel)]
+        assert translator.gettext("print.fully_returned") in texts
+
+
+def test_a_partly_returned_invoice_carries_no_such_note(biz, qapp):
+    from zenith_business.ui.documents.print_builder import build_sale_invoice
+    sale = _sell_five(biz)
+    _return_one(biz, sale)
+    data, _title = build_sale_invoice(biz, sale.id)
+    assert data.note_key == ""          # its own lines already tell the story
+    assert data.lines[0].qty == 4.0
+
+
+def test_an_untouched_invoice_carries_no_note(biz, qapp):
+    from zenith_business.ui.documents.print_builder import build_sale_invoice
+    sale = _sell_five(biz)
+    data, _title = build_sale_invoice(biz, sale.id)
+    assert data.note_key == ""
+    assert data.lines[0].qty == 5.0
+
+
+def test_full_return_reconciles_the_sales_report_to_zero(biz):
+    sale = _sell_five(biz)
+    _return_all_five(biz, sale)
+    summary = biz.sales_reports.summary(date_from="2026-01-01", date_to="2026-12-31")
+    assert summary["gross"] == "500.00"
+    assert summary["returns"] == "500.00"
+    assert summary["net"] == "0.00"
+
+
+def test_cannot_return_more_after_a_full_return(biz):
+    from zenith_business.services.exceptions import ValidationError
+    sale = _sell_five(biz)
+    _return_all_five(biz, sale)
+    line_id = biz.sales_repo.lines_for(sale.id)[0]["id"]
+    with pytest.raises(ValidationError):
+        biz.sales_documents.post_return(
+            sale_id=sale.id, return_date="2026-06-12",
+            lines=[ReturnLine(sale_line_id=line_id, quantity="1")])

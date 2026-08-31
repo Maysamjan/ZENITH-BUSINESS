@@ -1890,12 +1890,57 @@ takes the stage from a single `env.STAGE`, publishing tag `stage06-test-build`
 and `ZenithBusiness-Stage06-TestBuild-win64.zip`, and retiring the old
 `stage05-test-build` release so only one download link exists.
 
+### 14A.2 Owner verification round 2 — the FULL return
+
+Second verification pass: sell Rice 5 × 100 = 500 and return **all five**, posted
+through the real Return screen in **both languages** (one invoice returned from
+the English screen, one from the Dari screen, on the same database).
+
+| Check | Result |
+|-------|--------|
+| Warehouse stock back up by +5 per invoice | 0 → **10** in Main Store |
+| Sales List Returned = the full invoice | **500.00** on both rows |
+| Sales List Net Total | **0.00** |
+| Sales List Remaining / customer debt | **0.00** / receivable **0.00** |
+| Second SALE invoice created | **none** — 2 sales sold, 2 sales listed |
+| Return note visible in the Returns list | EN "Rice — Qty 5 returned." · Dari "برنج به تعداد 5 دانه برگشت شد." |
+| Sales Report Gross / Returns / Net | 1000 / 1000 / **0** |
+| Nothing further returnable | returnable **0**, a further return is refused |
+| Ledger | balanced |
+
+**Defect found by this test — a fully-returned invoice printed as a blank form.**
+When every line comes back, the netted item table is legitimately empty, so the
+A4 sheet showed an empty table and 0.00 totals with nothing explaining why. The
+printed document now carries an optional document-level note
+(`InvoiceData.note_key`, additive with an empty default) rendered above the
+standard terms: "All items on this invoice were returned. Nothing remains
+payable." / "تمام اقلام این بل برگشت داده شده است. مبلغی قابل پرداخت باقی نمانده."
+It is stored as an i18n **key**, not text, so it follows the preview's EN/Dari
+toggle like every other word on the sheet — the same mistake that produced
+wrong-language inventory report headers earlier in Stage 06. Partially-returned
+and untouched invoices carry no note: their own lines already tell the story.
+
+The Dari return note was also re-verified end to end in the running UI (not only
+in a unit test): posted from the Dari screen it names the item by its Dari name
+and appears in the Returns list in Dari, beside the English note on the other
+invoice.
+
+12 further regression tests (28 in `tests/test_return_reflects_on_invoice.py`).
+Full suite **523 pass**.
+
+Two observations recorded, deliberately NOT changed in this round: the Stock
+Movement history's Reason/Note column is blank for sales returns (the note lives
+on the return document; carrying it onto the movement would mean touching Stage
+05 sale posting), and item names render in their primary name on the Dari
+screens (a general second-name question across every screen, not a return bug).
+
 ---
 
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-08-31 | 2.6 | **Owner verification round 2 — the FULL return (Stage 06 still READY FOR OWNER REVIEW; not locked, not merged).** Sold Rice 5 × 100 = 500 twice and returned **all five** on each, posting one through the real **English** Return screen and one through the real **Dari** screen on the same database. Verified: warehouse stock 0 → **10**; Sales List Returned **500.00** / Net **0.00** / Remaining **0.00** on both rows; customer receivable **0.00**; **no second SALE invoice** (2 sold, 2 listed, one SALE movement each); the note visible in the Returns list in the language it was posted in ("Rice — Qty 5 returned." / "برنج به تعداد 5 دانه برگشت شد."); Sales Report 1000 / 1000 / **0**; nothing further returnable and a further return refused; ledger balanced. **Defect found and fixed:** a fully-returned invoice printed as a **blank form** — the netted item table is legitimately empty, so the A4 sheet showed an empty table and 0.00 totals with no explanation. Added an optional document-level note to the printed invoice (`InvoiceData.note_key`, additive with an empty default, rendered above the standard terms): "All items on this invoice were returned. Nothing remains payable." / "تمام اقلام این بل برگشت داده شده است. مبلغی قابل پرداخت باقی نمانده." Stored as an i18n **key** so it follows the preview's EN/Dari toggle rather than freezing the language at build time. Partially-returned and untouched invoices carry no note. No migration; no accounting/inventory/numbering change. **523 tests pass** (+12). See §14A.2. |
 | 2026-08-31 | 2.5 | **Owner verification round — a sales return must update the ORIGINAL sale visibly (Stage 06 still READY FOR OWNER REVIEW; not locked, not merged).** Verified the owner's example (Rice 5 × 100 = 500, return 1) on a real on-disk database through the real screens: stock 5 → **6**; still **one** invoice `SALE-000001` (POSTED, never rewritten); Sales List Invoiced 500 / Returned **100** / Net **400**; invoice line sold 5 / returned **1** / net **4** = 400; printed invoice **Rice 4 → 400**; Sales Report Gross 500 / Returns **100** / Net **400**; customer receivable **400**; movements gain one `SALE_RETURN +1` with no second `SALE`. No migration; no accounting/numbering/inventory-posting change. Three gaps the verification exposed were fixed: (1) the Sales List **Remaining** column still showed the invoiced 500 after a return — `list()` now derives `net_remaining` = net total − paid (correctly negative = refund owed on a paid invoice, matching the receivable); (2) the human-readable note was stored but shown nowhere — the Sales Return list gained a **Note** column (stretch) beside the source invoice; (3) the **Dari note used the English item name** — it now uses the item's Dari (alternate) name: "برنج به تعداد 1 دانه برگشت شد." This behaviour had **no regression tests**; added 16 in `tests/test_return_reflects_on_invoice.py`. **511 tests pass** (+16). Windows test build **renamed Stage 05 → Stage 06**: the workflow reads a single `env.STAGE`, publishes tag `stage06-test-build` + `ZenithBusiness-Stage06-TestBuild-win64.zip`, and retires the old `stage05-test-build` release; launcher/README/seed headers updated. See §14A.1. |
 | 2026-08-24 | 2.4 | **Stage 06 — Inventory & Stock Management implemented (READY FOR OWNER REVIEW; not locked, not merged).** Stock stays a single signed movement ledger — every figure on every screen is the `Decimal` sum of `inventory_movements`, so nothing can disagree. Migration **0008** (schema v8, forward/idempotent): `inventory_movements.notes` + three reporting indexes; no new permission. New `InventoryReadRepository` and Stage 06 service reads — `movement_history` (date/item/warehouse/type/in/out/**source document number**/user/note), `stock_overview` (opening vs current, unit, warehouses, minimum, low flag), `stock_by_warehouse`, `low_stock`. `adjust` now **requires a reason**, stores it on the movement and cannot remove more than a warehouse holds; `transfer`/`record_opening` carry notes. New `InventoryReportService`: Current Stock, Opening vs Current, Stock by Warehouse, Item Movement (running balance), Low Stock. **Integration fix to locked Stage 05** (the one exception, required by the mandatory workflow): `correct_sale` deleted+reinserted lines, so a return's `sale_line_id` (ON DELETE RESTRICT) forced a blanket block on correcting a returned invoice; correction now **updates surviving lines in place**, keeping their ids, and refuses only removing a returned item or correcting below what came back. New UI under Item Reports — Inventory, Stock Adjustment, Warehouse Transfer, Stock Movement history, Inventory Reports with **A4-only** print on the customer's business identity — EN + Dari RTL; the product list gained Unit / Opening / Current / Warehouse / Stock Status. **495 tests pass** (+28). The mandatory workflow (opening 100 → +20 → −10 → +2 → correct to 5 → +3 → transfer 10) was run on a real on-disk DB through the real screens and reconciled across Product List, Inventory, Stock Movement, Sales, Sales Return and all five reports, with the ledger balanced. Two self-found UI defects fixed (clipped Low-Stock chip; printed report headers in the wrong language). See §14A. |
 | 2026-08-21 | 2.3 | **Stage 05 final — Sales Reporting system + Sales-Return lookup fix + correction audit (Stage 05 still READY FOR OWNER REVIEW; not locked, not merged).** Additive; **no** accounting/inventory/ledger/numbering/auth/RBAC/licensing change and **no** migration (schema stays **v7**); reads only the authoritative `sales`/`sales_returns` tables. **P1** — the Sales Return page now loads a persisted invoice by a **unique partial number** (e.g. `2` → `SALE-000002`), flags an ambiguous fragment, and still rejects a nonexistent one (was: exact-match only → "not found"). **P2/P3** — confirmed `correct_sale` (void-and-replace) does **not** duplicate the invoice or double-count (VOID original excluded, replacement counts once); the `sales.correct` audit note now carries a **human-readable line diff** ("Rice qty 5 → 3; Sugar removed") plus old→new totals and reason. **P6** — new **Sales Reporting** engine (`repositories/reports.py` + `services/sales_reports.py`): **Gross/Paid/Credit/Returns/Net** for Today/Week/Month/Year/**Custom** + daily/monthly/yearly breakdowns and per-invoice detail; **partial payments split** paid vs credit, **later receipts excluded**, **corrected invoices counted once**, **Gross/Returns distinguishable** (Net = Gross − Returns); filters for date range/warehouse/customer/payment-status/registered-walk-in; `Decimal` sums. New **Sales Report screen** (`ui/documents/sales_report_page.py`) with presets, custom range, filters, five summary tiles and Transactions/Daily/Monthly views under **Account Reports** (EN + Dari RTL), and a **printable report** (`ui/print/sales_report_document.py` + preview) using the **customer's** business identity (logo/name/address/phone), never the developer identity. Per owner decision the Sales Report prints **A4 only** (a nine-column report is unreadable on A5) — the report preview exposes A4 exclusively (EN + Dari); A5 stays available for invoices/receipts/vouchers. **431 tests pass** (+34). Real on-disk E2E reconciles by hand (Gross 3000 / Paid 2000 / Credit 1000 / Returns 300 / Net 2700; stock 481/490; ledger balanced). Self-inspected EN/Dari report + A4 EN/Dari print + return-lookup screenshots. See §13O. |

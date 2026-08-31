@@ -145,8 +145,23 @@ def build_sale_invoice(ctx: ApplicationContext, sale_id: int) -> tuple[InvoiceDa
         # customer returned, with fully-returned items dropped. The sale document
         # itself is unchanged — the netting is derived from the return documents.
         lines=_lines_from(ctx, _net_sale_lines(ctx, sale_id)),
-        paid=_f(sale["amount_paid"]))
+        paid=_f(sale["amount_paid"]),
+        note_key=_sale_print_note_key(ctx, sale_id))
     return data, TITLE_SALE
+
+
+def _sale_print_note_key(ctx: ApplicationContext, sale_id: int) -> str:
+    """Say on the sheet when every item came back.
+
+    A fully-returned invoice nets to an EMPTY item table and a zero total, which
+    on its own reads like a blank document. One line states what happened so the
+    printed copy still explains itself. Partially-returned invoices need nothing:
+    their net quantities and totals already tell the story.
+    """
+    view = ctx.sales_documents.net_view(sale_id)
+    if view is None or not view["has_returns"] or view["active_lines"]:
+        return ""
+    return "print.fully_returned"
 
 
 def _net_sale_lines(ctx: ApplicationContext, sale_id: int) -> list[dict]:

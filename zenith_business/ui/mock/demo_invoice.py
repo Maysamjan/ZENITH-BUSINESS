@@ -54,6 +54,11 @@ class InvoiceData:
     additional: float = 0.0
     tax: float = 0.0
     paid: float = 0.0
+    # Optional i18n KEY for a line printed above the standard terms, stating a
+    # document-level fact the item table cannot show on its own — such as an
+    # invoice whose goods were all returned (its table is legitimately empty).
+    # A key, not text, so the sheet follows the preview's EN/Dari toggle.
+    note_key: str = ""
 
     @property
     def subtotal(self) -> float:

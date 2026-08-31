@@ -357,6 +357,10 @@ _CATALOG: dict[str, dict[str, str]] = {
         LANG_ENGLISH: "Payment due on receipt. Goods sold are subject to the store return policy.",
         LANG_DARI: "پرداخت هنگام دریافت. اجناس فروخته‌شده تابع پالیسی برگشت فروشگاه است.",
     },
+    "print.fully_returned": {
+        LANG_ENGLISH: "All items on this invoice were returned. Nothing remains payable.",
+        LANG_DARI: "تمام اقلام این بل برگشت داده شده است. مبلغی قابل پرداخت باقی نمانده.",
+    },
     "print.thankyou": {
         LANG_ENGLISH: "Thank you for your business!",
         LANG_DARI: "از خرید شما سپاسگزاریم!",

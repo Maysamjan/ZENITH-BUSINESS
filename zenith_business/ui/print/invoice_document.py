@@ -132,6 +132,7 @@ def _stylesheet(scale: float) -> str:
     QWidget#Page QLabel[p="grand-value"] {{ color: #FFFFFF; font-size: {s(14)}; font-weight: 800; }}
     QWidget#Page QLabel[p="notes-label"] {{ color: {c.PRINT_ACCENT}; font-size: {s(8.6)}; font-weight: 700; letter-spacing: 1px; }}
     QWidget#Page QLabel[p="notes"] {{ color: {sec}; font-size: {s(9.2)}; font-weight: 500; }}
+    QWidget#Page QLabel[p="notes-strong"] {{ color: {c.PRINT_ACCENT}; font-size: {s(9.6)}; font-weight: 700; }}
     QWidget#Page QLabel[p="sign"] {{ color: {c.PRINT_INK}; font-size: {s(9.4)}; font-weight: 600; }}
 
     QWidget#Page QFrame[p="titlebar"] {{ background: {c.PRINT_ACCENT}; border: none; }}
@@ -480,8 +481,18 @@ class InvoicePrintDocument(QWidget):
         bar = QWidget()
         v = QVBoxLayout(bar); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(1)
         cap = QLabel(self._t.gettext("print.notes")); cap.setProperty("p", "notes-label")
+        v.addWidget(cap)
+        # A document-level note (e.g. "all items returned") reads first, in the
+        # accent ink, because it changes how the whole sheet should be read. It
+        # arrives as a key and is translated here, so it follows the language
+        # toggle like every other word on the sheet.
+        key = (getattr(self._d, "note_key", "") or "").strip()
+        if key:
+            head = QLabel(self._t.gettext(key))
+            head.setProperty("p", "notes-strong"); head.setWordWrap(True)
+            v.addWidget(head)
         txt = QLabel(self._t.gettext("print.terms_text")); txt.setProperty("p", "notes"); txt.setWordWrap(True)
-        v.addWidget(cap); v.addWidget(txt)
+        v.addWidget(txt)
         return bar
 
     # ---- signatures ------------------------------------------------------
