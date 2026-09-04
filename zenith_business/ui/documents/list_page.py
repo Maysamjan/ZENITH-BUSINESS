@@ -24,8 +24,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from zenith_business.core.i18n import Translator
-from zenith_business.core.money import format_money
+from zenith_business.core.i18n import LANG_DARI, Translator
+from zenith_business.core.money import D, format_money
 from zenith_business.ui.components import (
     Card,
     RowActions,
@@ -233,9 +233,57 @@ class DocumentListPage(QWidget):
             self._rows = self._ctx.purchase_documents.list(term=term, status=status)
         elif self._mode == "sales_return":
             self._rows = self._ctx.sales_returns_repo.list_recent()
+            self._localize_notes(self._ctx.sales_returns_repo)
         else:
             self._rows = self._ctx.purchase_returns_repo.list_recent()
+            self._localize_notes(self._ctx.purchase_returns_repo)
         self._render()
+
+    def _localize_notes(self, repo) -> None:
+        """Render each return's note in the language the reader is using.
+
+        The stored note is the text the operator saw when they posted, which means
+        a return posted from the English screen showed an English sentence to a
+        Dari reader. The sentence holds nothing the return's own lines do not, so
+        it is rebuilt here from those lines — Dari names the item by its Dari name
+        — and the stored text is used only for a note the operator typed
+        themselves, which is theirs to keep exactly as written.
+        """
+        parts: dict[int, list[dict]] = {}
+        for row in repo.note_parts_for_returns([r["id"] for r in self._rows]):
+            parts.setdefault(row["return_id"], []).append(row)
+        dari = self._t.language == LANG_DARI
+        template = self._t.gettext("s4.return_note_line")
+        for row in self._rows:
+            lines = parts.get(row["id"]) or []
+            if not lines:
+                continue
+            derived = " ".join(
+                template
+                .replace("{item}", ((ln["item_alt_name"] if dari else None)
+                                    or ln["item_name"] or ln["item_code"] or ""))
+                .replace("{qty}", f"{D(ln['quantity']).normalize():f}")
+                for ln in lines)
+            # A note the operator wrote by hand is preserved; an auto-generated
+            # one is replaced by the reader's-language version of the same fact.
+            if self._is_generated_note(row.get("notes"), lines):
+                row["notes"] = derived
+
+    @staticmethod
+    def _is_generated_note(stored: str | None, lines: list[dict]) -> bool:
+        """True when the stored note is one the system composed, in any language.
+
+        Recognised by naming every returned item and nothing else — a hand-typed
+        note ("driver damaged the sacks") never does that, so it is left alone.
+        """
+        text = (stored or "").strip()
+        if not text:
+            return True
+        for ln in lines:
+            names = [n for n in (ln["item_name"], ln["item_alt_name"], ln["item_code"]) if n]
+            if not any(name in text for name in names):
+                return False
+        return True
 
     def _render(self) -> None:
         cols = self._columns()

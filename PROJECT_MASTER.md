@@ -2318,8 +2318,55 @@ balanced. Three pre-existing tests asserted contracts this stage supersedes (the
 migration count, the permission total, and a purchase-entry test that relied on
 the amount paid being implicitly blank).
 
+### 14B.9 Control audit against the official scope (owner-directed)
+
+The owner noted that implementation began before the Stage 07 prompt was formally
+approved, and directed that the work be treated as a **draft** and audited against
+the official scope before any approval is sought. No new features were added.
+
+Each scope item was exercised on a real on-disk database through the real screens:
+
+| Official scope item | Verdict |
+|---------------------|---------|
+| Supplier Management | **Matched, with a deviation** — delivered as the shared Persons screen (supplier role filter, ledger-derived Balance column, View Account into the Supplier Ledger) rather than the **dedicated supplier view** §14B.3 promised. Functionally complete; structurally not what the plan said. |
+| Purchase Invoice | Matched |
+| Cash / Credit / Partial Payment | Matched (§14B.7) |
+| Supplier Balance | Matched |
+| Purchase Correction on the SAME invoice | Matched |
+| Partial + Full Purchase Return | Matched — both verified end to end |
+| Supplier Payments | Matched — a payment leaves the bill untouched; no duplicate entry |
+| Inventory integration | Matched |
+| Purchase List / Invoice View / Print consistency | Matched |
+| EN / Dari + RTL | **Two defects found and fixed** (below) |
+
+**Two owner-reported defects, each reproduced before being fixed:**
+
+1. **Line total could disagree with the Grand Total.** Typing in the grid was
+   always correct, but the line dict kept a stored `total` — a second copy of
+   derived data — that another code path could leave stale, producing a row
+   reading 12 × 100 = **1,000** under a Grand Total of **1,200**. The total is now
+   **computed at render time** from qty × price − discount, so no path can make
+   the cell, the subtotal and the grand total disagree.
+2. **The Dari UI showed the English return note.** The note was stored as text at
+   posting time, so a return posted from the English screen showed
+   "Rice — Qty 4 returned." to a Dari reader. The sentence holds nothing the
+   return's own lines do not, so the returns list now **derives it in the reader's
+   language** — Dari naming the item by its Dari name
+   ("برنج به تعداد 4 دانه برگشت شد."). A note the operator typed by hand is
+   detected and preserved exactly as written. This touches the shared returns list,
+   so it corrects the same defect on the sales side; no stored data changes.
+
+**Verification.** Full suite **573 pass** (+5). The audit script drove every scope
+item on a real database in English and Dari: the required consistency chain held
+at each step (list 600 = invoice view 600 = print 600 = returnable 6 = supplier
+balance 600 = inventory 6 = movement sum 6), a full return took the bill, the
+balance and the stock to zero with the printed sheet explaining itself, and the
+ledger stayed balanced.
+
 **Recommendation:** *READY FOR OWNER REVIEW.* Stage 07 is **not locked and not
-merged**; Stages 05 and 06 are unchanged.
+merged**; Stages 05 and 06 are unchanged. **One deviation is outstanding for the
+owner to accept or reject: supplier management as a Persons filter rather than a
+dedicated Suppliers screen.**
 
 ---
 

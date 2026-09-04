@@ -29,9 +29,10 @@ def biz(admin_context):
                                make_active=True)
     ctx.main = ctx.warehouses.create(code="MAIN", name="Main Store", is_default=True)
     ctx.bag = ctx.units_repo.id_by_code("BAG")
-    ctx.rice = ctx.items.create(item_code="RICE", name="Rice", base_unit_id=ctx.bag,
-                                purchase_price="100", default_sale_price="150",
-                                reorder_level="5")
+    # A real Dari name, so the Dari screens can be checked for real.
+    ctx.rice = ctx.items.create(item_code="RICE", name="Rice", alternate_name="برنج",
+                                base_unit_id=ctx.bag, purchase_price="100",
+                                default_sale_price="150", reorder_level="5")
     ctx.sugar = ctx.items.create(item_code="SUGAR", name="Sugar", base_unit_id=ctx.bag,
                                  purchase_price="80", default_sale_price="120",
                                  reorder_level="5")
@@ -477,3 +478,87 @@ def test_mandatory_workflow_reconciles_on_every_surface(biz, qapp):
         "SELECT debit, credit FROM financial_entry_lines").fetchall()
     assert (sum(Decimal(r["debit"]) for r in rows)
             == sum(Decimal(r["credit"]) for r in rows))
+
+
+# ---- 9. control-audit fixes (owner-reported) -------------------------------
+
+def test_line_total_always_equals_qty_times_price_minus_discount(biz, qapp):
+    """A row reading 12 × 100 = 1,000 under a Grand Total of 1,200 is impossible.
+
+    The line total is derived at render time, so no code path can leave the cell
+    behind after changing the quantity, price or discount.
+    """
+    from zenith_business.ui.documents.entry_page import C_TOTAL, DocumentEntryPage
+    page = DocumentEntryPage(biz, Translator(LANG_ENGLISH), mode="purchase",
+                             on_print=lambda i: None, on_close=lambda: None)
+    page.add_line({"item_id": biz.rice, "base_unit_id": biz.bag, "item_code": "RICE",
+                   "name": "Rice", "unit_symbol": "bag"}, qty="10", price="100")
+    assert page._table.item(0, C_TOTAL).text() == "1,000.00"
+    assert page._grand_value.text() == "1,000.00"
+
+    # Any mutation of the line, however it arrives, keeps cell and total in step.
+    page._lines[0]["qty"] = "12"
+    page._render_lines(); page._recompute_totals()
+    assert page._table.item(0, C_TOTAL).text() == "1,200.00"
+    assert page._grand_value.text() == "1,200.00"
+
+    page._lines[0]["price"] = "50"
+    page._render_lines(); page._recompute_totals()
+    assert page._table.item(0, C_TOTAL).text() == "600.00"
+    assert page._grand_value.text() == "600.00"
+
+    page._lines[0]["discount"] = "100"
+    page._render_lines(); page._recompute_totals()
+    assert page._table.item(0, C_TOTAL).text() == "500.00"
+    assert page._grand_value.text() == "500.00"
+
+
+def test_typing_a_quantity_in_the_grid_updates_the_row_total(biz, qapp):
+    from zenith_business.ui.documents.entry_page import C_QTY, C_TOTAL, DocumentEntryPage
+    page = DocumentEntryPage(biz, Translator(LANG_ENGLISH), mode="purchase",
+                             on_print=lambda i: None, on_close=lambda: None)
+    page.add_line({"item_id": biz.rice, "base_unit_id": biz.bag, "item_code": "RICE",
+                   "name": "Rice", "unit_symbol": "bag"}, qty="10", price="100")
+    page._table.item(0, C_QTY).setText("12")
+    assert page._table.item(0, C_TOTAL).text() == "1,200.00"
+    assert page._grand_value.text() == "1,200.00"
+
+
+def test_dari_returns_list_shows_a_dari_note_whatever_language_posted_it(biz, qapp):
+    """A Dari reader must never be shown the English sentence."""
+    from zenith_business.ui.documents.list_page import DocumentListPage
+    from zenith_business.ui.documents.return_page import ReturnEntryPage
+    purchase = _buy(biz)
+    page = ReturnEntryPage(biz, Translator(LANG_ENGLISH), mode="purchase_return",
+                           on_close=lambda: None, on_print=lambda i: None)
+    page._src_edit.setText(purchase.document_no)
+    page._load_source()
+    page._return_edits[0].setText("4")
+    page._post(print_after=False)                 # posted from the ENGLISH screen
+
+    english = DocumentListPage(biz, Translator(LANG_ENGLISH), mode="purchase_return")
+    dari = DocumentListPage(biz, Translator(LANG_DARI), mode="purchase_return")
+    assert english._table.item(0, 4).text() == "Rice — Qty 4 returned."
+    assert dari._table.item(0, 4).text() == "برنج به تعداد 4 دانه برگشت شد."
+
+
+def test_the_dari_return_screen_builds_a_dari_note(biz, qapp):
+    from zenith_business.ui.documents.return_page import ReturnEntryPage
+    purchase = _buy(biz)
+    page = ReturnEntryPage(biz, Translator(LANG_DARI), mode="purchase_return",
+                           on_close=lambda: None, on_print=lambda i: None)
+    page._src_edit.setText(purchase.document_no)
+    page._load_source()
+    page._return_edits[0].setText("4")
+    assert page._return_note(page._collect_return_lines()) == \
+        "برنج به تعداد 4 دانه برگشت شد."
+
+
+def test_a_hand_typed_note_is_never_replaced(biz, qapp):
+    """Localizing an auto-generated sentence must not overwrite the operator's words."""
+    from zenith_business.ui.documents.list_page import DocumentListPage
+    purchase = _buy(biz)
+    _return(biz, purchase, "4", notes="Driver damaged the sacks in transit")
+    for language in (LANG_ENGLISH, LANG_DARI):
+        page = DocumentListPage(biz, Translator(language), mode="purchase_return")
+        assert page._table.item(0, 4).text() == "Driver damaged the sacks in transit"

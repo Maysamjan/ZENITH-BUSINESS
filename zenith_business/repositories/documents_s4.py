@@ -157,6 +157,25 @@ class SalesReturnRepository(BaseRepository):
         return self._all("SELECT * FROM sales_returns WHERE sale_id = ? ORDER BY id DESC",
                          (sale_id,))
 
+    def note_parts_for_returns(self, return_ids: list[int]) -> list[dict]:
+        """(return_id, item name, Dari name, quantity) for each returned line.
+
+        The readable note — "Rice — Qty 4 returned." — carries no information the
+        return lines do not already hold, so a screen renders it from these parts
+        in the LANGUAGE THE READER IS USING instead of replaying text frozen at
+        posting time. One query for the whole list, never one per row.
+        """
+        if not return_ids:
+            return []
+        marks = ",".join("?" * len(return_ids))
+        return self._all(
+            f"SELECT srl.return_id, srl.quantity, i.name AS item_name,"
+            f" i.alternate_name AS item_alt_name, i.item_code"
+            f" FROM sales_return_lines srl"
+            f" LEFT JOIN items i ON i.id = srl.item_id"
+            f" WHERE srl.return_id IN ({marks}) ORDER BY srl.return_id, srl.line_no",
+            tuple(return_ids))
+
     def returned_lines_for_sale(self, sale_id: int) -> list[dict]:
         """What came back off this invoice, line by line, with its return document.
 
@@ -247,6 +266,19 @@ class PurchaseReturnRepository(BaseRepository):
         return self._all(
             f"SELECT purchase_id, grand_total FROM purchase_returns"
             f" WHERE status = 'POSTED' AND purchase_id IN ({marks})", tuple(purchase_ids))
+
+    def note_parts_for_returns(self, return_ids: list[int]) -> list[dict]:
+        """The purchase mirror of :meth:`SalesReturnRepository.note_parts_for_returns`."""
+        if not return_ids:
+            return []
+        marks = ",".join("?" * len(return_ids))
+        return self._all(
+            f"SELECT prl.return_id, prl.quantity, i.name AS item_name,"
+            f" i.alternate_name AS item_alt_name, i.item_code"
+            f" FROM purchase_return_lines prl"
+            f" LEFT JOIN items i ON i.id = prl.item_id"
+            f" WHERE prl.return_id IN ({marks}) ORDER BY prl.return_id, prl.line_no",
+            tuple(return_ids))
 
     def returned_lines_for_purchase(self, purchase_id: int) -> list[dict]:
         """What went back to the supplier, line by line, with its return document."""

@@ -748,15 +748,29 @@ class DocumentEntryPage(QWidget):
 
     _EDITABLE_COLS = {C_QTY, C_PRICE, C_DISC}
 
+    @staticmethod
+    def _line_total(ln: dict) -> D:
+        """qty × price − discount, computed — never read from a stored field.
+
+        The line's total is derived data. Keeping a copy of it on the line dict
+        made it possible for one code path to change the quantity and leave the
+        printed total behind (a row reading 12 × 100 = 1,000 under a Grand Total
+        of 1,200). Deriving it here means the cell, the subtotal and the grand
+        total cannot disagree, whatever changed the line.
+        """
+        return money(D(ln["qty"]) * D(ln["price"]) - D(ln["discount"]))
+
     def _render_lines(self) -> None:
         self._rendering = True  # suppress itemChanged during the programmatic fill
         try:
             self._table.setRowCount(len(self._lines))
             numeric = {C_QTY, C_PRICE, C_DISC, C_TOTAL}
             for r, ln in enumerate(self._lines):
+                total = self._line_total(ln)
+                ln["total"] = str(total)     # keep the stored copy in step
                 cells = [str(r + 1), ln["code"], ln["name"], ln["unit"],
                          format_money(ln["qty"]), format_money(ln["price"]),
-                         format_money(ln["discount"]), format_money(ln["total"]),
+                         format_money(ln["discount"]), format_money(total),
                          ln["wh_name"] or ""]
                 for col, text in enumerate(cells):
                     item = QTableWidgetItem(text)
@@ -901,6 +915,8 @@ class DocumentEntryPage(QWidget):
         return money(subtotal - discount)
 
     def _recompute_totals(self, *_a) -> None:
+        # Subtotal and discount come from the SAME per-line arithmetic the grid
+        # shows, so a row's Total always adds up to the Grand Total below it.
         subtotal = sum((D(ln["qty"]) * D(ln["price"]) for ln in self._lines), D(0))
         discount = sum((D(ln["discount"]) for ln in self._lines), D(0))
         grand = money(subtotal - discount)
