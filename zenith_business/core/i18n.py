@@ -272,6 +272,7 @@ _CATALOG: dict[str, dict[str, str]] = {
     "si.phone": {LANG_ENGLISH: "Phone", LANG_DARI: "تیلیفون"},
     "si.address": {LANG_ENGLISH: "Address", LANG_DARI: "آدرس"},
     "si.prev_balance": {LANG_ENGLISH: "Previous Balance", LANG_DARI: "بیلانس قبلی"},
+    "si.customer_balance": {LANG_ENGLISH: "Customer Balance", LANG_DARI: "بیلانس مشتری"},
     "si.credit_limit": {LANG_ENGLISH: "Credit Limit", LANG_DARI: "حد اعتبار"},
     # grid columns
     "si.col_row": {LANG_ENGLISH: "#", LANG_DARI: "#"},
@@ -706,8 +707,10 @@ _CATALOG: dict[str, dict[str, str]] = {
                           LANG_DARI: "نام مشتری را بنویسید…"},
     "s4.correcting": {LANG_ENGLISH: "Correcting invoice {no}",
                       LANG_DARI: "در حال اصلاح بل {no}"},
-    "s4.msg_corrected": {LANG_ENGLISH: "Corrected — new invoice {no}",
-                         LANG_DARI: "اصلاح شد — بل جدید {no}"},
+    # A correction amends the SAME invoice in place — there is no new document,
+    # and the message must not claim there is.
+    "s4.msg_corrected": {LANG_ENGLISH: "Invoice {no} corrected",
+                         LANG_DARI: "بل {no} اصلاح شد"},
     "s4.msg_correct_only_posted": {
         LANG_ENGLISH: "Only a posted invoice can be corrected.",
         LANG_DARI: "فقط یک بل ثبت‌شده را می‌توان اصلاح کرد."},
@@ -743,6 +746,7 @@ _CATALOG: dict[str, dict[str, str]] = {
     "s4.col_status": {LANG_ENGLISH: "Status", LANG_DARI: "وضعیت"},
     "s4.col_source": {LANG_ENGLISH: "Source Doc", LANG_DARI: "سند مبنا"},
     "s4.col_note": {LANG_ENGLISH: "Note", LANG_DARI: "یادداشت"},
+    "s4.returned_items": {LANG_ENGLISH: "Returned Items", LANG_DARI: "اقلام برگشتی"},
     "s4.status_posted": {LANG_ENGLISH: "Posted", LANG_DARI: "ثبت‌شده"},
     "s4.status_draft": {LANG_ENGLISH: "Draft", LANG_DARI: "پیش‌نویس"},
     "s4.status_void": {LANG_ENGLISH: "Cancelled", LANG_DARI: "لغوشده"},

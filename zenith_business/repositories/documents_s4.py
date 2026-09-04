@@ -157,6 +157,22 @@ class SalesReturnRepository(BaseRepository):
         return self._all("SELECT * FROM sales_returns WHERE sale_id = ? ORDER BY id DESC",
                          (sale_id,))
 
+    def returned_lines_for_sale(self, sale_id: int) -> list[dict]:
+        """What came back off this invoice, line by line, with its return document.
+
+        Read-only; the caller sums the money with ``Decimal``. Ordered oldest
+        first so the invoice screen lists returns in the order they happened.
+        """
+        return self._all(
+            "SELECT srl.sale_line_id, srl.item_id, srl.quantity, srl.unit_price,"
+            " srl.discount, srl.line_total, sr.document_no, sr.return_date,"
+            " i.item_code, i.name AS item_name, i.alternate_name AS item_alt_name"
+            " FROM sales_return_lines srl"
+            " JOIN sales_returns sr ON sr.id = srl.return_id"
+            " LEFT JOIN items i ON i.id = srl.item_id"
+            " WHERE sr.sale_id = ? AND sr.status = 'POSTED'"
+            " ORDER BY sr.return_date, sr.id, srl.line_no", (sale_id,))
+
     def posted_totals_for_sales(self, sale_ids: list[int]) -> list[dict]:
         """(sale_id, grand_total) for every POSTED return against these sales.
 

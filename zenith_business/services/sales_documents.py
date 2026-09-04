@@ -227,8 +227,38 @@ class SalesDocumentService:
             "gross_total": money_to_db(gross),
             "returned_total": money_to_db(returned_total),
             "net_total": money_to_db(gross - returned_total),
+            "net_remaining": money_to_db(gross - returned_total
+                                         - money(sale["amount_paid"])),
             "has_returns": returned_total > 0,
         }
+
+    def returned_items(self, sale_id: int) -> list[dict]:
+        """Read-only history of what came back off this invoice.
+
+        One row per returned line — item, quantity, amount and the return document
+        it belongs to — so the invoice screen can show the returned goods SEPARATELY
+        from the lines the customer still owes for, without either view rewriting
+        the other. Money is summed by the caller with ``Decimal``.
+        """
+        self._authz.require("sales.view")
+        return self._returns.returned_lines_for_sale(sale_id)
+
+    def balance_before_sale(self, sale_id: int) -> str:
+        """The customer's account balance EXCLUDING this invoice's own position.
+
+        Reopening an invoice shows "Previous Balance" — what the customer owed
+        before it. Their receivable already contains this invoice's outstanding
+        amount (net of any return), so showing the raw receivable would count this
+        invoice twice the moment the screen adds the invoice's remaining back on.
+        This is derived from the invoice's own net position; it never absorbs
+        returned goods to make an invoice total look right.
+        """
+        self._authz.require("sales.view")
+        view = self.net_view(sale_id)
+        if view is None or view["sale"]["party_id"] is None:
+            return money_to_db(D(0))
+        receivable = money(self._balances.receivable(view["sale"]["party_id"]))
+        return money_to_db(receivable - money(view["net_remaining"]))
 
     # ---- post a sale ----------------------------------------------------
 

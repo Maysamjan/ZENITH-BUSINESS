@@ -1934,12 +1934,60 @@ on the return document; carrying it onto the movement would mean touching Stage
 05 sale posting), and item names render in their primary name on the Dari
 screens (a general second-name question across every screen, not a return bug).
 
+### 14A.3 Owner verification round 3 — reopening a sale must show its current state
+
+The Sales List, the printed copy and the reports all showed the net result after
+a return, but **reopening the saved sale still listed the returned item as an
+active payable line at the original Grand Total**. The invoice screen was the one
+surface still reading the raw stored lines.
+
+The reopened invoice now shows the invoice's CURRENT position, from the same
+`net_view` every other surface reads:
+
+* a partly returned line loads at its **net quantity** (sold 4, returned 1 → 3);
+* a fully returned line is **not an active line at all**;
+* **Grand Total is the net total** — the owner's example (Rice 1980 + Sugar 1750
+  = 3730, Rice returned in full) reopens as Sugar alone at **1750**;
+* the returned goods appear read-only under **Returned Items / اقلام برگشتی**
+  with item, quantity, amount and the return document number, so nothing is
+  hidden — the panel is absent entirely on an invoice with no returns.
+
+**History is never rewritten to make the screen look right.** The returned
+quantities are remembered while the form is open and folded back in when a
+correction is saved, so the stored sale keeps its original quantities and the
+return document keeps pointing at a line that exists. Correcting Sugar 1 → 2 on
+that invoice saves Sugar 2 **and** Rice 1: stored gross 5480, net 3500,
+receivable 3500, the return still valid, one invoice with its original number.
+
+Two related inconsistencies fixed in the same screen:
+
+* **Previous Balance** double-counted the invoice being corrected — it showed the
+  customer's whole receivable, which already contains this invoice, and then
+  added the invoice's remaining on top. It is now the balance **before** this
+  invoice (`balance_before_sale`), so Updated Balance equals the customer's
+  actual receivable. It is never used to absorb returned goods. The header chip,
+  which shows the account balance itself, is relabelled **Customer Balance /
+  بیلانس مشتری** so one screen does not use "Previous Balance" for two figures.
+* **Amount Paid** was re-derived from the reduced total on reopen, which would
+  have claimed back cash the customer still holds. A reopened invoice now shows
+  what was actually paid; Remaining goes negative when a paid invoice is returned
+  against (a refund owed), exactly matching the Sales List and the receivable.
+  Choosing a payment type deliberately still re-derives it.
+
+Also corrected: the save message said "Corrected — new invoice {no}" although a
+correction creates no new document. It now reads "Invoice {no} corrected".
+
+Verified on a real on-disk database in **English and Dari**; 15 regression tests
+in `tests/test_invoice_view_after_return.py`. Full suite **538 pass**. No
+migration, and no change to inventory posting, returns, accounting or numbering.
+
 ---
 
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-09-04 | 2.7 | **Owner verification round 3 — reopening a sale shows its CURRENT state (Stage 06 still READY FOR OWNER REVIEW; not locked, not merged).** The Sales List, print and reports already showed the net result after a return, but **reopening the saved sale still listed the returned item as an active payable line at the original Grand Total** — the invoice screen was the last surface reading the raw stored lines. It now loads from the same `net_view` as everything else: a partly returned line loads at its net quantity, a fully returned line is not an active line at all, and Grand Total is the net total (Rice 1980 + Sugar 1750 = 3730 with Rice fully returned reopens as Sugar alone at **1750**). The returned goods show read-only under **Returned Items / اقلام برگشتی** with item, qty, amount and return document; the panel is absent when there are no returns. **History is never rewritten**: returned quantities are folded back in on save, so correcting Sugar 1 → 2 stores Sugar 2 **and** Rice 1 (gross 5480, net 3500, receivable 3500, return still valid, one invoice, original number). Two related fixes in the same screen — **Previous Balance** double-counted the invoice being corrected (it showed the full receivable, which already contains this invoice, then added its remaining again); it is now the balance *before* this invoice via the new `balance_before_sale`, and the header chip is relabelled **Customer Balance / بیلانس مشتری** so one label never means two numbers. **Amount Paid** was re-derived from the reduced total on reopen, silently claiming back cash the customer still holds; a reopened invoice now shows what was actually paid, and Remaining goes negative (refund owed) exactly as the Sales List and receivable do. The save message no longer claims "new invoice". New reads: `SalesReturnRepository.returned_lines_for_sale`, `SalesDocumentService.returned_items` / `balance_before_sale`, `net_view["net_remaining"]`. No migration; inventory posting, returns, accounting and numbering untouched. Verified on a real on-disk DB in EN + Dari. **538 tests pass** (+15 in `tests/test_invoice_view_after_return.py`). See §14A.3. |
 | 2026-08-31 | 2.6 | **Owner verification round 2 — the FULL return (Stage 06 still READY FOR OWNER REVIEW; not locked, not merged).** Sold Rice 5 × 100 = 500 twice and returned **all five** on each, posting one through the real **English** Return screen and one through the real **Dari** screen on the same database. Verified: warehouse stock 0 → **10**; Sales List Returned **500.00** / Net **0.00** / Remaining **0.00** on both rows; customer receivable **0.00**; **no second SALE invoice** (2 sold, 2 listed, one SALE movement each); the note visible in the Returns list in the language it was posted in ("Rice — Qty 5 returned." / "برنج به تعداد 5 دانه برگشت شد."); Sales Report 1000 / 1000 / **0**; nothing further returnable and a further return refused; ledger balanced. **Defect found and fixed:** a fully-returned invoice printed as a **blank form** — the netted item table is legitimately empty, so the A4 sheet showed an empty table and 0.00 totals with no explanation. Added an optional document-level note to the printed invoice (`InvoiceData.note_key`, additive with an empty default, rendered above the standard terms): "All items on this invoice were returned. Nothing remains payable." / "تمام اقلام این بل برگشت داده شده است. مبلغی قابل پرداخت باقی نمانده." Stored as an i18n **key** so it follows the preview's EN/Dari toggle rather than freezing the language at build time. Partially-returned and untouched invoices carry no note. No migration; no accounting/inventory/numbering change. **523 tests pass** (+12). See §14A.2. |
 | 2026-08-31 | 2.5 | **Owner verification round — a sales return must update the ORIGINAL sale visibly (Stage 06 still READY FOR OWNER REVIEW; not locked, not merged).** Verified the owner's example (Rice 5 × 100 = 500, return 1) on a real on-disk database through the real screens: stock 5 → **6**; still **one** invoice `SALE-000001` (POSTED, never rewritten); Sales List Invoiced 500 / Returned **100** / Net **400**; invoice line sold 5 / returned **1** / net **4** = 400; printed invoice **Rice 4 → 400**; Sales Report Gross 500 / Returns **100** / Net **400**; customer receivable **400**; movements gain one `SALE_RETURN +1` with no second `SALE`. No migration; no accounting/numbering/inventory-posting change. Three gaps the verification exposed were fixed: (1) the Sales List **Remaining** column still showed the invoiced 500 after a return — `list()` now derives `net_remaining` = net total − paid (correctly negative = refund owed on a paid invoice, matching the receivable); (2) the human-readable note was stored but shown nowhere — the Sales Return list gained a **Note** column (stretch) beside the source invoice; (3) the **Dari note used the English item name** — it now uses the item's Dari (alternate) name: "برنج به تعداد 1 دانه برگشت شد." This behaviour had **no regression tests**; added 16 in `tests/test_return_reflects_on_invoice.py`. **511 tests pass** (+16). Windows test build **renamed Stage 05 → Stage 06**: the workflow reads a single `env.STAGE`, publishes tag `stage06-test-build` + `ZenithBusiness-Stage06-TestBuild-win64.zip`, and retires the old `stage05-test-build` release; launcher/README/seed headers updated. See §14A.1. |
 | 2026-08-24 | 2.4 | **Stage 06 — Inventory & Stock Management implemented (READY FOR OWNER REVIEW; not locked, not merged).** Stock stays a single signed movement ledger — every figure on every screen is the `Decimal` sum of `inventory_movements`, so nothing can disagree. Migration **0008** (schema v8, forward/idempotent): `inventory_movements.notes` + three reporting indexes; no new permission. New `InventoryReadRepository` and Stage 06 service reads — `movement_history` (date/item/warehouse/type/in/out/**source document number**/user/note), `stock_overview` (opening vs current, unit, warehouses, minimum, low flag), `stock_by_warehouse`, `low_stock`. `adjust` now **requires a reason**, stores it on the movement and cannot remove more than a warehouse holds; `transfer`/`record_opening` carry notes. New `InventoryReportService`: Current Stock, Opening vs Current, Stock by Warehouse, Item Movement (running balance), Low Stock. **Integration fix to locked Stage 05** (the one exception, required by the mandatory workflow): `correct_sale` deleted+reinserted lines, so a return's `sale_line_id` (ON DELETE RESTRICT) forced a blanket block on correcting a returned invoice; correction now **updates surviving lines in place**, keeping their ids, and refuses only removing a returned item or correcting below what came back. New UI under Item Reports — Inventory, Stock Adjustment, Warehouse Transfer, Stock Movement history, Inventory Reports with **A4-only** print on the customer's business identity — EN + Dari RTL; the product list gained Unit / Opening / Current / Warehouse / Stock Status. **495 tests pass** (+28). The mandatory workflow (opening 100 → +20 → −10 → +2 → correct to 5 → +3 → transfer 10) was run on a real on-disk DB through the real screens and reconciled across Product List, Inventory, Stock Movement, Sales, Sales Return and all five reports, with the ledger balanced. Two self-found UI defects fixed (clipped Low-Stock chip; printed report headers in the wrong language). See §14A. |

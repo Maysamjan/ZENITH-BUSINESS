@@ -91,6 +91,17 @@ class DocumentEntryPage(QWidget):
         self._rendering = False  # guards itemChanged during programmatic fills
         self._prev_balance = D(0)  # party's balance before this invoice (round 2)
         self._correction_sale_id: int | None = None  # set when correcting a posted sale
+        # When a corrected invoice has returns, the grid holds only what is still
+        # payable. This remembers what came back per item — quantity, discount, unit
+        # and price — so saving can restore the ORIGINAL sold quantity: the stored
+        # sale and the return document are never rewritten to match the screen.
+        self._returned_by_item: dict[int, dict] = {}
+        # The amount actually taken for a posted invoice. A return creates a credit;
+        # it does not un-take cash, so reopening shows what was really paid instead
+        # of re-deriving it from the reduced total. Cleared the moment the operator
+        # picks a payment type themselves, and unused for a brand-new invoice.
+        self._paid_override: D | None = None
+        self._loading = False  # suppresses "the operator chose this" side effects
 
         self.setProperty("role", "workspace")
         root = QVBoxLayout(self)
@@ -111,6 +122,7 @@ class DocumentEntryPage(QWidget):
         bcol.setSpacing(Spacing.XXS)
         bcol.addWidget(self._build_header())
         bcol.addWidget(self._build_grid_card(), stretch=1)  # entry row + line grid
+        bcol.addWidget(self._build_returned_card())  # hidden until returns exist
         bcol.addLayout(self._build_bottom_band())
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -191,7 +203,10 @@ class DocumentEntryPage(QWidget):
         prow.addWidget(self._registered_wrap, 2)
 
         self._chip_phone = self._info_chip("si.phone", "—", "neutral")
-        bal_key = "si.prev_balance" if self._mode == "sale" else "s4.supplier_ref"
+        # The header chip is the customer's ACCOUNT balance; the totals strip below
+        # shows what they owed before this invoice. On a reopened invoice those are
+        # different numbers, so they must not share the label "Previous Balance".
+        bal_key = "si.customer_balance" if self._mode == "sale" else "s4.supplier_ref"
         self._chip_balance = self._info_chip(bal_key, "—", "neutral")
         prow.addWidget(self._chip_phone)
         prow.addWidget(self._chip_balance)
@@ -435,6 +450,65 @@ class DocumentEntryPage(QWidget):
             self._table.setColumnWidth(col, w)
         card.body.addWidget(self._table, 1)  # table takes the card's growth
         return card
+
+    # ---- returned items (read-only history, shown only when there are any) ----
+
+    def _build_returned_card(self) -> QWidget:
+        """Goods the customer gave back, listed separately from what they still owe.
+
+        Read-only on purpose: a return is its own posted document. Showing it here
+        keeps the reopened invoice honest — the editable grid is what is payable,
+        this is what came back — without either one rewriting the other. Hidden
+        entirely when the invoice has no returns, so a normal invoice is unchanged.
+        """
+        from PyQt6.QtWidgets import QHeaderView
+        card = Card(role="section")
+        card.body.setContentsMargins(Spacing.CARD_PAD_H, Spacing.XS,
+                                     Spacing.CARD_PAD_H, Spacing.XS)
+        card.body.setSpacing(Spacing.XXS)
+        title = QLabel(self._t.gettext("s4.returned_items"))
+        title.setProperty("role", "section-title")
+        card.body.addWidget(title)
+        heads = ["si.col_item_name", "si.col_qty", "si.col_total", "s4.col_docno"]
+        self._ret_table = QTableWidget(0, len(heads))
+        self._ret_table.setHorizontalHeaderLabels([self._t.gettext(k) for k in heads])
+        self._ret_table.verticalHeader().setVisible(False)
+        self._ret_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._ret_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self._ret_table.setShowGrid(False)
+        self._ret_table.setAlternatingRowColors(True)
+        self._ret_table.verticalHeader().setDefaultSectionSize(ControlSize.TABLE_ROW_HEIGHT)
+        rh = self._ret_table.horizontalHeader()
+        rh.setHighlightSections(False)
+        rh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for col, w in {1: 90, 2: 130, 3: 130}.items():
+            self._ret_table.setColumnWidth(col, w)
+        card.body.addWidget(self._ret_table)
+        self._returned_card = card
+        card.setVisible(False)
+        return card
+
+    def _render_returned(self, rows: list[dict]) -> None:
+        """Fill the Returned Items panel; hide it entirely when nothing came back."""
+        self._ret_table.setRowCount(0)
+        self._ret_table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            # Named the same way the payable grid above names items, so one screen
+            # never calls the same product two different things.
+            name = row.get("item_name") or row.get("item_code") or ""
+            cells = [name, format_money(row["quantity"]),
+                     format_money(row["line_total"]), row.get("document_no") or ""]
+            for c, text in enumerate(cells):
+                cell = QTableWidgetItem(text)
+                align = (Qt.AlignmentFlag.AlignRight if c in (1, 2)
+                         else Qt.AlignmentFlag.AlignLeft)
+                cell.setTextAlignment(align | Qt.AlignmentFlag.AlignVCenter)
+                self._ret_table.setItem(r, c, cell)
+        # Enough height for the rows plus the header, so the panel never needs to
+        # scroll for the handful of returns an invoice realistically carries.
+        self._ret_table.setFixedHeight(
+            ControlSize.TABLE_ROW_HEIGHT * (len(rows) + 1) + 8)
+        self._returned_card.setVisible(bool(rows))
 
     # ---- bottom totals strip (compact, always visible) ------------------
 
@@ -767,8 +841,13 @@ class DocumentEntryPage(QWidget):
 
     def _on_payment_type_changed(self, checked: bool) -> None:
         # QButtonGroup fires twice per switch (one off, one on); recompute once.
-        if checked:
-            self._recompute_totals()
+        if not checked:
+            return
+        if not self._loading:
+            # The operator deliberately re-settled the invoice, so the recorded
+            # amount stops applying and Paid follows the type again.
+            self._paid_override = None
+        self._recompute_totals()
 
     def _recompute_totals(self, *_a) -> None:
         subtotal = sum((D(ln["qty"]) * D(ln["price"]) for ln in self._lines), D(0))
@@ -780,8 +859,11 @@ class DocumentEntryPage(QWidget):
         self._grand_value.setText(format_money(grand))
         if self._mode == "sale":
             # Payment follows the operator's chosen type and the SAME grand total
-            # computed above — there is no second total calculation anywhere.
-            paid = grand if self.payment_type() == "cash" else D(0)
+            # computed above — there is no second total calculation anywhere. A
+            # reopened invoice starts from what was actually paid on it instead,
+            # until the operator picks a type themselves.
+            paid = (self._paid_override if self._paid_override is not None
+                    else (grand if self.payment_type() == "cash" else D(0)))
             self._recv_edit.setText(format_money(paid))
         else:
             try:
@@ -800,9 +882,43 @@ class DocumentEntryPage(QWidget):
 
     # ---- posting ---------------------------------------------------------
 
+    def _sale_lines_for_save(self) -> list[SaleLine]:
+        """The grid's lines with any returned quantity folded back in.
+
+        The grid holds what is still payable. What the customer already gave back
+        is still part of what this invoice originally sold, so it is added back
+        here: the stored sale keeps its original quantities and the return document
+        keeps pointing at a line that really exists. Correcting Sugar from 1 to 2
+        on an invoice whose Rice was returned saves Sugar 2 **and** Rice 1 — the
+        history is preserved, only the payable part changes.
+
+        A returned item that no longer appears in the grid is re-added at exactly
+        the quantity that came back. When the same item sits on two grid lines the
+        returned quantity joins the first of them; the invoice's total for that
+        item — which is what the return is validated against — is the same either
+        way.
+        """
+        pending = {item_id: dict(info) for item_id, info in self._returned_by_item.items()}
+        out: list[SaleLine] = []
+        for ln in self._lines:
+            back = pending.pop(ln["item_id"], None)
+            qty = D(ln["qty"]); discount = D(ln["discount"])
+            if back is not None:
+                qty += back["qty"]; discount += back["discount"]
+            out.append(SaleLine(item_id=ln["item_id"], unit_id=ln["unit_id"],
+                                quantity=str(qty), unit_price=ln["price"],
+                                discount=str(discount)))
+        for item_id, back in pending.items():   # fully returned — keep the history
+            out.append(SaleLine(item_id=item_id, unit_id=back["unit_id"],
+                                quantity=str(back["qty"]), unit_price=back["price"],
+                                discount=str(back["discount"])))
+        return out
+
     def _post(self, *, print_after: bool) -> None:
         self.clear_error()
-        if not self._lines:
+        # A fully-returned invoice has no payable line left, but it still has
+        # returned lines to preserve — so it can be reopened and added to.
+        if not self._lines and not self._returned_by_item:
             self._show_error(self._t.gettext("s4.msg_add_line"))
             return
         currency_code = self._currency_combo.currentData()
@@ -815,9 +931,7 @@ class DocumentEntryPage(QWidget):
         paid = self._recv_edit.text() or "0"
         try:
             if self._mode == "sale":
-                lines = [SaleLine(item_id=ln["item_id"], unit_id=ln["unit_id"],
-                                  quantity=ln["qty"], unit_price=ln["price"],
-                                  discount=ln["discount"]) for ln in self._lines]
+                lines = self._sale_lines_for_save()
                 walkin = self._customer_mode == "walkin"
                 sale_kwargs = dict(
                     currency_code=currency_code, lines=lines,
@@ -858,7 +972,10 @@ class DocumentEntryPage(QWidget):
         self._pending_item = None
         self._correction_sale_id = None
         self._prev_balance = D(0)
+        self._returned_by_item = {}
+        self._paid_override = None
         self._render_lines()
+        self._render_returned([])
         self._party_selector.clear()
         self._item_selector.clear()
         self._set_chip(self._chip_phone, "—", "neutral")
@@ -876,8 +993,21 @@ class DocumentEntryPage(QWidget):
     # ---- load a posted sale for safe correction (round 2 §9) ------------
 
     def load_for_correction(self, sale_id: int) -> None:
-        """Load a posted sale into the form so it can be corrected. Saving amends
-        that same invoice in place — same number, no new sale (see ``correct_sale``)."""
+        """Load a posted sale into the form so it can be corrected.
+
+        The form shows the invoice's CURRENT position, not the position it was
+        posted in: quantities net of anything the customer returned, with
+        fully-returned items gone from the editable grid and listed read-only
+        under Returned Items instead. So the reopened invoice, the Sales List, the
+        printed copy and the customer's balance all state the same figure.
+
+        The returned quantities are remembered (``_returned_by_line``) and folded
+        back in when the correction is saved, so the stored sale keeps the
+        original sold quantity and the return document stays valid — the history
+        is never rewritten to make the screen look right.
+
+        Saving amends that same invoice in place — same number, no new sale.
+        """
         sale = self._ctx.sales_repo.get(sale_id)
         if sale is None or sale.get("status") != "POSTED":
             self._show_error(self._t.gettext("s4.msg_correct_only_posted"))
@@ -905,7 +1035,12 @@ class DocumentEntryPage(QWidget):
                 self._party_selector.set_text(party.get("name") or "")
                 self._set_chip(self._chip_phone, party.get("phone") or "—", "neutral")
                 bal = self._ctx.sales_documents.receivable(self._party_id)
-                self._prev_balance = D(bal)
+                # Previous Balance is what the customer owed BEFORE this invoice.
+                # Their receivable already includes this invoice's own outstanding
+                # amount, so it is taken back out here — otherwise the screen would
+                # add the invoice on twice. It is never used to absorb returned
+                # goods: the return shows on the invoice's own lines and totals.
+                self._prev_balance = D(self._ctx.sales_documents.balance_before_sale(sale_id))
                 self._set_chip(self._chip_balance, format_money(bal),
                                "danger" if D(bal) > 0 else "success")
         elif sale.get("walkin_name"):
@@ -913,22 +1048,50 @@ class DocumentEntryPage(QWidget):
             self._walkin_name.setText(sale.get("walkin_name") or "")
             self._walkin_phone.setText(sale.get("walkin_phone") or "")
             self._walkin_address.setText(sale.get("walkin_address") or "")
-        # lines
+        # Lines: the invoice's CURRENT position. A line the customer partly gave
+        # back is loaded at its net quantity; one given back in full is not an
+        # active payable line at all and moves to the Returned Items panel.
+        view = self._ctx.sales_documents.net_view(sale_id)
         unit_by_id = {u["id"]: u for u in self._ctx.units_repo.list_all()}
-        for ln in self._ctx.sales_repo.lines_for(sale_id):
+        for ln in (view["lines"] if view else self._ctx.sales_repo.lines_for(sale_id)):
+            back = D(ln.get("returned", 0))
+            if back > 0:
+                # Remembered per item so saving can restore the sold quantity.
+                seen = self._returned_by_item.setdefault(
+                    ln["item_id"], {"qty": D(0), "discount": D(0),
+                                    "unit_id": ln["unit_id"], "price": str(ln["unit_price"]),
+                                    "wh_id": ln.get("warehouse_id")})
+                seen["qty"] += back
+                seen["discount"] += (D(ln["discount"])
+                                     - D(ln.get("net_discount", ln["discount"])))
+            if ln.get("fully_returned"):
+                continue                     # nothing of it is still payable
             item = self._ctx.items_repo.get(ln["item_id"]) or {}
             unit = unit_by_id.get(ln["unit_id"], {})
+            qty = str(ln.get("net_quantity", ln["quantity"]))
+            discount = str(ln.get("net_discount", ln["discount"]))
+            total = str(ln.get("net_line_total", ln["line_total"]))
             self._lines.append({
                 "item_id": ln["item_id"], "unit_id": ln["unit_id"],
                 "code": item.get("item_code", ""), "name": item.get("name", ""),
                 "unit": unit.get("symbol") or unit.get("name_en") or "",
-                "qty": str(ln["quantity"]), "price": str(ln["unit_price"]),
-                "discount": str(ln["discount"]), "total": str(ln["line_total"]),
+                "qty": qty, "price": str(ln["unit_price"]),
+                "discount": discount, "total": total,
                 "wh_id": ln.get("warehouse_id"),
                 "wh_name": self._wh_combo.currentText()})
-        # Reflect how the invoice was settled: nothing outstanding = Cash.
-        self.set_payment_type("credit" if D(sale.get("remaining_amount") or 0) > 0
-                              else "cash")
+        self._render_returned(self._ctx.sales_documents.returned_items(sale_id))
+        # Show what was actually paid on this invoice, so Remaining here equals the
+        # Sales List's remaining and the customer's balance. Re-deriving it from the
+        # reduced total would silently claim cash back that the customer still holds.
+        self._loading = True
+        try:
+            self._paid_override = D(sale.get("amount_paid") or 0)
+            net_remaining = (D(view["net_remaining"]) if view
+                             else D(sale.get("remaining_amount") or 0))
+            self.set_payment_type("credit" if net_remaining > 0 else "cash")
+        finally:
+            self._loading = False
+        self._recompute_totals()
         self._render_lines()
         self._recompute_totals()
         self._title.setText(
