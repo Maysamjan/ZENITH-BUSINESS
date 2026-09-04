@@ -250,6 +250,65 @@ class PurchaseRepository(BaseRepository):
             "UPDATE purchases SET status = 'POSTED', posted_at = ?, posted_by = ?, updated_at = ?"
             " WHERE id = ?", (ts, user_id, ts, purchase_id))
 
+    def update_header(
+        self,
+        purchase_id: int,
+        *,
+        purchase_date: str,
+        currency_id: int,
+        warehouse_id: int | None,
+        exchange_rate,
+        subtotal,
+        discount_total,
+        grand_total,
+        amount_paid,
+        remaining_amount,
+        notes: str | None = None,
+    ) -> None:
+        """Amend a purchase header in place (correction of a posted bill).
+
+        Mirrors ``SalesRepository.update_header``: deliberately does NOT touch
+        ``document_no``, ``status`` or the posting stamps, so a corrected bill stays
+        the SAME document with the same number and remains posted.
+        """
+        self._exec(
+            "UPDATE purchases SET purchase_date = ?, currency_id = ?, warehouse_id = ?,"
+            " exchange_rate = ?, subtotal = ?, discount_total = ?, grand_total = ?,"
+            " amount_paid = ?, remaining_amount = ?, notes = ?, updated_at = ?"
+            " WHERE id = ?",
+            (purchase_date, currency_id, warehouse_id, rate_to_db(exchange_rate),
+             money_to_db(subtotal), money_to_db(discount_total), money_to_db(grand_total),
+             money_to_db(amount_paid), money_to_db(remaining_amount), notes, now_iso(),
+             purchase_id))
+
+    def update_line(self, line_id: int, *, line_no: int, item_id: int, unit_id: int,
+                    warehouse_id: int | None, quantity, unit_price, discount,
+                    line_total) -> None:
+        """Rewrite one purchase line, KEEPING its id.
+
+        A correction reuses the existing row wherever the item survives, so a
+        purchase return that references this line by id (ON DELETE RESTRICT) stays
+        valid instead of being orphaned by a delete-and-reinsert.
+        """
+        self._exec(
+            "UPDATE purchase_lines SET line_no = ?, item_id = ?, unit_id = ?, warehouse_id = ?,"
+            " quantity = ?, unit_price = ?, discount = ?, line_total = ? WHERE id = ?",
+            (line_no, item_id, unit_id, warehouse_id, qty_to_db(quantity),
+             money_to_db(unit_price), money_to_db(discount), money_to_db(line_total),
+             line_id))
+
+    def delete_line(self, line_id: int) -> None:
+        """Remove one purchase line (only ever called for a line with no returns)."""
+        self._exec("DELETE FROM purchase_lines WHERE id = ?", (line_id,))
+
+    def mark_void(self, purchase_id: int, user_id: int | None, reason: str | None) -> None:
+        """Stamp a purchase VOID, keeping the document and its number."""
+        ts = now_iso()
+        self._exec(
+            "UPDATE purchases SET status = 'VOID', voided_at = ?, voided_by = ?,"
+            " void_reason = ?, updated_at = ? WHERE id = ?",
+            (ts, user_id, reason, ts, purchase_id))
+
 
 class InventoryRepository(BaseRepository):
     def add_movement(

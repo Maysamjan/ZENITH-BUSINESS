@@ -342,24 +342,38 @@ class InvoicePrintDocument(QWidget):
 
     # ---- customer --------------------------------------------------------
 
+    def _party_labels(self) -> tuple[str, str]:
+        """(heading, code label) for the party block.
+
+        A purchase is billed BY a supplier, not TO a customer, so the same engine
+        has to name the party correctly for each document kind. Additive: the
+        default preserves the LOCKED "Bill To" / "Customer Code" wording.
+        """
+        if self._d.party_kind == "supplier":
+            return (self._t.gettext("print.bill_from"),
+                    self._t.gettext("s4.supplier"))
+        return (self._t.gettext("print.bill_to"),
+                self._t.gettext("si.customer_code"))
+
     def _customer(self) -> QWidget:
         d = self._d
+        heading, code_label = self._party_labels()
         bar = QFrame(); bar.setProperty("p", "custbar")
         if self._p.compact:
             h = QHBoxLayout(bar); h.setContentsMargins(10, 6, 10, 6); h.setSpacing(10)
-            eb = QLabel(self._t.gettext("print.bill_to")); eb.setProperty("p", "eyebrow")
+            eb = QLabel(heading); eb.setProperty("p", "eyebrow")
             nm = QLabel(d.customer_name); nm.setProperty("p", "cust-name")
             info = QLabel(f"{d.customer_phone} · {d.customer_code}"); info.setProperty("p", "muted")
             h.addWidget(eb); h.addWidget(nm); h.addStretch(1); h.addWidget(info)
         else:
             g = QGridLayout(bar); g.setContentsMargins(12, 8, 12, 8); g.setHorizontalSpacing(16); g.setVerticalSpacing(1)
-            eb = QLabel(self._t.gettext("print.bill_to")); eb.setProperty("p", "eyebrow")
+            eb = QLabel(heading); eb.setProperty("p", "eyebrow")
             nm = QLabel(d.customer_name); nm.setProperty("p", "cust-name"); nm.setWordWrap(True)
             g.addWidget(eb, 0, 0); g.addWidget(nm, 1, 0)
             meta = QVBoxLayout(); meta.setSpacing(1)
             for text in (f"{self._t.gettext('si.phone')}: {d.customer_phone}",
                          f"{self._t.gettext('si.address')}: {d.customer_address}",
-                         f"{self._t.gettext('si.customer_code')}: {d.customer_code}"):
+                         f"{code_label}: {d.customer_code}"):
                 l = QLabel(text); l.setProperty("p", "muted"); meta.addWidget(l)
             holder = QWidget(); holder.setLayout(meta)
             g.addWidget(holder, 0, 1, 2, 1, self._end())

@@ -59,6 +59,10 @@ class InvoiceData:
     # invoice whose goods were all returned (its table is legitimately empty).
     # A key, not text, so the sheet follows the preview's EN/Dari toggle.
     note_key: str = ""
+    # Who the other party is on this document. A sale is billed TO a customer; a
+    # purchase is billed BY a supplier, so the same engine must name the party
+    # correctly. Defaults to "customer", preserving the LOCKED wording.
+    party_kind: str = "customer"
 
     @property
     def subtotal(self) -> float:

@@ -23,6 +23,7 @@ from zenith_business.database.schema_stage05 import migrate_stage05
 from zenith_business.database.schema_owner_fixes import migrate_owner_fixes
 from zenith_business.database.schema_round2 import migrate_round2
 from zenith_business.database.schema_stage06 import migrate_stage06
+from zenith_business.database.schema_stage07 import migrate_stage07
 
 _logger = get_logger("database.migrations")
 
@@ -45,6 +46,7 @@ MIGRATIONS: list[Migration] = [
     Migration(6, "owner_fixes_walkin_ledger_void", migrate_owner_fixes),
     Migration(7, "round2_sales_correction", migrate_round2),
     Migration(8, "stage06_inventory", migrate_stage06),
+    Migration(9, "stage07_purchases_parity", migrate_stage07),
 ]
 
 

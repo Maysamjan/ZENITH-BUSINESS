@@ -203,10 +203,13 @@ class DocumentEntryPage(QWidget):
         prow.addWidget(self._registered_wrap, 2)
 
         self._chip_phone = self._info_chip("si.phone", "—", "neutral")
-        # The header chip is the customer's ACCOUNT balance; the totals strip below
-        # shows what they owed before this invoice. On a reopened invoice those are
-        # different numbers, so they must not share the label "Previous Balance".
-        bal_key = "si.customer_balance" if self._mode == "sale" else "s4.supplier_ref"
+        # The header chip is the party's ACCOUNT balance; the totals strip below
+        # shows what they were owed before this document. On a reopened document
+        # those are different numbers, so they must not share "Previous Balance".
+        # The purchase chip was labelled "Supplier Ref." while showing the
+        # supplier's payable — a money figure under a reference-number label.
+        bal_key = ("si.customer_balance" if self._mode == "sale"
+                   else "si.supplier_balance")
         self._chip_balance = self._info_chip(bal_key, "—", "neutral")
         prow.addWidget(self._chip_phone)
         prow.addWidget(self._chip_balance)
@@ -546,19 +549,23 @@ class DocumentEntryPage(QWidget):
         self._pay_label.setProperty("role", "total-label")
         self._seg_cash = QRadioButton(t.gettext("si.pay_cash"))
         self._seg_credit = QRadioButton(t.gettext("si.pay_credit"))
+        # Purchases add Partial: the operator types what was actually handed over
+        # and Remaining follows. A sale stays strictly Cash or Credit — anything in
+        # between is a Receipt against the credit invoice.
+        self._seg_partial = QRadioButton(t.gettext("si.pay_partial"))
         self._pay_group = QButtonGroup(self)
         self._pay_group.setExclusive(True)
         self._pay_group.addButton(self._seg_cash)
         self._pay_group.addButton(self._seg_credit)
-        self._seg_cash.setChecked(True)          # a cash sale is the common case
-        for b in (self._seg_cash, self._seg_credit):
+        self._pay_group.addButton(self._seg_partial)
+        self._seg_cash.setChecked(True)          # cash is the common case
+        for b in (self._seg_cash, self._seg_credit, self._seg_partial):
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.toggled.connect(self._on_payment_type_changed)
         row.addWidget(self._pay_label)
         row.addWidget(self._seg_cash); row.addWidget(self._seg_credit)
-        # Sales only — a purchase keeps its own manually-entered amount paid.
-        for w in (self._pay_label, self._seg_cash, self._seg_credit):
-            w.setVisible(self._mode == "sale")
+        row.addWidget(self._seg_partial)
+        self._seg_partial.setVisible(self._mode == "purchase")
         gt = QFrame(); gt.setProperty("role", "grand-total-strong")
         gtl = QHBoxLayout(gt); gtl.setContentsMargins(Spacing.LG, Spacing.XS, Spacing.LG, Spacing.XS)
         gtl.setSpacing(Spacing.MD)
@@ -581,7 +588,9 @@ class DocumentEntryPage(QWidget):
             self._recv_edit.setReadOnly(True)
             self._recv_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         else:
-            self._recv_edit.textEdited.connect(self._recompute_totals)
+            # A purchase is typed only under Partial; Cash and Credit derive it.
+            self._recv_edit.textEdited.connect(self._on_paid_typed)
+            self._apply_paid_editability()
         row2.addWidget(self._recv_label); row2.addWidget(self._recv_edit)
         self._rem_label = QLabel(t.gettext("si.remaining")); self._rem_label.setProperty("role", "total-label")
         self._rem_value = QLabel("—"); self._rem_value.setProperty("role", "total-value")
@@ -826,28 +835,70 @@ class DocumentEntryPage(QWidget):
     # ---- payment type (operator's choice) --------------------------------
 
     def payment_type(self) -> str:
-        """``'cash'`` or ``'credit'`` — whichever the operator selected."""
+        """``'cash'``, ``'credit'`` or ``'partial'`` — whichever the operator picked.
+
+        ``partial`` only ever appears on a purchase; the sales screen does not
+        offer it (a part-paid sale is a Credit invoice plus a Receipt).
+        """
         if not hasattr(self, "_seg_credit"):
             return "cash"
-        return "credit" if self._seg_credit.isChecked() else "cash"
+        if self._seg_credit.isChecked():
+            return "credit"
+        if getattr(self, "_seg_partial", None) is not None and self._seg_partial.isChecked():
+            return "partial"
+        return "cash"
 
     def set_payment_type(self, kind: str) -> None:
-        """Select Cash or Credit and refresh the derived payment figures."""
-        target = self._seg_credit if kind == "credit" else self._seg_cash
+        """Select the payment type and refresh the derived payment figures."""
+        target = {"credit": self._seg_credit,
+                  "partial": self._seg_partial}.get(kind, self._seg_cash)
+        if target is self._seg_partial and self._mode != "purchase":
+            target = self._seg_cash          # sales never offer Partial
         if not target.isChecked():
-            target.setChecked(True)          # exclusive group clears the other
+            target.setChecked(True)          # exclusive group clears the others
         else:
+            self._apply_paid_editability()
             self._recompute_totals()
+
+    def _apply_paid_editability(self) -> None:
+        """Amount Paid is typed under Partial only; Cash and Credit derive it."""
+        if self._mode != "purchase":
+            return
+        typed = self.payment_type() == "partial"
+        self._recv_edit.setReadOnly(not typed)
+        self._recv_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus if typed
+                                       else Qt.FocusPolicy.NoFocus)
+
+    def _on_paid_typed(self, _text: str = "") -> None:
+        """The operator typed a partial amount — validate it against the total."""
+        self.clear_error()
+        grand = self._grand_total()
+        try:
+            paid = money(self._recv_edit.text() or "0")
+        except Exception:
+            paid = D(0)
+        if paid < 0:
+            self._show_error(self._t.gettext("si.msg_paid_negative"))
+        elif paid > grand:
+            self._show_error(self._t.gettext("si.msg_paid_over_total"))
+        self._recompute_totals()
 
     def _on_payment_type_changed(self, checked: bool) -> None:
         # QButtonGroup fires twice per switch (one off, one on); recompute once.
         if not checked:
             return
         if not self._loading:
-            # The operator deliberately re-settled the invoice, so the recorded
+            # The operator deliberately re-settled the document, so the recorded
             # amount stops applying and Paid follows the type again.
             self._paid_override = None
+        self._apply_paid_editability()
         self._recompute_totals()
+
+    def _grand_total(self) -> D:
+        """The invoice total — the ONE calculation every other figure derives from."""
+        subtotal = sum((D(ln["qty"]) * D(ln["price"]) for ln in self._lines), D(0))
+        discount = sum((D(ln["discount"]) for ln in self._lines), D(0))
+        return money(subtotal - discount)
 
     def _recompute_totals(self, *_a) -> None:
         subtotal = sum((D(ln["qty"]) * D(ln["price"]) for ln in self._lines), D(0))
@@ -857,19 +908,32 @@ class DocumentEntryPage(QWidget):
         self._sub_value.setText(format_money(subtotal))
         self._disc_value.setText(format_money(discount))
         self._grand_value.setText(format_money(grand))
+        kind = self.payment_type()
         if self._mode == "sale":
             # Payment follows the operator's chosen type and the SAME grand total
             # computed above — there is no second total calculation anywhere. A
             # reopened invoice starts from what was actually paid on it instead,
             # until the operator picks a type themselves.
             paid = (self._paid_override if self._paid_override is not None
-                    else (grand if self.payment_type() == "cash" else D(0)))
+                    else (grand if kind == "cash" else D(0)))
+            self._recv_edit.setText(format_money(paid))
+        elif kind != "partial":
+            # Cash pays the bill in full, Credit pays none of it — both derived
+            # from the same grand total, so they cannot drift.
+            paid = (self._paid_override if self._paid_override is not None
+                    else (grand if kind == "cash" else D(0)))
             self._recv_edit.setText(format_money(paid))
         else:
+            # Partial: the operator's own figure, clamped to the total so the bill
+            # can never claim more was paid than it is worth.
             try:
                 paid = money(self._recv_edit.text() or "0")
             except Exception:
                 paid = D(0)
+            if paid < 0:
+                paid = D(0)
+            if paid > grand:
+                paid = grand
         remaining = money(grand - paid)
         self._rem_value.setText(format_money(remaining))
         self._rem_value.setProperty("money", "negative" if remaining > 0 else "positive")
@@ -948,12 +1012,24 @@ class DocumentEntryPage(QWidget):
                 else:
                     posted = self._ctx.sales_documents.post_sale(**sale_kwargs)
             else:
-                lines = [PurchaseLine(item_id=ln["item_id"], unit_id=ln["unit_id"],
-                                      quantity=ln["qty"], unit_price=ln["price"],
-                                      discount=ln["discount"]) for ln in self._lines]
-                posted = self._ctx.purchase_documents.post_purchase(
+                # Same shape as a sale: what the supplier already took back is
+                # folded into the stored lines, so correcting a bill never erases
+                # the return it carries.
+                lines = [PurchaseLine(item_id=sl.item_id, unit_id=sl.unit_id,
+                                      quantity=sl.quantity, unit_price=sl.unit_price,
+                                      discount=sl.discount)
+                         for sl in self._sale_lines_for_save()]
+                purchase_kwargs = dict(
                     currency_code=currency_code, lines=lines, party_id=self._party_id,
-                    warehouse_id=wh_id, amount_paid=paid, exchange_rate=rate, purchase_date=date)
+                    warehouse_id=wh_id, amount_paid=paid, exchange_rate=rate,
+                    purchase_date=date)
+                if self._correction_sale_id is not None:
+                    # Correction of a posted bill: amends that SAME bill in place —
+                    # same record, same document number, no second purchase.
+                    posted = self._ctx.purchase_documents.correct_purchase(
+                        purchase_id=self._correction_sale_id, **purchase_kwargs)
+                else:
+                    posted = self._ctx.purchase_documents.post_purchase(**purchase_kwargs)
         except ZenithError as exc:
             self._show_error(getattr(exc, "user_message", None) or str(exc))
             return
@@ -985,9 +1061,10 @@ class DocumentEntryPage(QWidget):
         self._title.setText(self._t.gettext(self._title_key()))
         if self._mode == "sale":
             self._set_customer_mode("registered")  # back to the default customer mode
-            self._seg_cash.setChecked(True)        # next invoice starts as Cash
         else:
             self._recv_edit.clear()
+        self._seg_cash.setChecked(True)            # the next document starts as Cash
+        self._apply_paid_editability()
         self._recompute_totals()
 
     # ---- load a posted sale for safe correction (round 2 §9) ------------
@@ -1001,13 +1078,16 @@ class DocumentEntryPage(QWidget):
         under Returned Items instead. So the reopened invoice, the Sales List, the
         printed copy and the customer's balance all state the same figure.
 
-        The returned quantities are remembered (``_returned_by_line``) and folded
+        The returned quantities are remembered (``_returned_by_item``) and folded
         back in when the correction is saved, so the stored sale keeps the
         original sold quantity and the return document stays valid — the history
         is never rewritten to make the screen look right.
 
         Saving amends that same invoice in place — same number, no new sale.
         """
+        if self._mode == "purchase":
+            self.load_purchase_for_correction(sale_id)
+            return
         sale = self._ctx.sales_repo.get(sale_id)
         if sale is None or sale.get("status") != "POSTED":
             self._show_error(self._t.gettext("s4.msg_correct_only_posted"))
@@ -1096,6 +1176,97 @@ class DocumentEntryPage(QWidget):
         self._recompute_totals()
         self._title.setText(
             self._t.gettext("s4.correcting").replace("{no}", sale["document_no"]))
+
+    def load_purchase_for_correction(self, purchase_id: int) -> None:
+        """Load a posted purchase into the form so it can be corrected.
+
+        The purchase mirror of :meth:`load_for_correction`, and for the same
+        reason: the bill shows its CURRENT position — quantities net of anything
+        returned to the supplier, fully-returned items moved out of the payable
+        grid into the read-only Returned Items panel — so the reopened bill, the
+        Purchase List, the printed copy and the supplier's balance state the same
+        figure. The returned quantities are folded back in on save, so the stored
+        bill keeps its original quantities and the return document stays valid.
+        """
+        purchase = self._ctx.purchase_documents.get(purchase_id)
+        if purchase is None or purchase.get("status") != "POSTED":
+            self._show_error(self._t.gettext("s4.msg_correct_only_posted"))
+            return
+        self.reset_form()
+        self._correction_sale_id = purchase_id
+        cur = self._ctx.currencies_repo.get(purchase["currency_id"])
+        if cur is not None:
+            i = self._currency_combo.findData(cur["code"])
+            if i >= 0:
+                self._currency_combo.setCurrentIndex(i)
+        self._date_edit.setText(purchase["purchase_date"])
+        self._rate_edit.setText(str(purchase.get("exchange_rate") or "1"))
+        if purchase.get("warehouse_id") is not None:
+            i = self._wh_combo.findData(purchase["warehouse_id"])
+            if i >= 0:
+                self._wh_combo.setCurrentIndex(i)
+        if purchase.get("party_id"):
+            self._party_id = purchase["party_id"]
+            party = self._ctx.parties_repo.get(self._party_id)
+            if party is not None:
+                self._party_selector.set_text(party.get("name") or "")
+                self._set_chip(self._chip_phone, party.get("phone") or "—", "neutral")
+                payable = self._ctx.purchase_documents.payable(self._party_id)
+                # Previous Balance is what was owed BEFORE this bill; the supplier's
+                # payable already includes this bill, so it is taken back out here.
+                self._prev_balance = D(
+                    self._ctx.purchase_documents.balance_before_purchase(purchase_id))
+                self._set_chip(self._chip_balance, format_money(payable),
+                               "danger" if D(payable) > 0 else "success")
+
+        view = self._ctx.purchase_documents.net_view(purchase_id)
+        unit_by_id = {u["id"]: u for u in self._ctx.units_repo.list_all()}
+        for ln in (view["lines"] if view else self._ctx.purchase_documents.lines(purchase_id)):
+            back = D(ln.get("returned", 0))
+            if back > 0:
+                seen = self._returned_by_item.setdefault(
+                    ln["item_id"], {"qty": D(0), "discount": D(0),
+                                    "unit_id": ln["unit_id"], "price": str(ln["unit_price"]),
+                                    "wh_id": ln.get("warehouse_id")})
+                seen["qty"] += back
+                seen["discount"] += (D(ln["discount"])
+                                     - D(ln.get("net_discount", ln["discount"])))
+            if ln.get("fully_returned"):
+                continue                     # nothing of it is still owed for
+            item = self._ctx.items_repo.get(ln["item_id"]) or {}
+            unit = unit_by_id.get(ln["unit_id"], {})
+            self._lines.append({
+                "item_id": ln["item_id"], "unit_id": ln["unit_id"],
+                "code": item.get("item_code", ""), "name": item.get("name", ""),
+                "unit": unit.get("symbol") or unit.get("name_en") or "",
+                "qty": str(ln.get("net_quantity", ln["quantity"])),
+                "price": str(ln["unit_price"]),
+                "discount": str(ln.get("net_discount", ln["discount"])),
+                "total": str(ln.get("net_line_total", ln["line_total"])),
+                "wh_id": ln.get("warehouse_id"),
+                "wh_name": self._wh_combo.currentText()})
+        self._render_returned(self._ctx.purchase_documents.returned_items(purchase_id))
+        # Show what was actually paid, so Remaining matches the Purchase List and
+        # the supplier balance rather than being re-derived from a reduced total.
+        self._loading = True
+        try:
+            paid = D(purchase.get("amount_paid") or 0)
+            self._paid_override = paid
+            gross = D(purchase.get("grand_total") or 0)
+            if paid <= 0:
+                kind = "credit"
+            elif paid >= gross:
+                kind = "cash"
+            else:
+                kind = "partial"
+            self.set_payment_type(kind)
+        finally:
+            self._loading = False
+        self._render_lines()
+        self._apply_paid_editability()
+        self._recompute_totals()
+        self._title.setText(
+            self._t.gettext("s4.correcting").replace("{no}", purchase["document_no"]))
 
     # ---- errors ----------------------------------------------------------
 

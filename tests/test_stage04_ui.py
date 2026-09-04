@@ -68,6 +68,9 @@ def test_purchase_entry_posts_real_purchase(qapp, biz):
     page = DocumentEntryPage(biz, _en(), mode="purchase")
     page.set_party(biz.supplier_search.search("Sup")[0])
     page.add_line(biz.item_search.search("Rice")[0].payload, qty="30", price="50")
+    # Stage 07: a purchase now carries an explicit payment type instead of an
+    # implicitly blank amount paid. Credit is what this test always meant.
+    page.set_payment_type("credit")
     page._post(print_after=False)
     assert page.last_saved_id is not None
     assert biz.inventory.on_hand(biz.item, biz.wh) == "30.000"

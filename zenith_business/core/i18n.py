@@ -273,6 +273,8 @@ _CATALOG: dict[str, dict[str, str]] = {
     "si.address": {LANG_ENGLISH: "Address", LANG_DARI: "آدرس"},
     "si.prev_balance": {LANG_ENGLISH: "Previous Balance", LANG_DARI: "بیلانس قبلی"},
     "si.customer_balance": {LANG_ENGLISH: "Customer Balance", LANG_DARI: "بیلانس مشتری"},
+    "si.supplier_balance": {LANG_ENGLISH: "Supplier Balance",
+                            LANG_DARI: "بیلانس تأمین‌کننده"},
     "si.credit_limit": {LANG_ENGLISH: "Credit Limit", LANG_DARI: "حد اعتبار"},
     # grid columns
     "si.col_row": {LANG_ENGLISH: "#", LANG_DARI: "#"},
@@ -316,6 +318,17 @@ _CATALOG: dict[str, dict[str, str]] = {
     "si.pay_cash": {LANG_ENGLISH: "Cash", LANG_DARI: "نقدی"},
     "si.pay_credit": {LANG_ENGLISH: "Credit", LANG_DARI: "نسیه"},
     "si.payment_type": {LANG_ENGLISH: "Payment", LANG_DARI: "نوع پرداخت"},
+    # Purchases add a third option: the operator types the amount actually handed
+    # over, and Remaining follows. Sales stay strictly Cash or Credit.
+    "si.pay_partial": {LANG_ENGLISH: "Partial", LANG_DARI: "قسمی"},
+    "si.msg_paid_over_total": {
+        LANG_ENGLISH: "Amount paid cannot be more than the grand total.",
+        LANG_DARI: "مبلغ پرداختی نمی‌تواند از مجموع کل بیشتر باشد.",
+    },
+    "si.msg_paid_negative": {
+        LANG_ENGLISH: "Amount paid cannot be negative.",
+        LANG_DARI: "مبلغ پرداختی نمی‌تواند منفی باشد.",
+    },
     "si.delete_line": {LANG_ENGLISH: "Delete Line", LANG_DARI: "حذف سطر"},
     "si.lines": {LANG_ENGLISH: "Invoice Lines", LANG_DARI: "اقلام بل"},
     "si.default_price": {LANG_ENGLISH: "Default Sale Price", LANG_DARI: "قیمت فروش پیش‌فرض"},
@@ -345,6 +358,8 @@ _CATALOG: dict[str, dict[str, str]] = {
     "print.fit_page": {LANG_ENGLISH: "Fit Page", LANG_DARI: "کل صفحه"},
     "print.title": {LANG_ENGLISH: "SALES INVOICE", LANG_DARI: "بل فروش"},
     "print.bill_to": {LANG_ENGLISH: "Bill To", LANG_DARI: "صورت‌حساب برای"},
+    # A purchase is billed BY the supplier, not TO a customer.
+    "print.bill_from": {LANG_ENGLISH: "Bill From", LANG_DARI: "صورت‌حساب از"},
     "print.tax_id": {LANG_ENGLISH: "Tax ID", LANG_DARI: "شماره مالیه"},
     "print.email": {LANG_ENGLISH: "Email", LANG_DARI: "ایمیل"},
     "print.col_item": {LANG_ENGLISH: "Item", LANG_DARI: "جنس"},
@@ -540,6 +555,10 @@ _CATALOG: dict[str, dict[str, str]] = {
     "persons.col_company": {LANG_ENGLISH: "Business Name", LANG_DARI: "نام تجارت"},
     "persons.col_phone": {LANG_ENGLISH: "Phone", LANG_DARI: "تیلیفون"},
     "persons.col_roles": {LANG_ENGLISH: "Roles", LANG_DARI: "نقش‌ها"},
+    "persons.col_balance": {LANG_ENGLISH: "Balance", LANG_DARI: "بیلانس"},
+    # Short cell labels — the ledger screen uses the fuller "Current …" wording.
+    "persons.bal_receivable": {LANG_ENGLISH: "Owes us", LANG_DARI: "طلب ما"},
+    "persons.bal_payable": {LANG_ENGLISH: "We owe", LANG_DARI: "قرض ما"},
     "persons.col_status": {LANG_ENGLISH: "Status", LANG_DARI: "وضعیت"},
     "persons.f_customer": {LANG_ENGLISH: "Customer", LANG_DARI: "مشتری"},
     "persons.f_supplier": {LANG_ENGLISH: "Supplier", LANG_DARI: "تأمین‌کننده"},

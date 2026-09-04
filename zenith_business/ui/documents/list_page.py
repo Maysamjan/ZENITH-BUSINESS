@@ -159,13 +159,17 @@ class DocumentListPage(QWidget):
                     # so a returned invoice shows what the customer actually owes.
                     ("s4.col_remaining", "net_remaining", "r"),
                     ("s4.col_status", "status", "c")]
+        # A purchase shows what it is worth NOW, exactly like a sale: the amount
+        # billed, what went back on returns, and the resulting net.
         return [("s4.col_docno", "document_no", "l"),
                 ("s4.col_date", date_key, "l"),
                 ("s4.col_party", "party_name", "l"),
                 ("s4.col_warehouse", "warehouse_name", "l"),
-                ("s4.col_total", "grand_total", "r"),
+                ("s4.col_gross", "grand_total", "r"),
+                ("s4.col_returned_total", "returned_total", "r"),
+                ("s4.col_total", "net_total", "r"),
                 ("s4.col_paid", "amount_paid", "r"),
-                ("s4.col_remaining", "remaining_amount", "r"),
+                ("s4.col_remaining", "net_remaining", "r"),
                 ("s4.col_status", "status", "c")]
 
     def _build_table(self) -> QWidget:

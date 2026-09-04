@@ -189,9 +189,32 @@ def build_purchase_invoice(ctx: ApplicationContext, purchase_id: int) -> tuple[I
         customer_name=party.get("name") or "Cash Supplier",
         customer_phone=party.get("phone") or "",
         customer_address=party.get("address") or "",
-        lines=_lines_from(ctx, ctx.purchases_repo.lines_for(purchase_id)),
-        paid=_f(purchase["amount_paid"]))
+        # The bill's CURRENT position: quantities net of anything returned to the
+        # supplier, with fully-returned items dropped — the same rule the sales
+        # invoice follows, so print and screen never disagree.
+        lines=_lines_from(ctx, _net_purchase_lines(ctx, purchase_id)),
+        paid=_f(purchase["amount_paid"]),
+        note_key=_purchase_print_note_key(ctx, purchase_id),
+        party_kind="supplier")
     return data, TITLE_PURCHASE
+
+
+def _net_purchase_lines(ctx: ApplicationContext, purchase_id: int) -> list[dict]:
+    """Purchase lines with returned quantity deducted; fully-returned lines removed."""
+    view = ctx.purchase_documents.net_view(purchase_id)
+    if view is None or not view["has_returns"]:
+        return ctx.purchases_repo.lines_for(purchase_id)
+    return [{**ln, "quantity": ln["net_quantity"], "discount": ln["net_discount"]}
+            for ln in view["active_lines"]]
+
+
+def _purchase_print_note_key(ctx: ApplicationContext, purchase_id: int) -> str:
+    """Say on the sheet when the whole bill went back — an empty item table and a
+    zero total would otherwise read as a blank form."""
+    view = ctx.purchase_documents.net_view(purchase_id)
+    if view is None or not view["has_returns"] or view["active_lines"]:
+        return ""
+    return "print.fully_returned"
 
 
 def build_sales_return(ctx: ApplicationContext, return_id: int) -> tuple[InvoiceData, str]:
@@ -232,5 +255,6 @@ def build_purchase_return(ctx: ApplicationContext, return_id: int) -> tuple[Invo
         customer_phone=party.get("phone") or "",
         customer_address=party.get("address") or "",
         lines=_lines_from(ctx, ctx.purchase_returns_repo.lines_for(return_id)),
-        paid=_f(ret["grand_total"]))
+        paid=_f(ret["grand_total"]),
+        party_kind="supplier")
     return data, TITLE_PURCHASE_RETURN

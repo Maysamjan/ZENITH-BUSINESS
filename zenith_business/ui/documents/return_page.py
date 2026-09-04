@@ -328,7 +328,8 @@ class ReturnEntryPage(QWidget):
             else:
                 lines = [PurchaseReturnLine(purchase_line_id=lid, quantity=q) for lid, q in picked]
                 posted = self._ctx.purchase_documents.post_return(
-                    purchase_id=self._source_id, lines=lines, reason=reason)
+                    purchase_id=self._source_id, lines=lines, reason=reason,
+                    notes=self._return_note(picked))
         except ZenithError as exc:
             self._show_error(getattr(exc, "user_message", None) or str(exc))
             return

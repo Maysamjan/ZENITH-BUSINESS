@@ -230,6 +230,36 @@ class PurchaseReturnRepository(BaseRepository):
             "SELECT * FROM purchase_return_lines WHERE return_id = ? ORDER BY line_no",
             (return_id,))
 
+    def list_for_purchase(self, purchase_id: int) -> list[dict]:
+        return self._all(
+            "SELECT * FROM purchase_returns WHERE purchase_id = ? ORDER BY id DESC",
+            (purchase_id,))
+
+    def posted_totals_for_purchases(self, purchase_ids: list[int]) -> list[dict]:
+        """(purchase_id, grand_total) for every POSTED return against these bills.
+
+        Raw rows so the caller sums with ``Decimal`` — money is never aggregated as
+        a SQL float (§24).
+        """
+        if not purchase_ids:
+            return []
+        marks = ",".join("?" * len(purchase_ids))
+        return self._all(
+            f"SELECT purchase_id, grand_total FROM purchase_returns"
+            f" WHERE status = 'POSTED' AND purchase_id IN ({marks})", tuple(purchase_ids))
+
+    def returned_lines_for_purchase(self, purchase_id: int) -> list[dict]:
+        """What went back to the supplier, line by line, with its return document."""
+        return self._all(
+            "SELECT prl.purchase_line_id, prl.item_id, prl.quantity, prl.unit_price,"
+            " prl.discount, prl.line_total, pr.document_no, pr.return_date,"
+            " i.item_code, i.name AS item_name, i.alternate_name AS item_alt_name"
+            " FROM purchase_return_lines prl"
+            " JOIN purchase_returns pr ON pr.id = prl.return_id"
+            " LEFT JOIN items i ON i.id = prl.item_id"
+            " WHERE pr.purchase_id = ? AND pr.status = 'POSTED'"
+            " ORDER BY pr.return_date, pr.id, prl.line_no", (purchase_id,))
+
     def list_recent(self, limit: int = 200) -> list[dict]:
         return self._all(
             "SELECT pr.id, pr.document_no, pr.return_date, pr.grand_total, pr.status,"

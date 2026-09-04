@@ -297,7 +297,9 @@ class MainWindow(QMainWindow):
         self._s4_purchase_list = DocumentListPage(
             ctx, t, mode="purchase", on_new=lambda: self._show_s4("s4_purchase_new"),
             on_print=self._doc_printer("purchase"),
-            on_return=lambda i: self._open_return("purchase_return", i))
+            on_return=lambda i: self._open_return("purchase_return", i),
+            on_void=lambda i: self._void_purchase(i),
+            on_correct=lambda i: self._correct_purchase(i))
 
         self._stage04_pages = {
             "s4_sale_new": self._s4_sales_entry,
@@ -392,6 +394,40 @@ class MainWindow(QMainWindow):
         """Open the posted invoice in the Sales entry for a safe correction (round 2)."""
         page = self._s4_sales_entry
         page.load_for_correction(sale_id)
+        self.content.setCurrentWidget(page)
+
+    def _void_purchase(self, purchase_id: int) -> None:
+        """Confirm and safely void a posted purchase, then refresh the list."""
+        from PyQt6.QtWidgets import QMessageBox
+
+        from zenith_business.core.exceptions import ZenithError
+        purchase = self._context.purchase_documents.get(purchase_id)
+        if purchase is None:
+            return
+        t = self._translator
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(t.gettext("s4.void_confirm_title"))
+        box.setText(t.gettext("s4.void_confirm_title"))
+        box.setInformativeText(
+            t.gettext("s4.void_confirm_body").replace("{no}", purchase["document_no"]))
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        if box.exec() != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self._context.purchase_documents.void_purchase(
+                purchase_id=purchase_id, reason="Owner void from purchase list")
+        except ZenithError as exc:
+            QMessageBox.warning(self, t.gettext("s4.act_void"),
+                                getattr(exc, "user_message", None) or str(exc))
+            return
+        self._s4_purchase_list.reload()
+
+    def _correct_purchase(self, purchase_id: int) -> None:
+        """Open the posted bill in the Purchase entry for a safe in-place correction."""
+        page = self._s4_purchase_entry
+        page.load_purchase_for_correction(purchase_id)
         self.content.setCurrentWidget(page)
 
     # ---- owner-fix: customer / supplier account ledgers ------------------

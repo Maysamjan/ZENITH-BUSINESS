@@ -244,6 +244,10 @@ class PersonsPage(_BasePage):
             Column("company_name", "persons.col_company", width=180),
             Column("phone", "persons.col_phone", width=130),
             Column("roles_display", "persons.col_roles", width=160),
+            # What this person owes us, or we owe them, derived from the ledger —
+            # so managing a supplier does not mean opening their account to find
+            # out whether anything is outstanding.
+            Column("balance_display", "persons.col_balance", width=130),
             Column("is_active", "persons.col_status", width=110, kind="status"),
         ]
         self._on_view_account = None  # set by main window (contextual ledger, round 2)
@@ -270,7 +274,26 @@ class PersonsPage(_BasePage):
             if r["is_supplier"]:
                 marks.append(_t(self._t, "persons.f_supplier"))
             r["roles_display"] = " + ".join(marks)
+            r["balance_display"] = self._balance_text(r)
         self.page.set_rows(rows)
+
+    def _balance_text(self, row: dict) -> str:
+        """Receivable for a customer, payable for a supplier — both from the ledger.
+
+        Someone who is both shows each side labelled, because netting a customer
+        balance against a supplier balance would hide two real obligations behind
+        one number.
+        """
+        parts = []
+        if row["is_customer"]:
+            receivable = self._ctx.sales_documents.receivable(row["id"])
+            if D(receivable) != 0:
+                parts.append(f"{_t(self._t, 'persons.bal_receivable')}: {format_money(receivable)}")
+        if row["is_supplier"]:
+            payable = self._ctx.purchase_documents.payable(row["id"])
+            if D(payable) != 0:
+                parts.append(f"{_t(self._t, 'persons.bal_payable')}: {format_money(payable)}")
+        return " · ".join(parts) or "—"
 
     def set_view_account_handler(self, handler) -> None:
         """Wire the contextual 'View Account' action (party_id, role) -> ledger."""
