@@ -61,10 +61,12 @@ via forward migration 0005 (schema v5) — an ``is_fund`` flag on the locked
 ``payments``/``expenses`` (locked ``customer_id``/``supplier_id`` untouched), and
 an ``account_id`` on ``expense_categories`` — with no shipped migration edited and
 no locked contract altered. Atomic posting reuses the LOCKED double-entry ledger
-and party-balance derivation. Full architecture: §13K. Stage 05 later gained
-Sales Reporting and two owner review rounds (§13L–§13O); it has been **treated as
-locked** since the Stage 06 brief said so, but carries **no formal lock record
-yet** (see the note in §7).
+and party-balance derivation. Full architecture: §13K. Stage 05 later gained Sales
+Reporting and two owner review rounds (§13L–§13O), and is **owner-approved and
+LOCKED** (2026-09-04). Its frozen public contracts are in §8 — and the locked
+state is Stage 05 **as it stands today**, including the corrections requested
+during the Stage 06 verification rounds (in-place `correct_sale`, the derived
+`net_view`, the explicit Cash/Credit selector), which supersede parts of §13O.
 
 **Stage 06** (Inventory & Stock Management — the movement ledger made visible:
 opening vs current stock, adjustments with a mandatory reason, warehouse
@@ -232,17 +234,9 @@ requested module is implemented.
 | 02 | Database / Auth / RBAC / Service Foundation | ✅ **LOCKED** (owner-approved, merged to main) |
 | 03 | Master Data & Business Setup | ✅ **LOCKED** (owner-approved, merged to main) |
 | 04 | Sales, Purchases & Returns | ✅ **LOCKED** (owner-approved 2026-08-16) |
-| 05 | Receipts, Payments & Expenses (+ Sales Reporting, owner rounds 1–2) | 🧪 **READY FOR OWNER REVIEW** (NOT formally locked — see note) |
+| 05 | Receipts, Payments & Expenses (+ Sales Reporting, owner rounds 1–2) | ✅ **LOCKED** (owner-approved 2026-09-04) |
 | 06 | Inventory & Stock Management | ✅ **LOCKED** (owner-approved 2026-09-04; PR #4 not merged) |
-| 07 | (next stage — not started) | ⛔ Not started |
-
-> **Stage 05 status note.** Stage 05 has no formal lock record here, but the
-> owner's Stage 06 brief instructed *"Stage 05 is LOCKED — do not redesign or
-> expand Sales, Sales Return or Sales Reports"*, and it has been treated as
-> locked since. Stage 06 changed Stage 05 behaviour only where the owner
-> explicitly asked (in-place correction of a returned invoice, the net invoice
-> view, the Cash/Credit selector). **A formal Stage 05 lock record is still
-> outstanding and needs the owner's word.**
+| 07 | Purchases Parity / Purchase & Supplier Management | 📝 **PLANNED** (scope agreed; implementation not started) |
 
 ---
 
@@ -443,6 +437,84 @@ additive `MainWindow(context=…)` wiring. UI executes no SQL.
 posting guard into transaction posting; the Sales/Purchase/Receipt/Payment/Expense
 production modules; live Dashboard data. Stage 03 locks the **master-data
 foundation and its contracts**, not these unbuilt modules.
+
+### 🔒 Stage 05 — Receipts, Payments & Expenses (+ Sales Reporting) — LOCKED (2026-09-04, owner-approved)
+
+Owner-approved retrospectively. Stage 05 was treated as locked from the Stage 06
+brief onward (*"Stage 05 is LOCKED — do not redesign or expand Sales, Sales Return
+or Sales Reports"*) and this record formalises that. **The locked state is Stage
+05 as it stands today**, including the corrections the owner explicitly requested
+during the Stage 06 verification rounds — not the state described in §13K–§13O,
+some of which those rounds superseded. No behaviour is changed by writing this
+record. The following are **frozen**; Stage 07+ must use the §33 STOP procedure.
+
+**A. Database (migration 0005, schema v5; plus 0006 and 0007).** `accounts.is_fund`
+marking cash/bank/fund accounts; additive `party_id` / `payment_method` / posting
+stamps on `receipts` and `payments` (the locked `customer_id` / `supplier_id`
+untouched); `payment_method` / `notes` / stamps on `expenses`;
+`expense_categories.account_id` so a category maps to a real expense account.
+Seeded funds (Cash, Bank, Petty Cash), expense accounts and categories, the RCP /
+PAY / EXP sequences, indexes and 10 permissions with role grants. Migration 0006
+added the nullable `sales.walkin_name` / `walkin_phone` / `walkin_address`
+snapshot columns and the `parties.ledger` permission; migration 0007 added
+`sales.corrected_from_id` and the `sales.correct` permission.
+
+**B. Money-movement engine.** `money_s5` repositories and `ReceiptService` /
+`PaymentService` / `ExpenseService`, each posting ONE atomic transaction — header
++ metadata + **balanced double-entry journal** + party-balance effect + document
+number + audit — reusing the locked `FinancialRepository`, `assert_journal_balanced`
+and `PartyBalanceRepository`. Ledger direction is frozen: Receipt Dr fund / Cr AR;
+Payment Dr AP / Cr fund; Expense Dr expense account / Cr fund. Financial-year
+enforcement, RBAC and strict Decimal validation run before any write. **Balances
+are derived from the ledger and are never editable.**
+
+**C. Sale document behaviour (as corrected and accepted).** A walk-in customer is
+snapshotted onto the sale and creates no party record and no anonymous receivable.
+`void_sale` reverses stock, ledger and balance and stamps VOID, keeping the
+original document. **`correct_sale` amends the ORIGINAL invoice in place** — same
+row, same document number, difference-only journal, audited line diff. *This
+supersedes the void-and-replace description in §13O:* the in-place contract was
+adopted at the owner's instruction and is the locked behaviour. **A return never
+rewrites the sale**; the current position is derived by `net_view`, which the
+Sales List, the reopened invoice, the printed copy, the customer balance and the
+reports all read. Sale payment is the operator's explicit **Cash / Credit** choice
+with Paid and Remaining derived from the single existing grand-total computation —
+never inferred, never typed.
+
+**D. Sales Reporting.** `SalesReportRepository` + `SalesReportService` compute
+**Gross / Paid / Credit / Returns / Net** for Today / Week / Month / Year / Custom
+plus daily, monthly and yearly breakdowns and per-invoice detail, filtered by date
+range, warehouse, customer, payment status and registered/walk-in. Correct by
+construction: partial payments split paid vs credit, later receipts are debt
+collection and never revenue, a corrected invoice counts once, Gross and Returns
+stay separately auditable and Net = Gross − Returns. Money is summed with
+`Decimal`, never a SQL aggregate.
+
+**E. Party ledgers.** `PartyLedgerRepository` / `PartyLedgerService` /
+`PartyLedgerPage` — running balance and totals for a customer or supplier, derived
+from the authoritative ledger; a party that is both customer and supplier is one
+identity.
+
+**F. UI and print.** The reusable `MoneyEntryPage` / `MoneyListPage` screens under
+Receipts & Payments; the Sales Invoice workspace (registered vs walk-in, dominant
+line grid, full pre-post line editing, Cash/Credit selector, Previous / Updated
+balance); Account Settings; contextual "View Account". `VoucherPrintDocument`
+composes Receipt / Payment / Expense vouchers at **A4 and A5**, EN and Dari RTL,
+on the customer's business identity. The **Sales Report prints A4 only** (owner
+decision) — A5 remains available for invoices, receipts and vouchers.
+
+**G. RBAC + audit.** 10 service-enforced Stage 05 permissions plus `parties.ledger`
+and `sales.correct`; every post, void and correction is audited with actor,
+entity, document number and a readable summary, and no secrets. A failed post
+rolls back leaving no partial document, balance, journal or audit row.
+
+**Known limitations carried into the lock (intentional).** Documents post directly
+to POSTED — there is no DRAFT workflow. The GL is posted in document currency
+(original amount and rate are preserved and the base equivalent is derivable);
+cross-currency GL consolidation is a later reporting concern. Seeded fund and
+expense-account names are English master data the user renames. Under RTL,
+space-separated phone numbers are bidi-reordered inside the locked Stage 01
+`SearchSelector` dropdown (cosmetic; persisted data is unaffected).
 
 ### 🔒 Stage 06 — Inventory & Stock Management — LOCKED (2026-09-04, owner-approved)
 
@@ -1629,8 +1701,13 @@ and the base equivalent is derivable, but the GL is posted in document currency
 later reporting concern. Seeded fund/expense-account names are English master data
 (a user renames them, as with warehouses/units).
 
-**Recommendation:** *STAGE 05 IS TECHNICALLY READY FOR OWNER REVIEW.* Not locked,
-not merged, Stage 06 not started — owner decision only.
+**LOCK RECORD:** *Stage 05 is owner-approved and **LOCKED** (2026-09-04.)* Its
+frozen public contracts are in §8. The locked state is Stage 05 **as it stands
+today**, including the changes the owner requested during the Stage 06
+verification rounds — in-place `correct_sale`, the derived `net_view`, and the
+explicit Cash/Credit selector — which supersede the corresponding descriptions in
+§13M and §13O below. Those sections are kept as the historical record of how the
+stage was built, not as the current contract.
 
 ### 13K.1 Confirmed future requirement — Opening Stock (Inventory stage)
 
@@ -2060,10 +2137,129 @@ migration, and no change to inventory posting, returns, accounting or numbering.
 
 ---
 
+## 14B. Stage 07 — Purchases Parity / Purchase & Supplier Management (PLAN — not started)
+
+Agreed scope, 2026-09-04. **Accounting Reports and Costing/valuation are explicitly
+out of scope.** No code has been written; this section is the plan only.
+
+### 14B.0 What is already there (inspected, not assumed)
+
+Verified by reading the code and by running a probe against a real on-disk
+database — the findings below are reproduced facts, not expectations.
+
+**Already working and NOT to be rebuilt:** `post_purchase` (atomic header + lines +
+`PURCHASE` movements + balanced journal + numbering + audit, FY-enforced);
+`post_return` (over-return guard, a real stock-availability guard, `PURCHASE_RETURN`
+movements, Dr A/P — Cr Inventory); `find_by_reference` (PUR-000002 / 000002 / 2 all
+resolve); `returnable_quantities`; the supplier side of `PartyBalanceRepository`
+(`payable`), `PaymentService`, `PartyLedgerPage` (supplier ledger with running
+balance and totals) and `supplier_search`; the Persons master screen with a
+supplier role; purchase entry/list/return screens and A4/A5 purchase printing;
+`supplier_reference` on the header; the Note column on the returns list.
+
+**Confirmed gaps (each reproduced):**
+
+| # | Finding | Evidence |
+|---|---------|----------|
+| P1 | A **credit purchase from an unregistered supplier is accepted** and posts an **anonymous payable** (`party_type='SUPPLIER', party_id=NULL`). No supplier ledger can ever show it. Sales rejects the mirror case (walk-in credit) outright. | Probe: PUR-000001, remaining 500.00, A/P line with `party_id=None`. |
+| P2 | **Purchase List disagrees with the supplier balance after a return.** The list shows `grand_total` 1000.00 / remaining 1000.00 while the payable is correctly 600.00. There are no Returned / Net / net-remaining columns. | Probe step 3. |
+| P3 | **The printed purchase invoice ignores returns** — still prints Rice 10 → 1000.00 after 4 were returned. | Probe: `build_purchase_invoice` uses raw `lines_for`. |
+| P4 | **Reopening a purchase is impossible** — there is no purchase equivalent of `load_for_correction`, and no `correct_purchase`. A wrong purchase can only be voided… except there is no `void_purchase` either. | `PurchaseDocumentService` has none of `net_view`, `returned_items`, `correct_purchase`, `void_purchase`, `balance_before_purchase`. |
+| P5 | **Purchase returns save no readable note** (`notes = None`), so the Note column on the returns list is empty for them. | Probe step 4; `return_page._post` passes `notes` only in the sales branch. |
+| P6 | **No Cash/Credit selector on the purchase invoice** — the amount paid is typed by hand, so it can drift from the total. (This deliberately reverses the Stage 05 decision to scope the selector to sales; the owner has now asked for Cash/Credit purchase behaviour.) | `entry_page` gates the selector on `self._mode == "sale"`. |
+| P7 | **No `purchases.correct` permission and no `purchases.corrected_from_id`.** | `permissions` holds only view/create/edit/post/void/return/print for purchases. |
+
+### 14B.1 Migration 0009 (schema v9, forward/idempotent, appended never edited)
+
+Only what is genuinely required: `purchases.corrected_from_id` (mirroring
+`sales.corrected_from_id`) and the `purchases.correct` permission with grants to
+Admin / Manager / Accountant. Nothing else — supplier payments, the supplier
+ledger and purchase returns all already have their storage.
+
+### 14B.2 Engine work
+
+Mirror the locked, owner-accepted sales contracts rather than inventing new ones:
+
+* `PurchaseDocumentService.net_view(purchase_id)` — per line `bought` / `returned`
+  / `net_quantity` / `net_line_total`, `active_lines`, `gross_total`,
+  `returned_total`, `net_total`, `net_remaining`; the **single** answer to "what is
+  this bill worth now", read by the list, the reopened bill, the print, the
+  supplier balance and any purchase report.
+* `list()` enriched with `returned_total` / `net_total` / `net_remaining`, summed
+  with `Decimal`, never a SQL aggregate (§24).
+* `returned_items(purchase_id)` + `PurchaseReturnRepository.returned_lines_for_purchase`.
+* `balance_before_purchase(purchase_id)` — the supplier's payable excluding this
+  bill's own net remaining, so Previous Balance never double-counts.
+* `void_purchase` — reverse stock, ledger and payable, stamp VOID, keep the
+  document, refuse when a return exists.
+* `correct_purchase` — **amends the ORIGINAL bill in place**: same row, same
+  document number, surviving lines updated in place so `purchase_return_lines
+  .purchase_line_id` (ON DELETE RESTRICT) stays valid, compensating stock
+  movements, a **difference-only** journal, and an audited line diff. Refuses only
+  to drop a returned item or go below the returned quantity.
+* Reject a **credit purchase with no registered supplier** (P1), the exact mirror
+  of the walk-in-credit rejection on sales. A cash purchase from an unregistered
+  supplier stays allowed.
+* A readable purchase-return note, localized by the screen, generated by the
+  service when the caller supplies none.
+
+### 14B.3 UI work
+
+* **Purchase Invoice**: Cash/Credit selector with Paid/Remaining derived from the
+  same existing grand-total computation (no second calculation); reopening a
+  posted bill through `load_for_correction`, showing the **net** position with a
+  read-only **Returned Items / اقلام برگشتی** panel and Previous Balance excluding
+  this bill — the same shapes now locked on the sales side.
+* **Purchase List**: Billed / Returned / Net Total / Paid / Remaining / Status,
+  with Correct and Void row actions.
+* **Purchase Return**: pass the localized note; the Already-Returned column is
+  already shared.
+* **Suppliers**: a supplier-focused management view (code, name, phone, payable,
+  last purchase) with "View Account" into the existing supplier ledger.
+* **Printed purchase invoice**: net quantities, and the fully-returned note key.
+* EN + Dari with genuine RTL throughout.
+
+### 14B.4 Required consistency (the acceptance contract)
+
+**Purchase List = Purchase Invoice View = Printed Purchase Invoice = Purchase
+Return = Supplier Balance = Inventory = Stock Movement.** Every one of those reads
+`net_view` or the movement ledger; none stores its own copy.
+
+### 14B.5 Mandatory real workflow test (must reconcile everywhere)
+
+Buy Rice 10 × 100 = 1000 on credit → partial return 4 (net 600) → correct the bill
+to 8 × 100 (net 400 after the return) → pay the supplier 200 → full return of the
+remainder. At every step: stock, the Purchase List row, the reopened bill, the
+printed bill, the supplier balance, the supplier ledger and the movement history
+must agree, with exactly ONE bill carrying its original number, the return
+documents intact and the journal balanced. **Stage 07 is not finished if any two
+disagree.**
+
+### 14B.6 Delivery rules
+
+Preserve the layered architecture and §24 Decimal rules; migration only as in
+§14B.1; preserve EN/Dari + RTL; do not touch authentication, RBAC, licensing,
+sales, inventory posting or numbering beyond what is listed here; **Stage 05 and
+Stage 06 are LOCKED** — any needed change there stops and uses the §33 procedure.
+Full suite plus new engine, integration and UI tests; real screenshots EN + Dari;
+PROJECT_MASTER updated. Do not merge PR #4; do not start Accounting Reports or
+Costing.
+
+### 14B.7 Open question for the owner (answer before implementation)
+
+Sales resolved a **partial** payment as *Credit + a Receipt*. The mirror for
+purchases is *Credit + a supplier Payment*, which the Payments module already
+supports. **Confirm** that a purchase should therefore be strictly Cash (paid in
+full) or Credit (nothing paid), with anything in between recorded as a Payment —
+or say if purchases must keep a free-typed partial amount on the bill itself.
+
+---
+
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-09-04 | 2.9 | **Stage 05 — Receipts, Payments & Expenses (+ Sales Reporting) declared LOCKED (owner-approved); Stage 07 scope agreed.** Formalises the lock that the Stage 06 brief had already asserted in practice. Documentation only — **no Stage 05 behaviour changed**. The locked state is Stage 05 **as it stands today**, including the corrections the owner requested during the Stage 06 verification rounds (in-place `correct_sale`, the derived `net_view`, the explicit Cash/Credit selector), which **supersede** the corresponding descriptions in §13M and §13O; those sections are retained as the historical build record, not as the contract. Frozen in §8: migrations 0005–0007; the atomic Receipt / Payment / Expense posting with its fixed ledger directions and ledger-derived, non-editable balances; walk-in snapshot with no anonymous receivable; `void_sale`; **in-place `correct_sale`**; a return never rewriting the sale, with `net_view` as the single current-position read; the explicit Cash/Credit payment choice; the Sales Reporting engine (Gross/Paid/Credit/Returns/Net, partial-payment split, later receipts excluded, corrections counted once); party ledgers; the money entry/list screens and A4/A5 vouchers with the Sales Report at A4 only; and 12 service-enforced permissions with full audit. Known limitations carried into the lock: POSTED-only documents (no DRAFT), GL in document currency, English seeded account names, and the RTL `SearchSelector` phone-bidi cosmetic issue. **Stage 07 agreed as Purchases Parity / Purchase & Supplier Management** (§14B) — planning only, no implementation; Accounting Reports and Costing explicitly excluded. PR #4 still not merged. |
 | 2026-09-04 | 2.8 | **Stage 06 — Inventory & Stock Management declared LOCKED (owner-approved).** Owner accepted Stage 06 after manual acceptance testing of the Windows test build plus three verification rounds (§14A.1 returns visible on the original sale, §14A.2 the full return, §14A.3 reopening a sale on its current state). Accepted commit `a4017ec`; **538 tests pass**; schema **v8**; final Windows build published from that commit. Stage 06 public contracts frozen in §8: stock as a single signed movement ledger with no stored stock figure and nine movement types; migration 0008 (`inventory_movements.notes` + 3 indexes); permanent Opening/Current separation; the `InventoryReadRepository` / `InventoryService` / `InventoryReportService` reads; mandatory adjustment reason, transfer conservation and over-transfer block, sale validation against current warehouse stock; and the sales-integration contracts — `net_view` as the one "what is this invoice worth now" answer that the Sales List, the reopened invoice, the print, the customer balance and the reports all read, in-place `correct_sale`, `returned_items`, `balance_before_sale`, the readable return note and `InvoiceData.note_key`. A5 is never offered for inventory reports. **PR #4 deliberately NOT merged.** Stage 07 not started. Stage 05 still carries no formal lock record — recorded as an open item in §7. |
 | 2026-09-04 | 2.7 | **Owner verification round 3 — reopening a sale shows its CURRENT state (Stage 06 still READY FOR OWNER REVIEW; not locked, not merged).** The Sales List, print and reports already showed the net result after a return, but **reopening the saved sale still listed the returned item as an active payable line at the original Grand Total** — the invoice screen was the last surface reading the raw stored lines. It now loads from the same `net_view` as everything else: a partly returned line loads at its net quantity, a fully returned line is not an active line at all, and Grand Total is the net total (Rice 1980 + Sugar 1750 = 3730 with Rice fully returned reopens as Sugar alone at **1750**). The returned goods show read-only under **Returned Items / اقلام برگشتی** with item, qty, amount and return document; the panel is absent when there are no returns. **History is never rewritten**: returned quantities are folded back in on save, so correcting Sugar 1 → 2 stores Sugar 2 **and** Rice 1 (gross 5480, net 3500, receivable 3500, return still valid, one invoice, original number). Two related fixes in the same screen — **Previous Balance** double-counted the invoice being corrected (it showed the full receivable, which already contains this invoice, then added its remaining again); it is now the balance *before* this invoice via the new `balance_before_sale`, and the header chip is relabelled **Customer Balance / بیلانس مشتری** so one label never means two numbers. **Amount Paid** was re-derived from the reduced total on reopen, silently claiming back cash the customer still holds; a reopened invoice now shows what was actually paid, and Remaining goes negative (refund owed) exactly as the Sales List and receivable do. The save message no longer claims "new invoice". New reads: `SalesReturnRepository.returned_lines_for_sale`, `SalesDocumentService.returned_items` / `balance_before_sale`, `net_view["net_remaining"]`. No migration; inventory posting, returns, accounting and numbering untouched. Verified on a real on-disk DB in EN + Dari. **538 tests pass** (+15 in `tests/test_invoice_view_after_return.py`). See §14A.3. |
 | 2026-08-31 | 2.6 | **Owner verification round 2 — the FULL return (Stage 06 still READY FOR OWNER REVIEW; not locked, not merged).** Sold Rice 5 × 100 = 500 twice and returned **all five** on each, posting one through the real **English** Return screen and one through the real **Dari** screen on the same database. Verified: warehouse stock 0 → **10**; Sales List Returned **500.00** / Net **0.00** / Remaining **0.00** on both rows; customer receivable **0.00**; **no second SALE invoice** (2 sold, 2 listed, one SALE movement each); the note visible in the Returns list in the language it was posted in ("Rice — Qty 5 returned." / "برنج به تعداد 5 دانه برگشت شد."); Sales Report 1000 / 1000 / **0**; nothing further returnable and a further return refused; ledger balanced. **Defect found and fixed:** a fully-returned invoice printed as a **blank form** — the netted item table is legitimately empty, so the A4 sheet showed an empty table and 0.00 totals with no explanation. Added an optional document-level note to the printed invoice (`InvoiceData.note_key`, additive with an empty default, rendered above the standard terms): "All items on this invoice were returned. Nothing remains payable." / "تمام اقلام این بل برگشت داده شده است. مبلغی قابل پرداخت باقی نمانده." Stored as an i18n **key** so it follows the preview's EN/Dari toggle rather than freezing the language at build time. Partially-returned and untouched invoices carry no note. No migration; no accounting/inventory/numbering change. **523 tests pass** (+12). See §14A.2. |
