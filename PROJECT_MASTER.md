@@ -15,10 +15,10 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 2.0 |
-| Current Stage | **05 — RECEIPTS, PAYMENTS & EXPENSES (+ owner review rounds 1 & 2 + full UI/UX modernization) — 🧪 READY FOR OWNER REVIEW (NOT locked, NOT merged)** |
-| Database Schema Version | **7** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data, 0004 stage04_sales_purchases_returns, 0005 stage05_receipts_payments_expenses, 0006 owner_fixes_walkin_ledger_void, 0007 round2_sales_correction) |
-| Last Updated | 2026-08-17 |
+| PROJECT_MASTER.md Version | 2.8 |
+| Current Stage | **06 — INVENTORY & STOCK MANAGEMENT — 🔒 LOCKED (owner-approved 2026-09-04; PR #4 NOT merged yet)** |
+| Database Schema Version | **8** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data, 0004 stage04_sales_purchases_returns, 0005 stage05_receipts_payments_expenses, 0006 owner_fixes_walkin_ledger_void, 0007 round2_sales_correction, 0008 stage06_inventory) |
+| Last Updated | 2026-09-04 |
 
 **Stage gate:** Stage 00 (constitution) and **Stage 01 (foundation, incl.
 01B–01G refinements + typography)** are owner-approved and **LOCKED** (Master
@@ -61,7 +61,19 @@ via forward migration 0005 (schema v5) — an ``is_fund`` flag on the locked
 ``payments``/``expenses`` (locked ``customer_id``/``supplier_id`` untouched), and
 an ``account_id`` on ``expense_categories`` — with no shipped migration edited and
 no locked contract altered. Atomic posting reuses the LOCKED double-entry ledger
-and party-balance derivation. Full architecture: §13K. **Stage 06 is NOT STARTED.**
+and party-balance derivation. Full architecture: §13K. Stage 05 later gained
+Sales Reporting and two owner review rounds (§13L–§13O); it has been **treated as
+locked** since the Stage 06 brief said so, but carries **no formal lock record
+yet** (see the note in §7).
+
+**Stage 06** (Inventory & Stock Management — the movement ledger made visible:
+opening vs current stock, adjustments with a mandatory reason, warehouse
+transfers, movement history, low stock, item search, and five A4 reports) is
+**owner-approved and LOCKED** (2026-09-04) after manual acceptance testing and
+three verification rounds. It builds additively via forward migration 0008
+(schema v8) with no shipped migration edited. Its frozen public contracts are in
+§8; the architecture and the verification records are in §14A–§14A.3. **PR #4 is
+not merged yet. Stage 07 is NOT STARTED.**
 
 Accepted known limitation (owner-approved 2026-08-16): under RTL, space-separated
 phone numbers are bidi-reordered inside the LOCKED Stage 01 `SearchSelector`
@@ -220,15 +232,17 @@ requested module is implemented.
 | 02 | Database / Auth / RBAC / Service Foundation | ✅ **LOCKED** (owner-approved, merged to main) |
 | 03 | Master Data & Business Setup | ✅ **LOCKED** (owner-approved, merged to main) |
 | 04 | Sales, Purchases & Returns | ✅ **LOCKED** (owner-approved 2026-08-16) |
-| 05 | Receipts, Payments & Expenses | 🧪 **READY FOR OWNER REVIEW** (NOT locked, NOT merged) |
-| 04 | Chart of Accounts | ⛔ Not started |
-| 05 | Persons | ⛔ Not started |
-| 06 | Currencies | ⛔ Not started |
-| 07 | Accounting Engine | ⛔ Not started |
-| 08 | Products | ⛔ Not started |
-| 09 | Warehouses | ⛔ Not started |
-| 10 | Inventory Engine | ⛔ Not started |
-| … | (Sales, Purchases, Cash/Bank, Reporting, System Mgmt) | ⛔ Not started |
+| 05 | Receipts, Payments & Expenses (+ Sales Reporting, owner rounds 1–2) | 🧪 **READY FOR OWNER REVIEW** (NOT formally locked — see note) |
+| 06 | Inventory & Stock Management | ✅ **LOCKED** (owner-approved 2026-09-04; PR #4 not merged) |
+| 07 | (next stage — not started) | ⛔ Not started |
+
+> **Stage 05 status note.** Stage 05 has no formal lock record here, but the
+> owner's Stage 06 brief instructed *"Stage 05 is LOCKED — do not redesign or
+> expand Sales, Sales Return or Sales Reports"*, and it has been treated as
+> locked since. Stage 06 changed Stage 05 behaviour only where the owner
+> explicitly asked (in-place correction of a returned invoice, the net invoice
+> view, the Cash/Credit selector). **A formal Stage 05 lock record is still
+> outstanding and needs the owner's word.**
 
 ---
 
@@ -429,6 +443,65 @@ additive `MainWindow(context=…)` wiring. UI executes no SQL.
 posting guard into transaction posting; the Sales/Purchase/Receipt/Payment/Expense
 production modules; live Dashboard data. Stage 03 locks the **master-data
 foundation and its contracts**, not these unbuilt modules.
+
+### 🔒 Stage 06 — Inventory & Stock Management — LOCKED (2026-09-04, owner-approved)
+
+Owner-approved after manual acceptance testing of the Stage 06 Windows test build
+(commit `a4017ec`, **538 tests**, schema **v8**). Built additively; the only
+Stage 05 behaviour changed was what the owner explicitly asked for across three
+verification rounds. The following are **frozen**; Stage 07+ must respect them and
+use the §33 STOP procedure to change any of them.
+
+**A. Stock is a signed movement ledger — the single source of truth.** On-hand is
+the `Decimal` sum of `inventory_movements`; **no table stores a stock figure**, so
+no two screens can disagree. Every screen and report reads the same service. The
+nine movement types (`OPENING`, `PURCHASE`, `SALE`, `SALE_RETURN`,
+`PURCHASE_RETURN`, `ADJUSTMENT_IN`, `ADJUSTMENT_OUT`, `TRANSFER_IN`,
+`TRANSFER_OUT`) and the CHECK constraint that enforces them are frozen.
+
+**B. Schema (migration 0008, v8, forward/idempotent).** `inventory_movements.notes`
+plus three reporting indexes. No new permission — `inventory.view/adjust/transfer`
+already existed.
+
+**C. Opening vs Current are permanently separate.** Opening stock is the `OPENING`
+movement recorded once at item creation and never re-recorded on edit; Current is
+the running sum. Both are shown side by side in the product list and Inventory.
+
+**D. Engine contracts.** `InventoryReadRepository` (`movements`, `stock_by_item`,
+`stock_by_item_and_warehouse`, `warehouse_names_by_item`, `items_with_levels`);
+`InventoryService.movement_history / stock_by_warehouse / stock_overview /
+low_stock / opening / stock_columns / adjust / transfer / record_opening`;
+`InventoryReportService.current_stock / opening_vs_current / stock_by_warehouse /
+item_movement / low_stock`. **`adjust()` requires a non-empty reason**, stores it
+on the movement, and refuses to remove more than a warehouse holds. Current Stock
+is never editable without a movement. A transfer preserves the company total and
+blocks over-transfer. A sale validates against CURRENT stock in the selected
+warehouse.
+
+**E. Sales-integration contracts (frozen by the owner's three verification rounds).**
+`SalesDocumentService.net_view(sale_id)` is the one answer to "what is this
+invoice worth now" — per-line `sold` / `returned` / `net_quantity` /
+`net_line_total`, `active_lines`, `gross_total`, `returned_total`, `net_total`,
+`net_remaining`. The **Sales List, the reopened invoice, the printed copy, the
+customer balance and the reports all read it**, and must continue to agree.
+`correct_sale` amends the ORIGINAL invoice in place (same row, same document
+number, difference-only journal); it refuses only to drop a returned item or go
+below the returned quantity. A return never rewrites the sale: sold quantities and
+the return document are the historical record. Also frozen: `returned_items`,
+`balance_before_sale`, `SalesReturnRepository.returned_lines_for_sale`, the
+readable return note, and `InvoiceData.note_key` (an i18n key, never text, so the
+sheet follows the language toggle).
+
+**F. UI contracts.** Inventory, Stock Adjustment, Warehouse Transfer and Stock
+Movement History screens; five inventory reports printed **A4 only** on the
+CUSTOMER's business identity; product list columns Item Code / Name / Unit /
+Opening / Current / Warehouse / Low-Stock status; search by code, name or barcode;
+the Returned Items panel on a reopened invoice. EN + Dari with genuine RTL.
+
+**Not locked by Stage 06:** the Dashboard's stock widgets, costing/valuation
+(FIFO/average), stock-taking sessions, and multi-currency inventory — none are
+built. Stage 06 locks the **movement ledger, its reads and the sales-integration
+contracts**, not those unbuilt features.
 
 ---
 
@@ -1783,7 +1856,7 @@ not started.
 
 ---
 
-## 14A. Stage 06 — Inventory & Stock Management (READY FOR OWNER REVIEW)
+## 14A. Stage 06 — Inventory & Stock Management (🔒 LOCKED)
 
 Stock was already a signed movement ledger, and Stage 06 keeps it that way: every
 figure the app shows — the Inventory screen, the product list, the reports, and the
@@ -1843,8 +1916,12 @@ Return (history preserved, 3 still returnable) and all five reports; the ledger
 stays balanced. Two self-found UI defects were fixed during screenshot review (a
 clipped Low-Stock chip; printed report headers rendering in the wrong language).
 
-**Recommendation:** *READY FOR OWNER REVIEW.* Stage 06 is **not locked and not
-merged**; Stage 07 not started.
+**LOCK RECORD:** *Stage 06 is owner-approved and **LOCKED** (2026-09-04)* after
+manual acceptance testing plus three owner verification rounds (§14A.1–§14A.3).
+Accepted commit `a4017ec`, **538 tests pass**, schema **v8**. Its frozen public
+contracts are in §8. **PR #4 is not merged yet** (owner's instruction). Stage 07
+not started. Stage 06 behaviour must not change from here except to fix a
+confirmed bug, via the §33 STOP procedure.
 
 ### 14A.1 Owner verification round — a return must update the original sale visibly
 
@@ -1987,6 +2064,7 @@ migration, and no change to inventory posting, returns, accounting or numbering.
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-09-04 | 2.8 | **Stage 06 — Inventory & Stock Management declared LOCKED (owner-approved).** Owner accepted Stage 06 after manual acceptance testing of the Windows test build plus three verification rounds (§14A.1 returns visible on the original sale, §14A.2 the full return, §14A.3 reopening a sale on its current state). Accepted commit `a4017ec`; **538 tests pass**; schema **v8**; final Windows build published from that commit. Stage 06 public contracts frozen in §8: stock as a single signed movement ledger with no stored stock figure and nine movement types; migration 0008 (`inventory_movements.notes` + 3 indexes); permanent Opening/Current separation; the `InventoryReadRepository` / `InventoryService` / `InventoryReportService` reads; mandatory adjustment reason, transfer conservation and over-transfer block, sale validation against current warehouse stock; and the sales-integration contracts — `net_view` as the one "what is this invoice worth now" answer that the Sales List, the reopened invoice, the print, the customer balance and the reports all read, in-place `correct_sale`, `returned_items`, `balance_before_sale`, the readable return note and `InvoiceData.note_key`. A5 is never offered for inventory reports. **PR #4 deliberately NOT merged.** Stage 07 not started. Stage 05 still carries no formal lock record — recorded as an open item in §7. |
 | 2026-09-04 | 2.7 | **Owner verification round 3 — reopening a sale shows its CURRENT state (Stage 06 still READY FOR OWNER REVIEW; not locked, not merged).** The Sales List, print and reports already showed the net result after a return, but **reopening the saved sale still listed the returned item as an active payable line at the original Grand Total** — the invoice screen was the last surface reading the raw stored lines. It now loads from the same `net_view` as everything else: a partly returned line loads at its net quantity, a fully returned line is not an active line at all, and Grand Total is the net total (Rice 1980 + Sugar 1750 = 3730 with Rice fully returned reopens as Sugar alone at **1750**). The returned goods show read-only under **Returned Items / اقلام برگشتی** with item, qty, amount and return document; the panel is absent when there are no returns. **History is never rewritten**: returned quantities are folded back in on save, so correcting Sugar 1 → 2 stores Sugar 2 **and** Rice 1 (gross 5480, net 3500, receivable 3500, return still valid, one invoice, original number). Two related fixes in the same screen — **Previous Balance** double-counted the invoice being corrected (it showed the full receivable, which already contains this invoice, then added its remaining again); it is now the balance *before* this invoice via the new `balance_before_sale`, and the header chip is relabelled **Customer Balance / بیلانس مشتری** so one label never means two numbers. **Amount Paid** was re-derived from the reduced total on reopen, silently claiming back cash the customer still holds; a reopened invoice now shows what was actually paid, and Remaining goes negative (refund owed) exactly as the Sales List and receivable do. The save message no longer claims "new invoice". New reads: `SalesReturnRepository.returned_lines_for_sale`, `SalesDocumentService.returned_items` / `balance_before_sale`, `net_view["net_remaining"]`. No migration; inventory posting, returns, accounting and numbering untouched. Verified on a real on-disk DB in EN + Dari. **538 tests pass** (+15 in `tests/test_invoice_view_after_return.py`). See §14A.3. |
 | 2026-08-31 | 2.6 | **Owner verification round 2 — the FULL return (Stage 06 still READY FOR OWNER REVIEW; not locked, not merged).** Sold Rice 5 × 100 = 500 twice and returned **all five** on each, posting one through the real **English** Return screen and one through the real **Dari** screen on the same database. Verified: warehouse stock 0 → **10**; Sales List Returned **500.00** / Net **0.00** / Remaining **0.00** on both rows; customer receivable **0.00**; **no second SALE invoice** (2 sold, 2 listed, one SALE movement each); the note visible in the Returns list in the language it was posted in ("Rice — Qty 5 returned." / "برنج به تعداد 5 دانه برگشت شد."); Sales Report 1000 / 1000 / **0**; nothing further returnable and a further return refused; ledger balanced. **Defect found and fixed:** a fully-returned invoice printed as a **blank form** — the netted item table is legitimately empty, so the A4 sheet showed an empty table and 0.00 totals with no explanation. Added an optional document-level note to the printed invoice (`InvoiceData.note_key`, additive with an empty default, rendered above the standard terms): "All items on this invoice were returned. Nothing remains payable." / "تمام اقلام این بل برگشت داده شده است. مبلغی قابل پرداخت باقی نمانده." Stored as an i18n **key** so it follows the preview's EN/Dari toggle rather than freezing the language at build time. Partially-returned and untouched invoices carry no note. No migration; no accounting/inventory/numbering change. **523 tests pass** (+12). See §14A.2. |
 | 2026-08-31 | 2.5 | **Owner verification round — a sales return must update the ORIGINAL sale visibly (Stage 06 still READY FOR OWNER REVIEW; not locked, not merged).** Verified the owner's example (Rice 5 × 100 = 500, return 1) on a real on-disk database through the real screens: stock 5 → **6**; still **one** invoice `SALE-000001` (POSTED, never rewritten); Sales List Invoiced 500 / Returned **100** / Net **400**; invoice line sold 5 / returned **1** / net **4** = 400; printed invoice **Rice 4 → 400**; Sales Report Gross 500 / Returns **100** / Net **400**; customer receivable **400**; movements gain one `SALE_RETURN +1` with no second `SALE`. No migration; no accounting/numbering/inventory-posting change. Three gaps the verification exposed were fixed: (1) the Sales List **Remaining** column still showed the invoiced 500 after a return — `list()` now derives `net_remaining` = net total − paid (correctly negative = refund owed on a paid invoice, matching the receivable); (2) the human-readable note was stored but shown nowhere — the Sales Return list gained a **Note** column (stretch) beside the source invoice; (3) the **Dari note used the English item name** — it now uses the item's Dari (alternate) name: "برنج به تعداد 1 دانه برگشت شد." This behaviour had **no regression tests**; added 16 in `tests/test_return_reflects_on_invoice.py`. **511 tests pass** (+16). Windows test build **renamed Stage 05 → Stage 06**: the workflow reads a single `env.STAGE`, publishes tag `stage06-test-build` + `ZenithBusiness-Stage06-TestBuild-win64.zip`, and retires the old `stage05-test-build` release; launcher/README/seed headers updated. See §14A.1. |
