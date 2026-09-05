@@ -68,11 +68,35 @@ class PartyLedgerRepository(BaseRepository):
         return money_to_db(sum((D(r["debit"]) for r in rows), D(0)))
 
     def customer_totals(self, party_id: int) -> dict:
-        """Total invoiced (posted sales), total received on account, receivable."""
+        """Net sales, everything received, and the receivable — and they add up.
+
+        The three figures a summary shows must satisfy
+        ``total_sales - total_received == receivable``, or the screen invites the
+        reader to distrust all three. Two things are needed for that:
+
+        * sales are counted **net of posted returns**, because a return credits the
+          receivable, and
+        * "received" counts the money taken **on the invoice itself** as well as
+          later Receipt documents — cash handed over at the counter is money
+          received just as much as a receipt is.
+
+        Money is summed with ``Decimal``, never a SQL aggregate (§24).
+        """
         sales = self._all(
-            "SELECT grand_total FROM sales WHERE party_id = ? AND status = 'POSTED'", (party_id,))
-        total_sales = money_to_db(sum((D(r["grand_total"]) for r in sales), D(0)))
-        total_received = self._sum_credit("CUSTOMER", party_id, ("RECEIPT",))
+            "SELECT id, grand_total, amount_paid FROM sales"
+            " WHERE party_id = ? AND status = 'POSTED'", (party_id,))
+        gross = sum((D(r["grand_total"]) for r in sales), D(0))
+        paid_on_invoices = sum((D(r["amount_paid"]) for r in sales), D(0))
+        returned = D(0)
+        if sales:
+            marks = ",".join("?" * len(sales))
+            returned = sum((D(r["grand_total"]) for r in self._all(
+                f"SELECT grand_total FROM sales_returns"
+                f" WHERE status = 'POSTED' AND sale_id IN ({marks})",
+                tuple(r["id"] for r in sales))), D(0))
+        total_sales = money_to_db(gross - returned)
+        total_received = money_to_db(
+            paid_on_invoices + D(self._sum_credit("CUSTOMER", party_id, ("RECEIPT",))))
         rows = self._all(
             "SELECT debit, credit FROM financial_entry_lines"
             " WHERE party_type = 'CUSTOMER' AND party_id = ?", (party_id,))
@@ -81,12 +105,28 @@ class PartyLedgerRepository(BaseRepository):
                 "receivable": receivable}
 
     def supplier_totals(self, party_id: int) -> dict:
-        """Total purchased (posted purchases), total paid, payable."""
+        """Net purchases, everything paid, and the payable — and they add up.
+
+        The supplier mirror of :meth:`customer_totals`, and for the same reason:
+        ``total_purchases - total_paid == payable`` must hold. Purchases are net of
+        posted returns (a return debits the payable), and "paid" counts the money
+        handed over **on the bill** as well as later Payment documents.
+        """
         purchases = self._all(
-            "SELECT grand_total FROM purchases WHERE party_id = ? AND status = 'POSTED'",
-            (party_id,))
-        total_purchases = money_to_db(sum((D(r["grand_total"]) for r in purchases), D(0)))
-        total_paid = self._sum_debit("SUPPLIER", party_id, ("PAYMENT",))
+            "SELECT id, grand_total, amount_paid FROM purchases"
+            " WHERE party_id = ? AND status = 'POSTED'", (party_id,))
+        gross = sum((D(r["grand_total"]) for r in purchases), D(0))
+        paid_on_bills = sum((D(r["amount_paid"]) for r in purchases), D(0))
+        returned = D(0)
+        if purchases:
+            marks = ",".join("?" * len(purchases))
+            returned = sum((D(r["grand_total"]) for r in self._all(
+                f"SELECT grand_total FROM purchase_returns"
+                f" WHERE status = 'POSTED' AND purchase_id IN ({marks})",
+                tuple(r["id"] for r in purchases))), D(0))
+        total_purchases = money_to_db(gross - returned)
+        total_paid = money_to_db(
+            paid_on_bills + D(self._sum_debit("SUPPLIER", party_id, ("PAYMENT",))))
         rows = self._all(
             "SELECT debit, credit FROM financial_entry_lines"
             " WHERE party_type = 'SUPPLIER' AND party_id = ?", (party_id,))

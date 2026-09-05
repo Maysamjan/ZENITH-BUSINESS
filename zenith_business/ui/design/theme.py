@@ -203,6 +203,16 @@ def build_stylesheet() -> str:
         color: {c.TEXT_SECONDARY};
     }}
     QPushButton[variant="ghost"]:hover {{ color: {c.PRIMARY}; background-color: {c.PRIMARY_SOFT}; }}
+    /* A row action sits inside a table cell, which is shorter than a form
+       button. The sheet has to size it: Qt applies a stylesheet ``min-height``
+       by calling setMinimumHeight() on the widget itself, which overrides any
+       setFixedHeight() the widget set for itself — so the button would grow
+       past its cell and have its label clipped away, leaving an empty box. */
+    QPushButton[role="row-action"] {{
+        min-height: {ControlSize.TABLE_ROW_HEIGHT - 8}px;
+        max-height: {ControlSize.TABLE_ROW_HEIGHT - 8}px;
+        padding: 0px {Spacing.SM}px;
+    }}
 
     /* ==== tables ======================================================== */
     QTableView, QTableWidget {{

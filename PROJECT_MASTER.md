@@ -15,10 +15,10 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 3.0 |
+| PROJECT_MASTER.md Version | 3.1 |
 | Current Stage | **07 — PURCHASES PARITY — 🧪 READY FOR OWNER REVIEW (NOT locked, NOT merged). Stages 01–06 LOCKED.** |
 | Database Schema Version | **9** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data, 0004 stage04_sales_purchases_returns, 0005 stage05_receipts_payments_expenses, 0006 owner_fixes_walkin_ledger_void, 0007 round2_sales_correction, 0008 stage06_inventory, 0009 stage07_purchases_parity) |
-| Last Updated | 2026-09-04 |
+| Last Updated | 2026-09-05 |
 
 **Stage gate:** Stage 00 (constitution) and **Stage 01 (foundation, incl.
 01B–01G refinements + typography)** are owner-approved and **LOCKED** (Master
@@ -2368,12 +2368,72 @@ merged**; Stages 05 and 06 are unchanged. **One deviation is outstanding for the
 owner to accept or reject: supplier management as a Persons filter rather than a
 dedicated Suppliers screen.**
 
+### 14B.10 Supplier UI finalization (closes the §14B.9 deviation)
+
+The owner resolved the deviation: keep the shared Persons architecture
+internally, add a **dedicated Suppliers screen** in the UI. No second supplier
+data source, no duplicated supplier record, no duplicated balance.
+
+**How it stays one source of truth.** `SuppliersPage` subclasses `PersonsPage`
+and is *pure configuration* — `PersonsPage` was refactored into three overridable
+hooks (`_page_columns`, `_page_config`, `_role_filter_choices`) plus a
+`_default_role` attribute, so the supplier view is a different presentation of
+the same page, not a second page. It reads people through the same
+`parties` service with `role="supplier"`, creates and edits through the same
+person form (Supplier pre-ticked), and takes every figure from
+`party_ledger.supplier_ledger(...)["totals"]` — the same call the Supplier Ledger
+screen makes. A dual-role party's Current Balance names both sides rather than
+netting them into a single misleading number. Columns: Supplier Code, Name,
+Business Name, Phone, Current Balance, Total Purchases, Total Paid, Remaining
+Payable, Status, View Account. Search, New Supplier, Edit Supplier and Open
+Supplier Ledger all work; the screen is registered under Base Data and shares the
+main window's `_open_party_account` handler.
+
+**A reconciliation bug found while wiring it up (confirmed, not assumed).**
+`supplier_totals` and `customer_totals` did not add up: a supplier with a 1,000
+bill, a 400 return and a 200 payment reported Purchases 1,000 − Paid 200 = 800
+against a Payable of 400. The totals counted documents **gross of returns** and
+counted only the separate Payment/Receipt documents as "paid", ignoring the
+amount paid on the document itself, while the balance was computed correctly from
+the ledger. Both are now derived so that **total − paid == balance** always holds:
+documents count **net of posted returns**, and paid/received includes the amount
+settled on the document plus the payment documents. Same data, corrected
+arithmetic — no schema change and no stored value rewritten.
+
+*This changes a figure displayed by the Stage 05-locked customer ledger summary.*
+It is reported under the §33 rule as a **confirmed integration bug**: the three
+figures on that screen previously could not be reconciled by the reader. Nothing
+else about Stage 05 behaviour is touched, and `tests/test_owner_fixes.py` was
+updated from the old non-reconciling expectation to assert the identity.
+
+**Two shared-table rendering defects fixed (both reproduced first).** The
+"View Account" row action rendered as an **empty box**. Two independent causes,
+each confirmed by measuring the live widget rather than by eye:
+1. The button was 42px tall inside a 26px cell, so its label was clipped away.
+   `setFixedHeight()` could not fix it — Qt applies a stylesheet `min-height` by
+   calling `setMinimumHeight()` on the widget itself, which overrides it — so the
+   height now comes from the sheet (`QPushButton[role="row-action"]`).
+2. `RowActions` set an **unscoped** `background: transparent` stylesheet, which
+   in Qt also applies to every child, stripping the fill from the accent button
+   and leaving white text on a white row. The selector is now scoped to the
+   container by object name.
+Both live in shared UI code, so every table's row actions were checked
+(purchases, sales, payments, persons) — all fit their cells and paint their
+labels.
+
+**Verification.** EN and Dari captured **inside the real main window** on an
+on-disk database, so RTL is genuinely exercised (a standalone page inherits no
+direction). The Suppliers list and the ledger reached through View Account show
+the same three figures — 1,100 / 400 / 700 — with the ledger's running balance
+1,000 → 600 → 400 → 700. Stage 07 remains **not locked and not merged**.
+
 ---
 
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-09-05 | 3.1 | **Stage 07 — dedicated Suppliers screen (still NOT locked, NOT merged).** The §14B.9 deviation is closed the way the owner directed: Persons stays the shared master data structure internally, and the UI gains a real **Suppliers** screen. `SuppliersPage` subclasses `PersonsPage` as pure configuration — `PersonsPage` was refactored into overridable hooks so this is a second *presentation*, not a second page, a second table or a second supplier record. It shows Supplier Code, Name, Business Name, Phone, Current Balance, Total Purchases, Total Paid, Remaining Payable, Status and View Account, with Search, New Supplier (the same person form, Supplier pre-ticked), Edit and Open Supplier Ledger — every figure read from `party_ledger.supplier_ledger(...)`, the same call the ledger screen makes, so no balance is duplicated. Wiring it up exposed a **confirmed reconciliation bug**: `supplier_totals` and `customer_totals` counted documents gross of returns and ignored the amount paid on the document itself, so a supplier read Purchases 1,000 − Paid 200 against a Payable of 400. Both now derive so **total − paid == balance** always holds — reported under §33 because it corrects a figure shown by the Stage 05-locked customer ledger summary. Two shared-table rendering defects fixed, each reproduced by measuring the live widget: a row-action button was 42px tall in a 26px cell (a stylesheet `min-height` overrides `setFixedHeight`, so the height now comes from the sheet), and `RowActions` applied an unscoped `background: transparent` that also stripped its children's fill, leaving white text on a white row — the reason **View Account rendered as an empty box**. **583 tests pass** (+2). EN and Dari verified inside the real main window on an on-disk database, so RTL is genuinely exercised; the Suppliers list and the ledger behind View Account show the same 1,100 / 400 / 700. Stages 05 and 06 behaviour otherwise unchanged. See §14B.10. |
 | 2026-09-04 | 3.0 | **Stage 07 — Purchases Parity implemented (READY FOR OWNER REVIEW; NOT locked, NOT merged).** Purchases now carry the contracts the sales side earned across three owner rounds. Seven gaps recorded in §14B.0 were each reproduced on a real database first, then fixed: a **credit purchase from an unregistered supplier** was accepted and posted an anonymous payable no ledger could show (now refused; a fully paid cash purchase from an unregistered supplier stays allowed); the **Purchase List** read 1000 while the payable read 600 after a 400 return (now Billed / Returned / Net Total / Paid / Remaining, all `Decimal`-summed); the **printed bill ignored returns** (now nets quantities, and says so when the whole bill went back); a bill could **not be reopened, corrected or voided** (`correct_purchase` amends the SAME bill in place with surviving line ids, compensating movements, a difference-only journal and an audited diff; `void_purchase` reverses stock/ledger/payable and is blocked while a return exists); purchase returns saved **no readable note**; the purchase invoice had **no payment selector** (Cash / Credit / **Partial** per §14B.7, Paid never negative or above the total, Remaining live); and there was **no `purchases.correct` permission**. Migration **0009** (schema v9) adds that permission with grants, `purchases.corrected_from_id` and a returns index. Reopening a bill mirrors the invoice — net position, read-only **Returned Items**, Previous Balance excluding the bill, the recorded payment type — and saving folds the returned quantities back so history is preserved. Two labelling defects found in screenshot review: the purchase chip showed the payable under a "Supplier Ref." label (now **Supplier Balance**) and the printed bill said "Bill To / Customer Code" for a supplier (additive `InvoiceData.party_kind` → **Bill From / Supplier**; the sales default is unchanged). The Persons list gained a ledger-derived **Balance** column. A later **Supplier Payment** leaves the bill untouched — no duplicate entry. **568 tests pass** (+30); the mandatory workflow (buy 1000 credit → return 4 → correct to 8 → pay 200) reconciles across Purchase List, invoice view, print, purchase return, supplier balance, inventory and stock movement, with one bill, its original number, the return intact and the ledger balanced. Stages 05 and 06 unchanged. See §14B. |
 | 2026-09-04 | 2.9 | **Stage 05 — Receipts, Payments & Expenses (+ Sales Reporting) declared LOCKED (owner-approved); Stage 07 scope agreed.** Formalises the lock that the Stage 06 brief had already asserted in practice. Documentation only — **no Stage 05 behaviour changed**. The locked state is Stage 05 **as it stands today**, including the corrections the owner requested during the Stage 06 verification rounds (in-place `correct_sale`, the derived `net_view`, the explicit Cash/Credit selector), which **supersede** the corresponding descriptions in §13M and §13O; those sections are retained as the historical build record, not as the contract. Frozen in §8: migrations 0005–0007; the atomic Receipt / Payment / Expense posting with its fixed ledger directions and ledger-derived, non-editable balances; walk-in snapshot with no anonymous receivable; `void_sale`; **in-place `correct_sale`**; a return never rewriting the sale, with `net_view` as the single current-position read; the explicit Cash/Credit payment choice; the Sales Reporting engine (Gross/Paid/Credit/Returns/Net, partial-payment split, later receipts excluded, corrections counted once); party ledgers; the money entry/list screens and A4/A5 vouchers with the Sales Report at A4 only; and 12 service-enforced permissions with full audit. Known limitations carried into the lock: POSTED-only documents (no DRAFT), GL in document currency, English seeded account names, and the RTL `SearchSelector` phone-bidi cosmetic issue. **Stage 07 agreed as Purchases Parity / Purchase & Supplier Management** (§14B) — planning only, no implementation; Accounting Reports and Costing explicitly excluded. PR #4 still not merged. |
 | 2026-09-04 | 2.8 | **Stage 06 — Inventory & Stock Management declared LOCKED (owner-approved).** Owner accepted Stage 06 after manual acceptance testing of the Windows test build plus three verification rounds (§14A.1 returns visible on the original sale, §14A.2 the full return, §14A.3 reopening a sale on its current state). Accepted commit `a4017ec`; **538 tests pass**; schema **v8**; final Windows build published from that commit. Stage 06 public contracts frozen in §8: stock as a single signed movement ledger with no stored stock figure and nine movement types; migration 0008 (`inventory_movements.notes` + 3 indexes); permanent Opening/Current separation; the `InventoryReadRepository` / `InventoryService` / `InventoryReportService` reads; mandatory adjustment reason, transfer conservation and over-transfer block, sale validation against current warehouse stock; and the sales-integration contracts — `net_view` as the one "what is this invoice worth now" answer that the Sales List, the reopened invoice, the print, the customer balance and the reports all read, in-place `correct_sale`, `returned_items`, `balance_before_sale`, the readable return note and `InvoiceData.note_key`. A5 is never offered for inventory reports. **PR #4 deliberately NOT merged.** Stage 07 not started. Stage 05 still carries no formal lock record — recorded as an open item in §7. |

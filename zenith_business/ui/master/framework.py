@@ -160,7 +160,16 @@ class ManagementPage(QWidget):
         # actions the extras collapse into a ⋯ menu, so one inline + kebab fits
         # in ~150px instead of three full buttons crowding the row.
         n_actions = sum(x is not None for x in (on_view, on_edit, on_toggle_active))
-        act_w = 150 if n_actions > 2 else max(116, 84 * max(n_actions, 1) + 20)
+        # The inline button carries a real, translatable label ("View", "View
+        # Account", "مشاهده حساب"), so the column is measured from that text
+        # rather than assumed. A fixed guess clipped a longer label to an empty
+        # box — the same failure as sizing a column without measuring its content.
+        primary = self._t.gettext(view_label_key) if on_view is not None else ""
+        label_w = self._table.fontMetrics().horizontalAdvance(primary) + 34
+        if n_actions > 2:
+            act_w = max(150, label_w + 44)      # inline button + ⋯ menu + margins
+        else:
+            act_w = max(116, 84 * max(n_actions, 1) + 20, label_w + 24)
         self._table.setColumnWidth(len(columns), act_w)
         self._table.verticalHeader().setDefaultSectionSize(ControlSize.TABLE_ROW_HEIGHT + 6)
         self._table.doubleClicked.connect(self._on_row_double_clicked)

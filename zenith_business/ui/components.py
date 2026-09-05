@@ -384,7 +384,12 @@ class RowActions(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setStyleSheet("background: transparent;")
+        # Scoped to this container by object name on purpose: an unscoped
+        # ``background: transparent`` in a widget stylesheet also applies to
+        # every child, which stripped the fill off the buttons inside it and
+        # left their light text on the table's light row — an invisible label.
+        self.setObjectName("RowActions")
+        self.setStyleSheet("QWidget#RowActions { background: transparent; }")
         self._lay = QHBoxLayout(self)
         self._lay.setContentsMargins(Spacing.SM, 0, Spacing.SM, 0)
         self._lay.setSpacing(Spacing.XS)
@@ -398,6 +403,15 @@ class RowActions(QWidget):
         btn = ghost_button(label)
         if variant:
             btn.setProperty("variant", variant)
+        # A row action lives inside a table cell, which is shorter than a normal
+        # form button. Left at its natural height the button overflows the cell
+        # and its LABEL is clipped away, leaving what looks like an empty box.
+        # The height comes from the stylesheet (QPushButton[role="row-action"]),
+        # because a stylesheet min-height overrides setFixedHeight(); the width
+        # is measured from the label so the text is never squeezed out.
+        btn.setProperty("role", "row-action")
+        btn.setMinimumWidth(btn.fontMetrics().horizontalAdvance(label)
+                            + int(Spacing.MD) * 2)
         btn.clicked.connect(lambda _c=False, h=handler: h())
         self._lay.insertWidget(self._lay.count() - 1, btn)  # before the stretch
         return btn
@@ -409,8 +423,11 @@ class RowActions(QWidget):
             self._kebab.setText("⋯")  # horizontal ellipsis ⋯
             self._kebab.setProperty("role", "kebab")
             self._kebab.setCursor(Qt.CursorShape.PointingHandCursor)
+            # Height comes from the table row, not the toolbar, so the button
+            # stays inside its cell; the width keeps the toolbar measure so the
+            # ⋯ glyph is never squeezed.
             self._kebab.setFixedSize(int(ControlSize.TOOLBAR_BUTTON_HEIGHT),
-                                     int(ControlSize.TOOLBAR_BUTTON_HEIGHT))
+                                     int(ControlSize.TABLE_ROW_HEIGHT) - 4)
             self._kebab.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
             self._menu = QMenu(self._kebab)
             self._menu.setLayoutDirection(self.layoutDirection())

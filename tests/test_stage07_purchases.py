@@ -562,3 +562,198 @@ def test_a_hand_typed_note_is_never_replaced(biz, qapp):
     for language in (LANG_ENGLISH, LANG_DARI):
         page = DocumentListPage(biz, Translator(language), mode="purchase_return")
         assert page._table.item(0, 4).text() == "Driver damaged the sacks in transit"
+
+
+# ---- 10. the Suppliers screen ---------------------------------------------
+#
+# A supplier-shaped VIEW of the shared people — not a second supplier table, not
+# a second balance. Every figure comes from the existing party ledger, the same
+# read the Supplier Ledger screen uses.
+
+def _suppliers_page(biz, language=LANG_ENGLISH):
+    from zenith_business.ui.master.pages import SuppliersPage
+    return SuppliersPage(biz, Translator(language))
+
+
+def test_supplier_totals_add_up(biz):
+    """total_purchases − total_paid must equal payable, or all three look wrong."""
+    purchase = _buy(biz)                       # 1000 on credit
+    _return(biz, purchase, "4")                # −400
+    cash = biz.accounts_repo.id_by_code("1000")
+    biz.payments.post_payment(party_id=biz.sup, account_id=cash, amount="200",
+                              currency_code="AFN", payment_date="2026-06-03")
+    _buy(biz, qty="5", paid="200")             # +500 billed, 200 paid on the bill
+    totals = biz.party_ledger.supplier_ledger(biz.sup)["totals"]
+    assert totals["total_purchases"] == "1100.00"   # net of the return
+    assert totals["total_paid"] == "400.00"         # payment + paid on the bill
+    assert totals["payable"] == "700.00"
+    assert (Decimal(totals["total_purchases"]) - Decimal(totals["total_paid"])
+            == Decimal(totals["payable"]))
+    # ...and it is the same figure the purchase side reports.
+    assert Decimal(biz.purchase_documents.payable(biz.sup)) == Decimal(totals["payable"])
+
+
+def test_suppliers_screen_lists_only_suppliers_with_ledger_figures(biz, qapp):
+    biz.parties.create(party_code="C9", name="Retail Customer", is_customer=True)
+    purchase = _buy(biz)
+    _return(biz, purchase, "4")
+    page = _suppliers_page(biz)
+    rows = {r["party_code"]: r for r in page.page._rows}
+    assert set(rows) == {"S1"}                       # the customer is not listed
+    assert rows["S1"]["purchases_display"] == "600.00"
+    assert rows["S1"]["paid_display"] == "0.00"
+    assert rows["S1"]["payable_display"] == "600.00"
+    assert rows["S1"]["balance_display"] == "600.00"
+
+
+def test_suppliers_screen_shows_the_required_columns(biz, qapp):
+    page = _suppliers_page(biz)
+    headers = [c.title for c in page.page._columns]
+    assert headers == ["sup.col_code", "sup.col_name", "sup.col_business",
+                       "sup.col_phone", "sup.col_balance", "sup.col_purchases",
+                       "sup.col_paid", "sup.col_payable", "sup.col_status"]
+
+
+def test_suppliers_screen_view_account_opens_the_supplier_ledger(biz, qapp):
+    opened: dict = {}
+    page = _suppliers_page(biz)
+    page.set_view_account_handler(lambda pid, role: opened.update(pid=pid, role=role))
+    page._view({"id": biz.sup, "is_customer": 0})
+    assert opened == {"pid": biz.sup, "role": "supplier"}
+
+
+def test_a_dual_role_party_shows_both_obligations(biz, qapp):
+    """Netting a payable against a receivable would hide two real debts."""
+    from zenith_business.services.sales_documents import SaleLine
+    both = biz.parties.create(party_code="S2", name="Nasir Trading",
+                              is_supplier=True, is_customer=True)
+    biz.purchase_documents.post_purchase(
+        currency_code="AFN", warehouse_id=biz.main, party_id=both, amount_paid="0",
+        purchase_date="2026-06-01",
+        lines=[PurchaseLine(item_id=biz.rice, unit_id=biz.bag, quantity="3",
+                            unit_price="100")])
+    biz.sales_documents.post_sale(
+        currency_code="AFN", warehouse_id=biz.main, party_id=both, amount_paid="0",
+        sale_date="2026-06-02",
+        lines=[SaleLine(item_id=biz.rice, unit_id=biz.bag, quantity="2",
+                        unit_price="150")])
+    page = _suppliers_page(biz)
+    row = next(r for r in page.page._rows if r["party_code"] == "S2")
+    assert "300.00" in row["balance_display"]        # payable
+    assert "300.00" in row["balance_display"]        # receivable, both named
+    assert row["payable_display"] == "300.00"
+
+
+def test_new_supplier_uses_the_shared_person_form(biz, qapp):
+    """One form, one table — the Suppliers screen only pre-ticks the role."""
+    from PyQt6.QtWidgets import QCheckBox
+
+    import zenith_business.ui.master.pages as pages
+    page = _suppliers_page(biz)
+    grabbed: dict = {}
+    original = pages.FormDialog.exec
+    pages.FormDialog.exec = lambda self: grabbed.setdefault("dlg", self) and 0
+    try:
+        page._new()
+    finally:
+        pages.FormDialog.exec = original
+    boxes = {b.text(): b for b in grabbed["dlg"].findChildren(QCheckBox)}
+    assert boxes["Supplier"].isChecked() is True
+    assert boxes["Customer"].isChecked() is False
+
+
+def test_the_persons_screen_still_defaults_to_customer(biz, qapp):
+    from PyQt6.QtWidgets import QCheckBox
+
+    import zenith_business.ui.master.pages as pages
+    from zenith_business.ui.master.pages import PersonsPage
+    page = PersonsPage(biz, Translator(LANG_ENGLISH))
+    grabbed: dict = {}
+    original = pages.FormDialog.exec
+    pages.FormDialog.exec = lambda self: grabbed.setdefault("dlg", self) and 0
+    try:
+        page._new()
+    finally:
+        pages.FormDialog.exec = original
+    boxes = {b.text(): b for b in grabbed["dlg"].findChildren(QCheckBox)}
+    assert boxes["Customer"].isChecked() is True
+    assert boxes["Supplier"].isChecked() is False
+
+
+def test_suppliers_screen_reads_the_same_figures_in_dari(biz, qapp):
+    purchase = _buy(biz)
+    _return(biz, purchase, "4")
+    english = {r["party_code"]: r for r in _suppliers_page(biz, LANG_ENGLISH).page._rows}
+    dari = {r["party_code"]: r for r in _suppliers_page(biz, LANG_DARI).page._rows}
+    for key in ("purchases_display", "paid_display", "payable_display",
+                "balance_display"):
+        assert english["S1"][key] == dari["S1"][key]
+
+
+# ---- row actions must be VISIBLE, not just present ----------------------
+#
+# "View Account" shipped as an empty box. Two separate causes, both in shared UI
+# code, so these guard every table in the app — not only Suppliers.
+
+@pytest.fixture
+def themed(qapp):
+    """The real stylesheet, which is what sizes and colours a row action."""
+    from zenith_business.ui.design.theme import build_stylesheet
+
+    previous = qapp.styleSheet()
+    qapp.setStyleSheet(build_stylesheet())
+    yield qapp
+    qapp.setStyleSheet(previous)
+
+
+def _row_action_cell(page, qapp):
+    from PyQt6.QtCore import QSize
+
+    page.resize(QSize(1366, 760))
+    page.show()
+    qapp.processEvents()
+    table = page.page._table
+    cell = table.cellWidget(0, table.columnCount() - 1)
+    assert cell is not None, "the action column has no widget"
+    return cell
+
+
+def test_a_row_action_button_fits_inside_its_table_cell(biz, themed):
+    """A button taller than its cell has its label clipped away — an empty box.
+
+    setFixedHeight() cannot hold this: Qt applies a stylesheet ``min-height`` by
+    calling setMinimumHeight() on the widget, which overrides it. The height has
+    to come from the stylesheet, so assert the rendered geometry, not the intent.
+    """
+    from PyQt6.QtWidgets import QPushButton, QToolButton
+
+    cell = _row_action_cell(_suppliers_page(biz), themed)
+    buttons = cell.findChildren(QPushButton) + cell.findChildren(QToolButton)
+    assert buttons, "the row has no action control"
+    for button in buttons:
+        assert button.height() <= cell.height(), (
+            f"{button.text()!r} is {button.height()}px tall in a "
+            f"{cell.height()}px cell — its label is clipped away")
+    labelled = [b for b in buttons if isinstance(b, QPushButton)]
+    for button in labelled:
+        assert button.width() >= button.sizeHint().width(), (
+            f"{button.text()!r} is narrower than its own label needs")
+
+
+def test_a_row_action_keeps_its_own_background(biz, themed):
+    """An unscoped ``background: transparent`` on the container also applies to
+    its children, which left light button text on a light table row."""
+    from PyQt6.QtWidgets import QPushButton
+
+    from zenith_business.ui.design.tokens import Color
+
+    cell = _row_action_cell(_suppliers_page(biz), themed)
+    accent = [b for b in cell.findChildren(QPushButton)
+              if b.property("variant") == "accent"]
+    assert accent, "View Account is expected to be the accent row action"
+    painted = accent[0].grab().toImage()
+    colors = {painted.pixelColor(x, y).name()
+              for y in range(painted.height()) for x in range(painted.width())}
+    assert Color.ACCENT.lower() in colors, (
+        "the accent fill was stripped by a parent stylesheet")
+    assert Color.TEXT_ON_PRIMARY.lower() in colors, "the label is not painted"

@@ -236,9 +236,19 @@ class ItemsPage(_BasePage):
 # ----------------------------------------------------------------- Persons --
 
 class PersonsPage(_BasePage):
-    def __init__(self, ctx, translator, parent=None) -> None:
-        super().__init__(ctx, translator, parent)
-        columns = [
+    """People master data — one table, one form, whatever screen opens it.
+
+    The page is assembled from overridable pieces (:meth:`_page_columns`,
+    :meth:`_page_config`, :meth:`_role_filter_choices`) so a role-focused view —
+    Suppliers — is the SAME page configured differently, never a second screen
+    built beside this one.
+    """
+
+    #: Which role a NEW person starts with; a role-focused view overrides it.
+    _default_role = "customer"
+
+    def _page_columns(self) -> list[Column]:
+        return [
             Column("party_code", "persons.col_code", width=110),
             Column("name", "persons.col_name", stretch=True),
             Column("company_name", "persons.col_company", width=180),
@@ -250,22 +260,39 @@ class PersonsPage(_BasePage):
             Column("balance_display", "persons.col_balance", width=130),
             Column("is_active", "persons.col_status", width=110, kind="status"),
         ]
+
+    def _page_config(self) -> dict:
+        return {"title_key": "persons.title", "new_label_key": "persons.new",
+                "view_label_key": "md.view"}
+
+    def _role_filter_choices(self) -> list[tuple[str, str | None]]:
+        """Role filter entries; empty means the view is already role-scoped."""
+        return [("md.all", None), ("persons.role_customer", "customer"),
+                ("persons.role_supplier", "supplier"), ("persons.role_both", "both")]
+
+    def __init__(self, ctx, translator, parent=None) -> None:
+        super().__init__(ctx, translator, parent)
         self._on_view_account = None  # set by main window (contextual ledger, round 2)
+        cfg = self._page_config()
         self.page = ManagementPage(
-            translator, title_key="persons.title", subtitle_key=None, columns=columns,
-            new_label_key="persons.new", on_new=self._new, on_edit=self._edit,
-            on_toggle_active=self._toggle, on_view=self._view, view_label_key="md.view")
+            translator, title_key=cfg["title_key"], subtitle_key=None,
+            columns=self._page_columns(), new_label_key=cfg["new_label_key"],
+            on_new=self._new, on_edit=self._edit, on_toggle_active=self._toggle,
+            on_view=self._view, view_label_key=cfg["view_label_key"])
         self.page.connect_refresh(self.reload)
-        self._role_filter = QComboBox()
-        for key, val in (("md.all", None), ("persons.role_customer", "customer"),
-                         ("persons.role_supplier", "supplier"), ("persons.role_both", "both")):
-            self._role_filter.addItem(_t(translator, key), val)
-        self._role_filter.currentIndexChanged.connect(lambda _i: self.reload())
-        self.page.add_filter(self._role_filter)
+        self._role_filter = None
+        choices = self._role_filter_choices()
+        if choices:
+            self._role_filter = QComboBox()
+            for key, val in choices:
+                self._role_filter.addItem(_t(translator, key), val)
+            self._role_filter.currentIndexChanged.connect(lambda _i: self.reload())
+            self.page.add_filter(self._role_filter)
         lay = QVBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0); lay.addWidget(self.page)
+        self.reload()
 
     def reload(self) -> None:
-        role = self._role_filter.currentData()
+        role = self._role_filter.currentData() if self._role_filter is not None else None
         rows = self._ctx.parties.list(role=role)
         for r in rows:
             marks = []
@@ -311,8 +338,13 @@ class PersonsPage(_BasePage):
         dlg = FormDialog(t, title, parent=self.window())
         g1 = dlg.add_section(_t(t, "persons.sec_identity"))
         code = QLineEdit(); name = QLineEdit(); company = QLineEdit()
-        is_cust = QCheckBox(_t(t, "persons.f_customer")); is_cust.setChecked(True)
+        # ONE person form for every screen that manages people. Opening it from
+        # the Suppliers screen just pre-ticks Supplier; there is no second form
+        # and no second table behind it.
+        is_cust = QCheckBox(_t(t, "persons.f_customer"))
         is_sup = QCheckBox(_t(t, "persons.f_supplier"))
+        is_cust.setChecked(self._default_role != "supplier")
+        is_sup.setChecked(self._default_role == "supplier")
         dlg.add_field(g1, 0, 0, _t(t, "persons.col_code"), code, width=FieldWidth.SM)
         dlg.add_field(g1, 0, 1, _t(t, "persons.col_company"), company, width=FieldWidth.LG)
         dlg.add_field(g1, 1, 0, _t(t, "persons.col_name"), name, width=FieldWidth.LG)
@@ -373,6 +405,74 @@ class PersonsPage(_BasePage):
     def _toggle(self, row: dict) -> None:
         self._ctx.parties.set_active(row["id"], not bool(row.get("is_active", 1)))
         self.reload()
+
+
+# --------------------------------------------------------------- Suppliers --
+
+class SuppliersPage(PersonsPage):
+    """A supplier-shaped VIEW of the shared people, not a second supplier table.
+
+    Same page class, same person form, same ``parties`` master data and the same
+    party ledger the Supplier Ledger screen reads — only the columns, the labels
+    and the role scope differ. A party who both buys and sells stays ONE record.
+    """
+
+    _default_role = "supplier"
+
+    def _page_columns(self) -> list[Column]:
+        return [
+            Column("party_code", "sup.col_code", width=120),
+            Column("name", "sup.col_name", stretch=True),
+            Column("company_name", "sup.col_business", width=170),
+            Column("phone", "sup.col_phone", width=120),
+            Column("balance_display", "sup.col_balance", width=130, align="r"),
+            Column("purchases_display", "sup.col_purchases", width=120, align="r"),
+            Column("paid_display", "sup.col_paid", width=110, align="r"),
+            Column("payable_display", "sup.col_payable", width=140, align="r"),
+            Column("is_active", "sup.col_status", width=100, kind="status"),
+        ]
+
+    def _page_config(self) -> dict:
+        return {"title_key": "sup.title", "new_label_key": "sup.new",
+                "view_label_key": "sup.view_ledger"}
+
+    def _role_filter_choices(self) -> list[tuple[str, str | None]]:
+        return []          # already scoped to suppliers; a role filter would lie
+
+    def reload(self) -> None:
+        rows = self._ctx.parties.list(role="supplier")
+        for r in rows:
+            # ONE read of the authoritative party ledger per supplier — the same
+            # totals the Supplier Ledger screen shows, so the two can never
+            # disagree and no balance is computed a second way.
+            totals = self._ctx.party_ledger.supplier_ledger(r["id"])["totals"]
+            r["purchases_display"] = format_money(totals["total_purchases"])
+            r["paid_display"] = format_money(totals["total_paid"])
+            r["payable_display"] = format_money(totals["payable"])
+            r["balance_display"] = self._account_balance(r)
+        self.page.set_rows(rows)
+
+    def _account_balance(self, row: dict) -> str:
+        """The supplier's overall account position.
+
+        For a supplier-only party this is the payable. A party who is ALSO a
+        customer has two real obligations running in opposite directions, so both
+        are named rather than netted into one misleading figure.
+        """
+        payable = self._ctx.purchase_documents.payable(row["id"])
+        if not row["is_customer"]:
+            return format_money(payable)
+        receivable = self._ctx.sales_documents.receivable(row["id"])
+        if D(receivable) == 0:
+            return format_money(payable)
+        return (f"{_t(self._t, 'persons.bal_payable')}: {format_money(payable)}"
+                f" · {_t(self._t, 'persons.bal_receivable')}: {format_money(receivable)}")
+
+    def _view(self, row: dict) -> None:
+        """Open this supplier's account in the existing Supplier Ledger."""
+        if self._on_view_account is None:
+            return
+        self._on_view_account(row["id"], "supplier")
 
 
 # -------------------------------------------------------------- Warehouses --

@@ -216,6 +216,7 @@ class MainWindow(QMainWindow):
             ItemsPage,
             PersonsPage,
             RolesPage,
+            SuppliersPage,
             UnitsPage,
             UsersPage,
             WarehousesPage,
@@ -224,6 +225,9 @@ class MainWindow(QMainWindow):
         specs = [
             ("items", ItemsPage, "items.title"),
             ("persons", PersonsPage, "persons.title"),
+            # A supplier-shaped view of the SAME people — no second
+            # supplier table, no second form, no duplicated balance.
+            ("suppliers", SuppliersPage, "sup.title"),
             ("warehouses", WarehousesPage, "wh.title"),
             ("categories", CategoriesPage, "cat.title"),
             ("units", UnitsPage, "unit.title"),
@@ -242,6 +246,7 @@ class MainWindow(QMainWindow):
         self._stage03_commands["menu.base_data"] = [
             ("items.title", True, "items"),
             ("persons.title", True, "persons"),
+            ("sup.title", True, "suppliers"),
             ("wh.title", True, "warehouses"),
             ("cat.title", True, "categories"),
             ("unit.title", True, "units"),
@@ -457,9 +462,10 @@ class MainWindow(QMainWindow):
         ]
         # Contextual access: open a party's ledger directly from the Customers list
         # and the Receipts/Payments lists (round 2 §10/§11).
-        persons = self._stage03_pages.get("persons")
-        if persons is not None and hasattr(persons, "set_view_account_handler"):
-            persons.set_view_account_handler(self._open_party_account)
+        for name in ("persons", "suppliers"):
+            page = self._stage03_pages.get(name)
+            if page is not None and hasattr(page, "set_view_account_handler"):
+                page.set_view_account_handler(self._open_party_account)
         for lst in (getattr(self, "_s5_receipt_list", None),
                     getattr(self, "_s5_payment_list", None)):
             if lst is not None and hasattr(lst, "set_view_account_handler"):

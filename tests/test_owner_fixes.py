@@ -127,9 +127,16 @@ def test_customer_ledger_running_balance_and_totals(biz):
     biz.receipts.post_receipt(party_id=biz.cust, account_id=biz.cash, amount="300",
                               currency_code="AFN", payment_method="CASH", receipt_date="2026-06-03")
     led = biz.party_ledger.customer_ledger(biz.cust)
-    assert led["totals"]["total_sales"] == "1000.00"
-    assert led["totals"]["total_received"] == "300.00"
-    assert led["totals"]["receivable"] == "500.00"  # 1000 - 200 cash - 300 receipt
+    totals = led["totals"]
+    assert totals["total_sales"] == "1000.00"
+    # Stage 07: "received" counts the 200 taken on the invoice as well as the 300
+    # receipt. Counting only receipt documents left the three figures unable to
+    # add up (1000 − 300 = 700 against a receivable of 500), which is what the
+    # summary invites the reader to check.
+    assert totals["total_received"] == "500.00"
+    assert totals["receivable"] == "500.00"  # 1000 - 200 cash - 300 receipt
+    assert (Decimal(totals["total_sales"]) - Decimal(totals["total_received"])
+            == Decimal(totals["receivable"]))
     assert led["rows"][-1]["running"] == "500.00"
 
 
