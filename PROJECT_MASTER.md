@@ -15,10 +15,10 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 3.1 |
+| PROJECT_MASTER.md Version | 3.2 |
 | Current Stage | **07 — PURCHASES PARITY — 🧪 READY FOR OWNER REVIEW (NOT locked, NOT merged). Stages 01–06 LOCKED.** |
 | Database Schema Version | **9** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data, 0004 stage04_sales_purchases_returns, 0005 stage05_receipts_payments_expenses, 0006 owner_fixes_walkin_ledger_void, 0007 round2_sales_correction, 0008 stage06_inventory, 0009 stage07_purchases_parity) |
-| Last Updated | 2026-09-05 |
+| Last Updated | 2026-09-06 |
 
 **Stage gate:** Stage 00 (constitution) and **Stage 01 (foundation, incl.
 01B–01G refinements + typography)** are owner-approved and **LOCKED** (Master
@@ -1716,6 +1716,62 @@ explicit Cash/Credit selector — which supersede the corresponding descriptions
 §13M and §13O below. Those sections are kept as the historical record of how the
 stage was built, not as the current contract.
 
+### 13K.2 §33 amendment 01 — party ledger totals could not be reconciled
+
+**Status: owner-approved (2026-09-06). Applied. The only change to locked Stage
+05 behaviour since the lock.** Raised during Stage 07, presented under the §33
+STOP procedure, and approved with the instruction *"Keep the confirmed
+customer_totals fix. Do NOT revert it."*
+
+**(1) The change.** `PartyLedgerRepository.customer_totals` and
+`supplier_totals` now derive their three figures so that
+
+```
+total_sales     − total_received == receivable      (customer)
+total_purchases − total_paid     == payable         (supplier)
+```
+
+holds for every party in every state. Two corrections make that true:
+documents are counted **net of posted returns**, and "received"/"paid" counts
+the money settled **on the document itself** in addition to the separate
+Receipt/Payment documents.
+
+**(2) Why it was necessary.** The summary was not merely imprecise — its three
+numbers contradicted each other, so a reader could not trust any of them.
+Reproduced on a real database before anything was edited: a supplier with a
+1,000 bill, a 400 return and a 200 payment reported **Purchases 1,000 − Paid
+200** against a **Payable of 400**. The balance was right; the two figures
+printed beside it were wrong. Sales/purchase returns and part-paid documents
+both existed in locked stages, so this was reachable in normal use — a
+confirmed bug, not a new Stage 07 requirement.
+
+**(3) Affected components.** `repositories/ledger_s6.py` only. It changes what
+the **Customer Ledger** summary (Stage 05) and the **Supplier Ledger** summary
+display, and it is the source the new Suppliers screen reads. The **running
+balance, the ledger lines, the receivable/payable, every posting and every
+stored value are untouched** — only the two summary figures beside the balance
+are now derived correctly.
+
+**(4) Migration / compatibility risk: none.** No schema change, no data
+migration, no stored value rewritten, no public method renamed or removed. The
+return type and dict keys are unchanged; the arithmetic behind two of the three
+values is corrected. A database written before this change reads correctly
+after it, because nothing was ever persisted from these figures.
+
+**(5) Alternatives considered.** *(a) Leave it and note it* — rejected: the
+owner reads these numbers to decide what a customer owes. *(b) Fix the supplier
+side only, since Stage 07 is the purchases stage* — rejected: it is one shared
+defect in one repository; fixing half of it would leave the customer screen
+wrong and the two sides inconsistent with each other. *(c) Change the balance to
+match the totals instead* — rejected: the balance is derived from the ledger and
+is the figure that was already correct.
+
+**Regression cover.** `tests/test_locked_stage05_ledger_totals.py` asserts the
+identity itself — not example numbers — across an ordinary account, a partial
+payment, a partial return, a full return, a mixed history and a dual-role party,
+for **both** the customer and the supplier ledger, plus the party-ledger service
+and the Suppliers screen reading the same figures.
+
 ### 13K.1 Confirmed future requirement — Opening Stock (Inventory stage)
 
 Recorded per owner direction; **not implemented in Stage 05**. The future Inventory
@@ -2427,12 +2483,38 @@ direction). The Suppliers list and the ledger reached through View Account show
 the same three figures — 1,100 / 400 / 700 — with the ledger's running balance
 1,000 → 600 → 400 → 700. Stage 07 remains **not locked and not merged**.
 
+### 14B.11 Documented future item — ledger Description is stored English text
+
+**Owner decision (2026-09-06): do NOT change this now.** Recorded here so it is
+not rediscovered as a defect.
+
+**What the reader sees.** In the Dari Customer/Supplier Ledger, every column is
+translated and the layout is properly RTL, but the **Description** column still
+reads `Purchase PUR-000001` / `Payment PAY-000001` in English.
+
+**Why.** The description is composed **at posting time** and written into
+`financial_entries`, so it is stored text, not a translation key — the same
+class of defect as the return note fixed in §14B.9, but on ledger rows rather
+than document notes. The stored value is a permanent record of what was posted;
+changing how it is *written* would not fix rows already in a live database.
+
+**The eventual fix (not now).** Store the parts a description is made of — the
+document type and its number — and compose the sentence in the reader's language
+at display time, with a fallback to the stored text for rows written before that
+change. This touches locked Stage 04/05 posting, so it needs the §33 procedure
+and belongs to a stage that owns localization work, **not** Stage 07.
+
+**Scope note.** Cosmetic only. No amount, balance, document number or posting is
+affected, and the document type is also shown in its own translated **Type**
+column, so a Dari reader can already tell what each row is.
+
 ---
 
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-09-06 | 3.2 | **Stage 07 — final approval preparation (still NOT locked, NOT merged).** Documentation and regression cover only; **no behaviour changed**. The party-ledger totals fix is now recorded as **§33 amendment 01** to LOCKED Stage 05 (§13K.2) in the five-part form the procedure requires — change, necessity, affected components, migration risk, alternatives — with the owner's approval to keep it (*"Keep the confirmed customer_totals fix. Do NOT revert it."*) and the note that it is the only change to locked Stage 05 behaviour since the lock. New `tests/test_locked_stage05_ledger_totals.py` (**17 tests**) proves the identity itself — `total − paid == balance` — rather than remembered example numbers, for **both** ledgers across an empty account, credit documents, money settled on the document, separate Receipt/Payment documents, partial returns, full returns, a mixed history, a dual-role party whose two sides must not borrow from each other, the reported 1,000/−400/200 case, and the figures the Suppliers screen actually renders. The English ledger **Description** text is left as it is by owner decision and documented as a future localization item (§14B.11): it is stored at posting time, is cosmetic, and its eventual fix touches locked Stage 04/05 posting. **600 tests pass.** No other Stage 05 or Stage 06 change. |
 | 2026-09-05 | 3.1 | **Stage 07 — dedicated Suppliers screen (still NOT locked, NOT merged).** The §14B.9 deviation is closed the way the owner directed: Persons stays the shared master data structure internally, and the UI gains a real **Suppliers** screen. `SuppliersPage` subclasses `PersonsPage` as pure configuration — `PersonsPage` was refactored into overridable hooks so this is a second *presentation*, not a second page, a second table or a second supplier record. It shows Supplier Code, Name, Business Name, Phone, Current Balance, Total Purchases, Total Paid, Remaining Payable, Status and View Account, with Search, New Supplier (the same person form, Supplier pre-ticked), Edit and Open Supplier Ledger — every figure read from `party_ledger.supplier_ledger(...)`, the same call the ledger screen makes, so no balance is duplicated. Wiring it up exposed a **confirmed reconciliation bug**: `supplier_totals` and `customer_totals` counted documents gross of returns and ignored the amount paid on the document itself, so a supplier read Purchases 1,000 − Paid 200 against a Payable of 400. Both now derive so **total − paid == balance** always holds — reported under §33 because it corrects a figure shown by the Stage 05-locked customer ledger summary. Two shared-table rendering defects fixed, each reproduced by measuring the live widget: a row-action button was 42px tall in a 26px cell (a stylesheet `min-height` overrides `setFixedHeight`, so the height now comes from the sheet), and `RowActions` applied an unscoped `background: transparent` that also stripped its children's fill, leaving white text on a white row — the reason **View Account rendered as an empty box**. **583 tests pass** (+2). EN and Dari verified inside the real main window on an on-disk database, so RTL is genuinely exercised; the Suppliers list and the ledger behind View Account show the same 1,100 / 400 / 700. Stages 05 and 06 behaviour otherwise unchanged. See §14B.10. |
 | 2026-09-04 | 3.0 | **Stage 07 — Purchases Parity implemented (READY FOR OWNER REVIEW; NOT locked, NOT merged).** Purchases now carry the contracts the sales side earned across three owner rounds. Seven gaps recorded in §14B.0 were each reproduced on a real database first, then fixed: a **credit purchase from an unregistered supplier** was accepted and posted an anonymous payable no ledger could show (now refused; a fully paid cash purchase from an unregistered supplier stays allowed); the **Purchase List** read 1000 while the payable read 600 after a 400 return (now Billed / Returned / Net Total / Paid / Remaining, all `Decimal`-summed); the **printed bill ignored returns** (now nets quantities, and says so when the whole bill went back); a bill could **not be reopened, corrected or voided** (`correct_purchase` amends the SAME bill in place with surviving line ids, compensating movements, a difference-only journal and an audited diff; `void_purchase` reverses stock/ledger/payable and is blocked while a return exists); purchase returns saved **no readable note**; the purchase invoice had **no payment selector** (Cash / Credit / **Partial** per §14B.7, Paid never negative or above the total, Remaining live); and there was **no `purchases.correct` permission**. Migration **0009** (schema v9) adds that permission with grants, `purchases.corrected_from_id` and a returns index. Reopening a bill mirrors the invoice — net position, read-only **Returned Items**, Previous Balance excluding the bill, the recorded payment type — and saving folds the returned quantities back so history is preserved. Two labelling defects found in screenshot review: the purchase chip showed the payable under a "Supplier Ref." label (now **Supplier Balance**) and the printed bill said "Bill To / Customer Code" for a supplier (additive `InvoiceData.party_kind` → **Bill From / Supplier**; the sales default is unchanged). The Persons list gained a ledger-derived **Balance** column. A later **Supplier Payment** leaves the bill untouched — no duplicate entry. **568 tests pass** (+30); the mandatory workflow (buy 1000 credit → return 4 → correct to 8 → pay 200) reconciles across Purchase List, invoice view, print, purchase return, supplier balance, inventory and stock movement, with one bill, its original number, the return intact and the ledger balanced. Stages 05 and 06 unchanged. See §14B. |
 | 2026-09-04 | 2.9 | **Stage 05 — Receipts, Payments & Expenses (+ Sales Reporting) declared LOCKED (owner-approved); Stage 07 scope agreed.** Formalises the lock that the Stage 06 brief had already asserted in practice. Documentation only — **no Stage 05 behaviour changed**. The locked state is Stage 05 **as it stands today**, including the corrections the owner requested during the Stage 06 verification rounds (in-place `correct_sale`, the derived `net_view`, the explicit Cash/Credit selector), which **supersede** the corresponding descriptions in §13M and §13O; those sections are retained as the historical build record, not as the contract. Frozen in §8: migrations 0005–0007; the atomic Receipt / Payment / Expense posting with its fixed ledger directions and ledger-derived, non-editable balances; walk-in snapshot with no anonymous receivable; `void_sale`; **in-place `correct_sale`**; a return never rewriting the sale, with `net_view` as the single current-position read; the explicit Cash/Credit payment choice; the Sales Reporting engine (Gross/Paid/Credit/Returns/Net, partial-payment split, later receipts excluded, corrections counted once); party ledgers; the money entry/list screens and A4/A5 vouchers with the Sales Report at A4 only; and 12 service-enforced permissions with full audit. Known limitations carried into the lock: POSTED-only documents (no DRAFT), GL in document currency, English seeded account names, and the RTL `SearchSelector` phone-bidi cosmetic issue. **Stage 07 agreed as Purchases Parity / Purchase & Supplier Management** (§14B) — planning only, no implementation; Accounting Reports and Costing explicitly excluded. PR #4 still not merged. |

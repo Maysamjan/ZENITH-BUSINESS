@@ -26,10 +26,10 @@ permissions:
   contents: write   # needed to publish the ZIP as a GitHub Release asset
 
 env:
-  STAGE: "06"
+  STAGE: "07"
   # Releases from earlier stages, removed once the new one is published so the
   # owner never has two differently-named ZIPs to choose between.
-  SUPERSEDED_TAGS: "stage05-test-build"
+  SUPERSEDED_TAGS: "stage05-test-build stage06-test-build"
 
 jobs:
   build:
@@ -113,7 +113,7 @@ jobs:
             --target "$GITHUB_SHA" \
             --prerelease \
             --title "Zenith Business — Stage ${STAGE} Windows Test Build" \
-            --notes "Self-contained Windows test build including the locked Stages 01-05 and completed Stage 06 (Inventory & Stock Management), with a fresh pre-seeded sample database. Download the ZIP, unzip, and double-click Run-ZenithBusiness.bat. Log in as admin / Admin@123. Full click-by-click test steps are in READ-ME-FIRST inside the package. This is a TEST build for owner acceptance — Stage 06 is not locked or merged."
+            --notes "Self-contained Windows test build including the locked Stages 01-06 and completed Stage 07 (Purchases Parity / Purchase & Supplier Management), with a fresh pre-seeded sample database. Download the ZIP, unzip, and double-click Run-ZenithBusiness.bat. Log in as admin / Admin@123. Full click-by-click test steps are in READ-ME-FIRST inside the package. This is a TEST build for owner acceptance — Stage 07 is not locked or merged."
           # Retire the earlier stage's release so only one download link exists.
           for old in $SUPERSEDED_TAGS; do
             gh release delete "$old" --cleanup-tag --yes || true

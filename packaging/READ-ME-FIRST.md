@@ -1,14 +1,18 @@
-# Zenith Business — Stage 06 Owner Test Build
+# Zenith Business — Stage 07 Owner Test Build
 
 This is a **self-contained Windows test build** of Zenith Business, including the
-locked **Stages 01–05** and the completed **Stage 06 (Inventory & Stock
-Management)**. It ships with a **fresh test database already loaded with sample
-data** so you can run the full acceptance test without typing any setup.
+locked **Stages 01–06** and the completed **Stage 07 (Purchases Parity — Purchase
+& Supplier Management)**. It ships with a **fresh test database already loaded
+with sample data** so you can run the full acceptance test without typing any
+setup.
 
-> **New in this build:** Opening Stock and Warehouse on the product form, the
-> Inventory / Stock Adjustment / Warehouse Transfer / Stock Movement screens, the
-> five inventory reports (A4), and a sales return that updates the original
-> invoice everywhere it is shown.
+> **New in this build:** a purchase bill now behaves exactly like a sales
+> invoice. Cash / Credit / **Partial** payment on the bill, **correcting a bill
+> in place** (same document number), **partial and full purchase returns**, a
+> dedicated **Suppliers** screen, and a Purchase List / bill / printed bill /
+> supplier balance / stock that all agree with each other.
+>
+> **Start with section 3 — it is the Stage 07 checklist.**
 
 Nothing is installed on your PC. Everything lives inside this one folder. You do
 **not** need Python or an internet connection to run it.
@@ -58,7 +62,75 @@ Already-posted documents (so lists and printing work immediately):
 
 ---
 
-## 3. The 8 acceptance scenarios — where to click
+## 3. Stage 07 checklist — what to test in this build
+
+Everything below is **new in Stage 07**. The sample data already contains two
+posted credit bills — **PUR-000001** (National Foods) and **PUR-000002** (Kabul
+Wholesale Co.) — so you can start immediately.
+
+**A. Suppliers screen** — *Base Data → Suppliers.*
+Confirm it lists only suppliers, and shows Supplier Code, Name, Business Name,
+Phone, Current Balance, Total Purchases, Total Paid, Remaining Payable and
+Status. Check that **Total Purchases − Total Paid = Remaining Payable** on every
+row. Press **View Account** — it opens that supplier's ledger showing **the same
+three figures**. **New Supplier** opens the normal person form with *Supplier*
+already ticked, so a supplier is still one person record, not a duplicate.
+
+**B. Purchase payment: Cash / Credit / Partial** — *Buy & Sell → Purchase
+Invoice.*
+Add a line (say Qty 12 × 100). Then:
+- **Cash** → Paid fills to the Grand Total, Remaining 0.
+- **Credit** → Paid 0, Remaining = Grand Total.
+- **Partial** → type your own Paid; Remaining recalculates as you type. Try to
+  type more than the Grand Total or a negative number — it should be refused.
+
+**C. The line total must always agree** *(a defect you reported).*
+With Qty 12 and Unit Price 100, the row's **Total** must read **1,200** — the
+same as the Subtotal and Grand Total. Change the Qty, the Price or the Discount
+and confirm the row total changes **immediately** every time.
+
+**D. Correct a saved bill — same document number** — *Buy & Sell → Purchases.*
+Press **Correct** on a posted bill. Change a quantity or a price and Save.
+Confirm it is still **the same bill number** — no second bill is created — and
+that the supplier balance and the stock both moved by the difference only.
+
+**E. Partial purchase return** — *Buy & Sell → Purchase Return.*
+Look up a bill by number (`2`, `000002` or `PUR-000002` all work). Return part of
+a line. Then check all five of these agree:
+- **Purchases list** shows Invoiced, **Returned**, **Net Total**, Paid, Remaining.
+- **Reopening the bill** shows the reduced quantity, plus a read-only
+  **Returned Items** panel — the history is kept, not erased.
+- **Print** shows the net bill.
+- The **supplier balance** dropped by the returned amount.
+- **Stock** went down by the returned quantity (*Item Reports → Stock Movement*).
+
+**F. Full purchase return.**
+Return everything on a bill. Net Total should reach **0**, the supplier's payable
+for that bill should clear, the stock should come back out in full, and the
+printed bill should say the whole bill was returned rather than printing blank.
+
+**G. A later supplier payment must not duplicate anything** — *Receipts &
+Payments → Make Payment.*
+Pay something against a supplier who has an open bill. The **bill itself must not
+change**; only the payment and the balance move. Total Paid on the Suppliers
+screen should rise by exactly what you paid.
+
+**H. Dari + right-to-left.**
+Switch to **دری** (top-right) and repeat B, D and E. The purchase screens, the
+Suppliers screen and the supplier ledger must all flip to a genuine right-to-left
+layout, and a **purchase return note must appear in Dari, using the Dari item
+name** — not "Rice — Qty 4 returned." *(Known and accepted for now: the ledger's
+**Description** column still shows the English document text, e.g.
+`Purchase PUR-000001`. It is cosmetic — the **Type** column beside it is
+translated — and it is scheduled for a later localization pass.)*
+
+**I. Nothing from earlier stages broke.**
+Post a normal credit sale and a receipt, and confirm the customer ledger still
+adds up: **Total Sales − Received = Current Receivable**.
+
+---
+
+## 4. Earlier stages — the 8 acceptance scenarios
 
 Navigation lives on the **top menu bar**. Switch language any time from the
 **EN / دری** toggle at the top-right (Dari flips the whole screen to
@@ -151,7 +223,7 @@ right-to-left).
 
 ---
 
-## 7. Owner review round 2 — what's new to verify
+## 6. Owner review round 2 — what's new to verify
 
 - **Redesigned Sales Invoice** (*Buy & Sell → Sales Invoice*): compact customer +
   invoice header, a **large items table** (5 rows visible at 1024×768, more on
@@ -176,7 +248,7 @@ right-to-left).
 
 ---
 
-## 6. Where the test data is stored
+## 7. Where the test data is stored
 
 For this portable build, all data stays inside this folder under **`appdata\`**
 (the app is pointed there by `Run-ZenithBusiness.bat`):
@@ -188,5 +260,5 @@ For this portable build, all data stays inside this folder under **`appdata\`**
 `appdata_seed\` holds the pristine copy used by **Reset-Test-Data.bat**. Deleting
 the whole folder removes every trace of the test build from your PC.
 
-> Note: this is a **test** build for acceptance only. Stage 06 is **not locked or
+> Note: this is a **test** build for acceptance only. Stage 07 is **not locked or
 > merged** yet — it is waiting for your approval after you finish testing.
