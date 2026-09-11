@@ -65,11 +65,89 @@ class SalesRepository(BaseRepository):
             (sale_id, line_no, item_id, unit_id, warehouse_id, qty_to_db(quantity),
              money_to_db(unit_price), money_to_db(discount), money_to_db(line_total), now_iso()))
 
+    def update_header(
+        self,
+        sale_id: int,
+        *,
+        sale_date: str,
+        currency_id: int,
+        warehouse_id: int | None,
+        exchange_rate,
+        subtotal,
+        discount_total,
+        grand_total,
+        amount_paid,
+        remaining_amount,
+        notes: str | None = None,
+    ) -> None:
+        """Amend a sale's header in place (correction of a posted invoice).
+
+        Deliberately does NOT touch ``document_no``, ``status`` or the posting
+        stamps: a corrected invoice stays the SAME document, keeps its number, and
+        remains posted. Only the money/date/warehouse figures move.
+        """
+        self._exec(
+            "UPDATE sales SET sale_date = ?, currency_id = ?, warehouse_id = ?,"
+            " exchange_rate = ?, subtotal = ?, discount_total = ?, grand_total = ?,"
+            " amount_paid = ?, remaining_amount = ?, notes = ?, updated_at = ?"
+            " WHERE id = ?",
+            (sale_date, currency_id, warehouse_id, rate_to_db(exchange_rate),
+             money_to_db(subtotal), money_to_db(discount_total), money_to_db(grand_total),
+             money_to_db(amount_paid), money_to_db(remaining_amount), notes, now_iso(),
+             sale_id))
+
+    def update_line(self, line_id: int, *, line_no: int, item_id: int, unit_id: int,
+                    warehouse_id: int | None, quantity, unit_price, discount,
+                    line_total) -> None:
+        """Rewrite one sale line, KEEPING its id.
+
+        A correction reuses the existing row wherever the item survives, so a
+        sales return that references this line by id stays valid instead of being
+        orphaned by a delete-and-reinsert.
+        """
+        self._exec(
+            "UPDATE sales_lines SET line_no = ?, item_id = ?, unit_id = ?, warehouse_id = ?,"
+            " quantity = ?, unit_price = ?, discount = ?, line_total = ? WHERE id = ?",
+            (line_no, item_id, unit_id, warehouse_id, qty_to_db(quantity),
+             money_to_db(unit_price), money_to_db(discount), money_to_db(line_total),
+             line_id))
+
+    def delete_line(self, line_id: int) -> None:
+        """Remove one sale line (only ever called for a line with no returns)."""
+        self._exec("DELETE FROM sales_lines WHERE id = ?", (line_id,))
+
+    def delete_lines(self, sale_id: int) -> None:
+        """Remove a sale's current lines so a correction can write the new set.
+
+        ``sales_return_lines`` references ``sales_lines`` with ON DELETE RESTRICT,
+        so this raises rather than silently orphaning a return — the service blocks
+        correcting an invoice that already has returns before ever calling this.
+        """
+        self._exec("DELETE FROM sales_lines WHERE sale_id = ?", (sale_id,))
+
     def get(self, sale_id: int) -> dict | None:
         return self._one("SELECT * FROM sales WHERE id = ?", (sale_id,))
 
     def get_by_document_no(self, document_no: str) -> dict | None:
         return self._one("SELECT * FROM sales WHERE document_no = ?", (document_no,))
+
+    def find_by_document_no(self, candidates: list[str],
+                            *, status: str | None = None) -> dict | None:
+        """First sale whose number matches one of ``candidates`` (case-insensitive).
+
+        Candidate order is significant — it carries the caller's preference — so
+        each is tried in turn rather than matched as an unordered set.
+        """
+        for candidate in candidates:
+            sql = "SELECT * FROM sales WHERE UPPER(document_no) = ?"
+            params: list = [candidate.upper()]
+            if status:
+                sql += " AND status = ?"
+                params.append(status)
+            row = self._one(sql, tuple(params))
+            if row is not None:
+                return row
+        return None
 
     def lines_for(self, sale_id: int) -> list[dict]:
         return self._all(
@@ -148,6 +226,20 @@ class PurchaseRepository(BaseRepository):
     def get(self, purchase_id: int) -> dict | None:
         return self._one("SELECT * FROM purchases WHERE id = ?", (purchase_id,))
 
+    def find_by_document_no(self, candidates: list[str],
+                            *, status: str | None = None) -> dict | None:
+        """First purchase whose number matches one of ``candidates`` (case-insensitive)."""
+        for candidate in candidates:
+            sql = "SELECT * FROM purchases WHERE UPPER(document_no) = ?"
+            params: list = [candidate.upper()]
+            if status:
+                sql += " AND status = ?"
+                params.append(status)
+            row = self._one(sql, tuple(params))
+            if row is not None:
+                return row
+        return None
+
     def lines_for(self, purchase_id: int) -> list[dict]:
         return self._all(
             "SELECT * FROM purchase_lines WHERE purchase_id = ? ORDER BY line_no", (purchase_id,))
@@ -157,6 +249,65 @@ class PurchaseRepository(BaseRepository):
         self._exec(
             "UPDATE purchases SET status = 'POSTED', posted_at = ?, posted_by = ?, updated_at = ?"
             " WHERE id = ?", (ts, user_id, ts, purchase_id))
+
+    def update_header(
+        self,
+        purchase_id: int,
+        *,
+        purchase_date: str,
+        currency_id: int,
+        warehouse_id: int | None,
+        exchange_rate,
+        subtotal,
+        discount_total,
+        grand_total,
+        amount_paid,
+        remaining_amount,
+        notes: str | None = None,
+    ) -> None:
+        """Amend a purchase header in place (correction of a posted bill).
+
+        Mirrors ``SalesRepository.update_header``: deliberately does NOT touch
+        ``document_no``, ``status`` or the posting stamps, so a corrected bill stays
+        the SAME document with the same number and remains posted.
+        """
+        self._exec(
+            "UPDATE purchases SET purchase_date = ?, currency_id = ?, warehouse_id = ?,"
+            " exchange_rate = ?, subtotal = ?, discount_total = ?, grand_total = ?,"
+            " amount_paid = ?, remaining_amount = ?, notes = ?, updated_at = ?"
+            " WHERE id = ?",
+            (purchase_date, currency_id, warehouse_id, rate_to_db(exchange_rate),
+             money_to_db(subtotal), money_to_db(discount_total), money_to_db(grand_total),
+             money_to_db(amount_paid), money_to_db(remaining_amount), notes, now_iso(),
+             purchase_id))
+
+    def update_line(self, line_id: int, *, line_no: int, item_id: int, unit_id: int,
+                    warehouse_id: int | None, quantity, unit_price, discount,
+                    line_total) -> None:
+        """Rewrite one purchase line, KEEPING its id.
+
+        A correction reuses the existing row wherever the item survives, so a
+        purchase return that references this line by id (ON DELETE RESTRICT) stays
+        valid instead of being orphaned by a delete-and-reinsert.
+        """
+        self._exec(
+            "UPDATE purchase_lines SET line_no = ?, item_id = ?, unit_id = ?, warehouse_id = ?,"
+            " quantity = ?, unit_price = ?, discount = ?, line_total = ? WHERE id = ?",
+            (line_no, item_id, unit_id, warehouse_id, qty_to_db(quantity),
+             money_to_db(unit_price), money_to_db(discount), money_to_db(line_total),
+             line_id))
+
+    def delete_line(self, line_id: int) -> None:
+        """Remove one purchase line (only ever called for a line with no returns)."""
+        self._exec("DELETE FROM purchase_lines WHERE id = ?", (line_id,))
+
+    def mark_void(self, purchase_id: int, user_id: int | None, reason: str | None) -> None:
+        """Stamp a purchase VOID, keeping the document and its number."""
+        ts = now_iso()
+        self._exec(
+            "UPDATE purchases SET status = 'VOID', voided_at = ?, voided_by = ?,"
+            " void_reason = ?, updated_at = ? WHERE id = ?",
+            (ts, user_id, reason, ts, purchase_id))
 
 
 class InventoryRepository(BaseRepository):
@@ -173,14 +324,15 @@ class InventoryRepository(BaseRepository):
         reference_id: int | None = None,
         reference_line_id: int | None = None,
         created_by: int | None = None,
+        notes: str | None = None,
     ) -> int:
         return self._insert(
             "INSERT INTO inventory_movements (item_id, warehouse_id, movement_type, quantity,"
             " unit_id, reference_type, reference_id, reference_line_id, movement_date,"
-            " created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " created_by, created_at, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (item_id, warehouse_id, movement_type, qty_to_db(quantity), unit_id,
              reference_type, reference_id, reference_line_id, movement_date,
-             created_by, now_iso()))
+             created_by, now_iso(), notes))
 
     def stock_on_hand(self, item_id: int, warehouse_id: int | None = None) -> str:
         """Signed sum of movement quantities → current stock (canonical string).
@@ -197,6 +349,48 @@ class InventoryRepository(BaseRepository):
                 "SELECT quantity FROM inventory_movements WHERE item_id = ?", (item_id,))
         total = sum((D(r["quantity"]) for r in rows), D(0))
         return qty_to_db(total)
+
+    def opening_stock(self, item_id: int, warehouse_id: int | None = None) -> str:
+        """Sum of the item's OPENING movements — the stock it started life with.
+
+        Distinct from :meth:`stock_on_hand`: opening stock is a fixed historical
+        figure that sales, purchases and returns never change, while current stock
+        moves with every transaction. Summed with Decimal, never a SQL float.
+        """
+        sql = ("SELECT quantity FROM inventory_movements"
+               " WHERE item_id = ? AND movement_type = 'OPENING'")
+        params: list = [item_id]
+        if warehouse_id is not None:
+            sql += " AND warehouse_id = ?"
+            params.append(warehouse_id)
+        rows = self._all(sql, tuple(params))
+        return qty_to_db(sum((D(r["quantity"]) for r in rows), D(0)))
+
+    def opening_stock_map(self, item_ids: list[int]) -> dict[int, str]:
+        """``item_id -> opening stock`` for many items in one query (list screens)."""
+        if not item_ids:
+            return {}
+        marks = ",".join("?" * len(item_ids))
+        rows = self._all(
+            f"SELECT item_id, quantity FROM inventory_movements"
+            f" WHERE movement_type = 'OPENING' AND item_id IN ({marks})", tuple(item_ids))
+        totals: dict[int, object] = {}
+        for r in rows:
+            totals[r["item_id"]] = D(totals.get(r["item_id"], D(0))) + D(r["quantity"])
+        return {k: qty_to_db(v) for k, v in totals.items()}
+
+    def stock_on_hand_map(self, item_ids: list[int]) -> dict[int, str]:
+        """``item_id -> current stock`` for many items in one query (list screens)."""
+        if not item_ids:
+            return {}
+        marks = ",".join("?" * len(item_ids))
+        rows = self._all(
+            f"SELECT item_id, quantity FROM inventory_movements"
+            f" WHERE item_id IN ({marks})", tuple(item_ids))
+        totals: dict[int, object] = {}
+        for r in rows:
+            totals[r["item_id"]] = D(totals.get(r["item_id"], D(0))) + D(r["quantity"])
+        return {k: qty_to_db(v) for k, v in totals.items()}
 
     def movements_for(self, item_id: int, limit: int = 100) -> list[dict]:
         return self._all(

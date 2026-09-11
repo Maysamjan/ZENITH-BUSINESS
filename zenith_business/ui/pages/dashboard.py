@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from zenith_business.core.i18n import Translator
+from zenith_business.core.money import D
 from zenith_business.ui.components import (
     Card,
     StatTile,
@@ -65,6 +66,11 @@ _LOW = [
 ]
 
 
+def _fmt_qty(value) -> str:
+    """Compact quantity: no trailing zeros (e.g. 22, 7.5)."""
+    return format(D(value).normalize(), "f")
+
+
 class DashboardPage(QWidget):
     """Compact operational home dashboard."""
 
@@ -84,10 +90,73 @@ class DashboardPage(QWidget):
         root.setContentsMargins(Spacing.LG, Spacing.MD, Spacing.LG, Spacing.MD)
         root.setSpacing(Spacing.MD)
 
+        self._ctx = None  # bound to a live context by bind_context (Stage 04)
         root.addLayout(self._build_topbar())
         root.addLayout(self._build_quick_actions())
         root.addWidget(self._build_kpis())
         root.addLayout(self._build_panels(), stretch=1)
+
+    # ---- live data (Stage 04) -------------------------------------------
+
+    def bind_context(self, context) -> None:
+        """Replace demonstration figures with real, live business data.
+
+        Today's Sales / Purchases are summed from posted documents; the Recent
+        panel lists real recent sales. KPIs without a computed source show a
+        truthful ``—`` placeholder rather than fabricated numbers.
+        """
+        from zenith_business.core.clock import today_iso
+        from zenith_business.core.money import format_money
+
+        self._ctx = context
+        today = today_iso()
+        self._date.setText(today)
+        self._demo_chip.setText(self._t.gettext("s4.dash_live"))
+        self._demo_chip.setProperty("chip", "success")
+        self._demo_chip.style().unpolish(self._demo_chip)
+        self._demo_chip.style().polish(self._demo_chip)
+
+        base = context.currencies_repo.base_currency()
+        code = base["code"] if base else ""
+        sales_today = context.sales_ext_repo.today_total(today)
+        purch_today = context.purchases_ext_repo.today_total(today)
+        live = {
+            "dash.today_sales": f"{format_money(sales_today)} {code}".strip(),
+            "dash.today_purchases": f"{format_money(purch_today)} {code}".strip(),
+        }
+        for key, tile in self._kpi_tiles:
+            tile.set_value(live.get(key, "—"))
+
+        self.refresh_recent()
+        self.refresh_low_stock()
+
+    def refresh_recent(self) -> None:
+        """Repopulate the Recent panel from real recent sales."""
+        if self._ctx is None:
+            return
+        from PyQt6.QtGui import QColor
+
+        from zenith_business.core.money import format_money
+        from zenith_business.ui.design.tokens import Color
+        try:
+            rows = self._ctx.sales_documents.list(limit=6)
+        except Exception:
+            rows = []
+        self._recent.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            paid = (row.get("remaining_amount") in ("0", "0.00", None))
+            status_key = "dash.st_paid" if paid else "dash.st_credit"
+            vals = [str(row.get("sale_date", "")), self._t.gettext("s4.t_sale"),
+                    row.get("party_name") or self._t.gettext("s4.walkin"),
+                    format_money(row.get("grand_total")), self._t.gettext(status_key)]
+            for cidx, text in enumerate(vals):
+                item = QTableWidgetItem(text)
+                if cidx == 3:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                    item.setForeground(QColor(Color.POSITIVE))
+                else:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                self._recent.setItem(r, cidx, item)
 
     # ---- top bar ---------------------------------------------------------
 
@@ -196,23 +265,67 @@ class DashboardPage(QWidget):
         title = QLabel(self._t.gettext("dash.low_stock")); title.setProperty("role", "card-title")
         title.setProperty("accent", "teal")
         card.body.addWidget(title)
-        for name, stock, skey, kind in _LOW:
+        self._low_rows_host = QVBoxLayout(); self._low_rows_host.setSpacing(Spacing.XS)
+        card.body.addLayout(self._low_rows_host)
+        card.body.addStretch(1)
+        self._low_card = card
+        self._set_low_rows([(name, stock, self._t.gettext(skey), kind) for name, stock, skey, kind in _LOW])
+        return card
+
+    def _set_low_rows(self, rows: list[tuple[str, str, str, str]]) -> None:
+        """Replace the low-stock rows (name, qty, status_text, chip_kind)."""
+        while self._low_rows_host.count():
+            item = self._low_rows_host.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)  # detach immediately so it stops painting
+                w.deleteLater()
+        if not rows:
+            key = "s4.dash_all_stocked" if self._ctx is not None else "s4.dash_no_data"
+            self._low_rows_host.addWidget(muted(self._t.gettext(key)))
+            return
+        for name, stock, status_text, kind in rows:
             line = QHBoxLayout(); line.setSpacing(Spacing.SM)
             line.addWidget(QLabel(name), 1)
             line.addWidget(muted(stock))
-            line.addWidget(chip(self._t.gettext(skey), kind))
+            line.addWidget(chip(status_text, kind))
             holder = QWidget(); holder.setLayout(line)
-            card.body.addWidget(holder)
-        card.body.addStretch(1)
-        self._low_card = card
-        return card
+            self._low_rows_host.addWidget(holder)
+
+    def refresh_low_stock(self) -> None:
+        """Real low-stock: items at or below their reorder level (or out)."""
+        if self._ctx is None:
+            return
+        rows: list[tuple[str, str, str, str]] = []
+        try:
+            items = self._ctx.items_repo.list_active()
+        except Exception:
+            items = []
+        for it in items:
+            if not it.get("track_inventory", 1):
+                continue
+            try:
+                on_hand = D(self._ctx.inventory.on_hand(it["id"]))
+            except Exception:
+                continue
+            reorder = D(it.get("reorder_level") or 0)
+            out = on_hand <= 0
+            low = out or (reorder > 0 and on_hand <= reorder)
+            if not low:
+                continue
+            status = self._t.gettext("dash.st_out" if out else "dash.st_low")
+            rows.append((it.get("name", ""), _fmt_qty(on_hand),
+                         status, "danger" if out else "warning"))
+        rows.sort(key=lambda r: r[0])
+        self._set_low_rows(rows[:8])
 
     # ---- i18n ------------------------------------------------------------
 
     def retranslate(self, translator: Translator) -> None:
         self._t = translator
         self._title.setText(translator.gettext("dash.title"))
-        self._demo_chip.setText(translator.gettext("dash.demo"))
+        self._demo_chip.setText(
+            translator.gettext("s4.dash_live" if self._ctx is not None else "dash.demo"))
         for key, btn in self._qa:
             btn.setText(translator.gettext(key))
         for key, tile in self._kpi_tiles:
@@ -220,6 +333,10 @@ class DashboardPage(QWidget):
         self._recent.setHorizontalHeaderLabels(
             [translator.gettext(k) for k in self._recent_cols]
         )
+        if self._ctx is not None:
+            # Live data: re-fetch (labels/row-count follow the real rows).
+            self.bind_context(self._ctx)
+            return
         for r, (_time, tkey, _party, _amount, skey, _m) in enumerate(_RECENT):
             self._recent.item(r, 1).setText(translator.gettext(tkey))
             self._recent.item(r, 4).setText(translator.gettext(skey))

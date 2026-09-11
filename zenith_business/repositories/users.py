@@ -116,6 +116,13 @@ class UserRepository(BaseRepository):
             (password_hash, ts, ts, user_id),
         )
 
+    def update_username(self, user_id: int, username: str) -> None:
+        ts = now_iso()
+        self._exec(
+            "UPDATE users SET username = ?, username_norm = ?, updated_at = ? WHERE id = ?",
+            (username.strip(), normalize_username(username), ts, user_id),
+        )
+
     def update_language(self, user_id: int, language: str) -> None:
         self._exec(
             "UPDATE users SET preferred_language = ?, updated_at = ? WHERE id = ?",
