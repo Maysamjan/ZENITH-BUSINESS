@@ -752,8 +752,18 @@ def test_a_row_action_keeps_its_own_background(biz, themed):
               if b.property("variant") == "accent"]
     assert accent, "View Account is expected to be the accent row action"
     painted = accent[0].grab().toImage()
-    colors = {painted.pixelColor(x, y).name()
-              for y in range(painted.height()) for x in range(painted.width())}
-    assert Color.ACCENT.lower() in colors, (
+    pixels = [painted.pixelColor(x, y)
+              for y in range(painted.height()) for x in range(painted.width())]
+
+    assert any(p.name() == Color.ACCENT.lower() for p in pixels), (
         "the accent fill was stripped by a parent stylesheet")
-    assert Color.TEXT_ON_PRIMARY.lower() in colors, "the label is not painted"
+    # Glyph pixels are anti-aliased against the fill, so they are not required to
+    # land on pure white — only to be unmistakably lighter than the fill behind
+    # them. Asserting an exact colour here made the test depend on which font the
+    # run happened to load.
+    fill = painted.pixelColor(1, painted.height() // 2)
+    label_pixels = [p for p in pixels
+                    if p.lightness() > fill.lightness() + 60]
+    assert len(label_pixels) > 20, (
+        f"the label is not painted: only {len(label_pixels)} pixels are lighter"
+        f" than the {fill.name()} fill behind them")

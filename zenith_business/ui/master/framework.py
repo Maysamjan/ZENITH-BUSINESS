@@ -160,16 +160,7 @@ class ManagementPage(QWidget):
         # actions the extras collapse into a ⋯ menu, so one inline + kebab fits
         # in ~150px instead of three full buttons crowding the row.
         n_actions = sum(x is not None for x in (on_view, on_edit, on_toggle_active))
-        # The inline button carries a real, translatable label ("View", "View
-        # Account", "مشاهده حساب"), so the column is measured from that text
-        # rather than assumed. A fixed guess clipped a longer label to an empty
-        # box — the same failure as sizing a column without measuring its content.
-        primary = self._t.gettext(view_label_key) if on_view is not None else ""
-        label_w = self._table.fontMetrics().horizontalAdvance(primary) + 34
-        if n_actions > 2:
-            act_w = max(150, label_w + 44)      # inline button + ⋯ menu + margins
-        else:
-            act_w = max(116, 84 * max(n_actions, 1) + 20, label_w + 24)
+        act_w = 150 if n_actions > 2 else max(116, 84 * max(n_actions, 1) + 20)
         self._table.setColumnWidth(len(columns), act_w)
         self._table.verticalHeader().setDefaultSectionSize(ControlSize.TABLE_ROW_HEIGHT + 6)
         self._table.doubleClicked.connect(self._on_row_double_clicked)
@@ -221,6 +212,39 @@ class ManagementPage(QWidget):
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self._table.setItem(r, c, item)
             self._table.setCellWidget(r, len(self._columns), self._action_cell(data))
+        self._fit_action_column()
+
+    def showEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        super().showEvent(event)
+        # Rows are usually built before the page is on screen, where a cell has
+        # no geometry yet and the table's own per-cell overhead cannot be seen.
+        # Re-fit once it is real.
+        self._fit_action_column()
+
+    def _fit_action_column(self) -> None:
+        """Widen the action column to whatever the real controls need.
+
+        The action labels are translated ("View", "View Account", "مشاهده
+        حساب"), so their width is not knowable in advance — and a column too
+        narrow squeezes the button below its label, which Qt resolves by
+        clipping the text away and leaving an empty box. Every row holds the
+        same actions, so measuring the first assembled widget is enough, and
+        measuring beats any arithmetic over fonts, padding and borders.
+        """
+        action_col = len(self._columns)
+        cell = self._table.cellWidget(0, action_col)
+        if cell is None:
+            return
+        cell.ensurePolished()
+        current = self._table.columnWidth(action_col)
+        # The table keeps a little of the column for itself (grid line, cell
+        # margin), so the widget is narrower than the column it sits in. Carry
+        # that difference across or the column looks wide enough while the
+        # controls inside it are still being squeezed.
+        overhead = max(0, current - cell.width()) if cell.width() > 0 else 0
+        required = cell.sizeHint().width() + overhead
+        if required > current:
+            self._table.setColumnWidth(action_col, required)
 
     def _status_cell(self, active: bool) -> QWidget:
         host = QWidget()

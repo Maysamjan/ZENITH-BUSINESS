@@ -15,10 +15,10 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 3.2 |
-| Current Stage | **07 — PURCHASES PARITY — 🧪 READY FOR OWNER REVIEW (NOT locked, NOT merged). Stages 01–06 LOCKED.** |
+| PROJECT_MASTER.md Version | 4.0 |
+| Current Stage | **07 — PURCHASES PARITY / PURCHASE & SUPPLIER MANAGEMENT — 🔒 LOCKED (2026-09-11, owner-approved). Stages 01–07 LOCKED. PR #4 NOT merged. Stage 08 not started.** |
 | Database Schema Version | **9** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data, 0004 stage04_sales_purchases_returns, 0005 stage05_receipts_payments_expenses, 0006 owner_fixes_walkin_ledger_void, 0007 round2_sales_correction, 0008 stage06_inventory, 0009 stage07_purchases_parity) |
-| Last Updated | 2026-09-06 |
+| Last Updated | 2026-09-11 |
 
 **Stage gate:** Stage 00 (constitution) and **Stage 01 (foundation, incl.
 01B–01G refinements + typography)** are owner-approved and **LOCKED** (Master
@@ -581,6 +581,84 @@ the Returned Items panel on a reopened invoice. EN + Dari with genuine RTL.
 (FIFO/average), stock-taking sessions, and multi-currency inventory — none are
 built. Stage 06 locks the **movement ledger, its reads and the sales-integration
 contracts**, not those unbuilt features.
+
+### 🔒 Stage 07 — Purchases Parity / Purchase & Supplier Management — LOCKED (2026-09-11, owner-approved)
+
+Owner-approved after manual acceptance testing of the Stage 07 Windows test build
+(tested `5a8ea99`; locked at `e7d7d16`, **600 tests**, schema **v9**). Built
+additively on locked Stages 01–06; the only locked-stage behaviour changed is the
+one §33 amendment in §13K.2, which the owner approved explicitly. The following
+are **frozen**; Stage 08+ must respect them and use the §33 STOP procedure to
+change any of them. Full record: §14B.
+
+**A. `PurchaseDocumentService.net_view(purchase_id)` is the one answer to "what is
+this bill worth now."** Per line `bought` / `returned` / `net_quantity` /
+`net_line_total`; per document `active_lines`, `gross_total`, `returned_total`,
+`net_total`, `net_remaining`, `has_returns`. The **Purchase List, the reopened
+bill, the printed bill, the supplier balance and the reports all read it** and
+must continue to agree. This is the purchase mirror of the frozen sales
+`net_view`, and the two must stay symmetric.
+
+**B. A bill is corrected in place, never replaced.** `correct_purchase` amends the
+ORIGINAL row — same document number — with surviving line ids preserved so
+`purchase_return_lines.purchase_line_id` stays valid, compensating stock
+movements, and a **difference-only** journal. It refuses to drop a returned item
+or fall below the returned quantity. `void_purchase` reverses stock, ledger and
+payable, keeps the document, and is **blocked while a return exists**. A return
+never rewrites the bill: bought quantities and the return document are the
+historical record. Also frozen: `returned_items`, `balance_before_purchase`,
+`PurchaseReturnRepository.returned_lines_for_purchase`.
+
+**C. The purchase payment model (§14B.7).** Cash → Paid = Grand Total,
+Remaining 0. Credit → Paid 0, Remaining = Grand Total. **Partial** → the
+operator's figure, Remaining = Grand Total − Paid, recalculated live. Paid may
+never be negative or exceed the Grand Total. A **later** payment goes through the
+existing Supplier Payment module and never touches the bill, so no duplicate
+payment or accounting entry is created. Sales keep the strict Cash/Credit model;
+Partial is a purchases-only contract.
+
+**D. A purchase with an unpaid balance requires a registered supplier.** A credit
+or part-paid bill from an unregistered supplier is refused — an anonymous payable
+no ledger can show is an accounting hole. A **fully paid cash** purchase from an
+unregistered supplier remains allowed.
+
+**E. Schema (migration 0009, v9, forward/idempotent).**
+`purchases.corrected_from_id`, the `purchases.correct` permission with
+Admin/Manager/Accountant grants, and an index on
+`purchase_returns(purchase_id, status)`.
+
+**F. Suppliers are a VIEW of the shared people, never a second record.**
+`SuppliersPage` subclasses `PersonsPage` through its overridable hooks
+(`_page_columns`, `_page_config`, `_role_filter_choices`, `_default_role`): one
+`parties` master table, one person form, one party ledger. There is **no supplier
+table, no supplier form and no second balance**. Every money figure comes from
+`party_ledger.supplier_ledger(...)["totals"]`, the same call the Supplier Ledger
+screen makes. A dual-role party stays ONE record with both obligations named
+rather than netted.
+
+**G. Party ledger totals reconcile (§33 amendment 01, §13K.2).**
+`total − paid == balance` holds on **both** the customer and supplier ledgers, for
+every party in every state: documents count net of posted returns, and paid /
+received includes money settled on the document itself plus the separate
+Payment / Receipt documents.
+
+**H. The required consistency chain.** **Purchase List = Purchase Invoice View =
+Printed Purchase Invoice = Purchase Return = Supplier Balance = Inventory = Stock
+Movement.** Every one reads `net_view` or the movement ledger; none stores its own
+copy. Money is summed with `Decimal` in Python, never a SQL aggregate (§24).
+
+**I. Derived-at-render UI contracts.** A line total is **computed** from
+qty × price − discount at render time, never read from a stored field. A return
+note is **derived in the reader's language** from the return's own lines (Dari
+naming the item by its Dari name); a note the operator typed by hand is detected
+and preserved verbatim. `InvoiceData.party_kind` selects Bill From / Supplier on a
+printed purchase; the sales default is unchanged. Row actions take their size from
+the **measured widget**, never from arithmetic over fonts and padding.
+
+**Not locked by Stage 07:** Accounting Reports, costing/valuation, purchase
+orders, goods-received notes, landed cost, supplier price history and purchase
+approval workflow — none are built. Stage 07 locks the **purchase document engine,
+its reads, the payment model and the supplier view**, not those unbuilt features.
 
 ---
 
@@ -2508,12 +2586,58 @@ and belongs to a stage that owns localization work, **not** Stage 07.
 affected, and the document type is also shown in its own translated **Type**
 column, so a Dari reader can already tell what each row is.
 
+### 14B.12 🔒 LOCK RECORD — Stage 07 owner-approved and LOCKED (2026-09-11)
+
+**Stage 07 — Purchases Parity / Purchase & Supplier Management is LOCKED.**
+Owner-approved after manual acceptance testing of the Stage 07 Windows test
+build. Its frozen public contracts are listed in §8. **PR #4 is not merged**
+(owner's instruction). **Stage 08 is not started.**
+
+**Accepted state**
+
+| | |
+|---|---|
+| Locked commit | `e7d7d16` |
+| Manually tested build | `5a8ea99` — release `stage07-test-build`, asset `ZenithBusiness-Stage07-TestBuild-win64.zip` |
+| Difference between them | one UI sizing fix found during the lock run (below); no business logic, no schema, no posting |
+| Tests | **600 pass**, 56 test files, run on a rebuilt environment |
+| Database schema | **v9** (migration 0009 `stage07_purchases_parity`) |
+| Scope audit | §14B.9 — all ten official scope items matched, the one deviation closed in §14B.10 |
+
+**One defect found during the lock run and fixed before freezing.** Running the
+Stage 07 tests in isolation — rather than after the rest of the suite — failed
+where the full suite passed. The cause was real, not test noise: a row-action
+button's minimum width was **computed by hand** (`text width + margins`), which
+lands a pixel short of what Qt actually needs under a different font or DPI, and
+one pixel is enough for Qt to clip the label away and leave the empty box the
+owner originally reported. The shipped build bundles Vazirmatn, where the guess
+happened to be exact, so the manually tested build renders correctly — but the
+margin was a single pixel. Three changes remove the guesswork:
+
+* the button's width floor is now its **own polished size hint**, not arithmetic
+  over fonts, padding and borders;
+* the action **column** is fitted from the **assembled widget's** size hint,
+  carrying the table's per-cell overhead, instead of magic constants; and
+* that fit also runs on `showEvent`, because rows are built before the page has
+  geometry — where a cell has no width and the overhead is invisible.
+
+Verified on the real main window in **both** languages across Suppliers, Persons
+and Items: every row action fits its cell and paints its label, including the
+longer Dari "مشاهده حساب". The regression test now asserts that the label is
+**lighter than the fill behind it** rather than an exact colour, so it no longer
+depends on which font a run happens to load, and it passes in isolation and in
+the full suite alike.
+
+**Stage 07 behaviour must not change from here** except to fix a confirmed bug,
+via the §33 STOP procedure — the same discipline that produced §13K.2.
+
 ---
 
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-09-11 | 4.0 | **🔒 Stage 07 — Purchases Parity / Purchase & Supplier Management LOCKED (owner-approved).** Manually accepted on the Stage 07 Windows test build (`5a8ea99`); locked at `e7d7d16`, **600 tests pass**, schema **v9**, 56 test files. Frozen contracts are in §8 and the lock record with the accepted state is §14B.12. The frozen set: `PurchaseDocumentService.net_view` as the single "what is this bill worth now" read that the list, the reopened bill, the print, the supplier balance and the reports all consume; `correct_purchase` amending the ORIGINAL bill in place with surviving line ids and a difference-only journal, `void_purchase` blocked while a return exists, and a return never rewriting the bill; the Cash / Credit / **Partial** payment model with a later payment going only through the Supplier Payment module; the refusal to post an unpaid bill to an unregistered supplier; migration 0009; **Suppliers as a view of the shared people** — no supplier table, no second form, no duplicated balance; `total − paid == balance` on both ledgers; the consistency chain Purchase List = Invoice View = Print = Return = Supplier Balance = Inventory = Stock Movement; and derived-at-render line totals and return notes. **One defect found during the lock run and fixed before freezing:** a row-action button's minimum width was computed by hand and landed a pixel short under a different font, which is enough for Qt to clip the label away — the empty-box failure originally reported. Width now comes from the button's own polished size hint, the action column from the assembled widget's hint plus the table's per-cell overhead, and the fit re-runs on `showEvent` because rows are built before the page has geometry. Verified on the real main window in EN and Dari across Suppliers, Persons and Items. PR #4 still not merged; Stage 08 not started. |
 | 2026-09-06 | 3.2 | **Stage 07 — final approval preparation (still NOT locked, NOT merged).** Documentation and regression cover only; **no behaviour changed**. The party-ledger totals fix is now recorded as **§33 amendment 01** to LOCKED Stage 05 (§13K.2) in the five-part form the procedure requires — change, necessity, affected components, migration risk, alternatives — with the owner's approval to keep it (*"Keep the confirmed customer_totals fix. Do NOT revert it."*) and the note that it is the only change to locked Stage 05 behaviour since the lock. New `tests/test_locked_stage05_ledger_totals.py` (**17 tests**) proves the identity itself — `total − paid == balance` — rather than remembered example numbers, for **both** ledgers across an empty account, credit documents, money settled on the document, separate Receipt/Payment documents, partial returns, full returns, a mixed history, a dual-role party whose two sides must not borrow from each other, the reported 1,000/−400/200 case, and the figures the Suppliers screen actually renders. The English ledger **Description** text is left as it is by owner decision and documented as a future localization item (§14B.11): it is stored at posting time, is cosmetic, and its eventual fix touches locked Stage 04/05 posting. **600 tests pass.** No other Stage 05 or Stage 06 change. |
 | 2026-09-05 | 3.1 | **Stage 07 — dedicated Suppliers screen (still NOT locked, NOT merged).** The §14B.9 deviation is closed the way the owner directed: Persons stays the shared master data structure internally, and the UI gains a real **Suppliers** screen. `SuppliersPage` subclasses `PersonsPage` as pure configuration — `PersonsPage` was refactored into overridable hooks so this is a second *presentation*, not a second page, a second table or a second supplier record. It shows Supplier Code, Name, Business Name, Phone, Current Balance, Total Purchases, Total Paid, Remaining Payable, Status and View Account, with Search, New Supplier (the same person form, Supplier pre-ticked), Edit and Open Supplier Ledger — every figure read from `party_ledger.supplier_ledger(...)`, the same call the ledger screen makes, so no balance is duplicated. Wiring it up exposed a **confirmed reconciliation bug**: `supplier_totals` and `customer_totals` counted documents gross of returns and ignored the amount paid on the document itself, so a supplier read Purchases 1,000 − Paid 200 against a Payable of 400. Both now derive so **total − paid == balance** always holds — reported under §33 because it corrects a figure shown by the Stage 05-locked customer ledger summary. Two shared-table rendering defects fixed, each reproduced by measuring the live widget: a row-action button was 42px tall in a 26px cell (a stylesheet `min-height` overrides `setFixedHeight`, so the height now comes from the sheet), and `RowActions` applied an unscoped `background: transparent` that also stripped its children's fill, leaving white text on a white row — the reason **View Account rendered as an empty box**. **583 tests pass** (+2). EN and Dari verified inside the real main window on an on-disk database, so RTL is genuinely exercised; the Suppliers list and the ledger behind View Account show the same 1,100 / 400 / 700. Stages 05 and 06 behaviour otherwise unchanged. See §14B.10. |
 | 2026-09-04 | 3.0 | **Stage 07 — Purchases Parity implemented (READY FOR OWNER REVIEW; NOT locked, NOT merged).** Purchases now carry the contracts the sales side earned across three owner rounds. Seven gaps recorded in §14B.0 were each reproduced on a real database first, then fixed: a **credit purchase from an unregistered supplier** was accepted and posted an anonymous payable no ledger could show (now refused; a fully paid cash purchase from an unregistered supplier stays allowed); the **Purchase List** read 1000 while the payable read 600 after a 400 return (now Billed / Returned / Net Total / Paid / Remaining, all `Decimal`-summed); the **printed bill ignored returns** (now nets quantities, and says so when the whole bill went back); a bill could **not be reopened, corrected or voided** (`correct_purchase` amends the SAME bill in place with surviving line ids, compensating movements, a difference-only journal and an audited diff; `void_purchase` reverses stock/ledger/payable and is blocked while a return exists); purchase returns saved **no readable note**; the purchase invoice had **no payment selector** (Cash / Credit / **Partial** per §14B.7, Paid never negative or above the total, Remaining live); and there was **no `purchases.correct` permission**. Migration **0009** (schema v9) adds that permission with grants, `purchases.corrected_from_id` and a returns index. Reopening a bill mirrors the invoice — net position, read-only **Returned Items**, Previous Balance excluding the bill, the recorded payment type — and saving folds the returned quantities back so history is preserved. Two labelling defects found in screenshot review: the purchase chip showed the payable under a "Supplier Ref." label (now **Supplier Balance**) and the printed bill said "Bill To / Customer Code" for a supplier (additive `InvoiceData.party_kind` → **Bill From / Supplier**; the sales default is unchanged). The Persons list gained a ledger-derived **Balance** column. A later **Supplier Payment** leaves the bill untouched — no duplicate entry. **568 tests pass** (+30); the mandatory workflow (buy 1000 credit → return 4 → correct to 8 → pay 200) reconciles across Purchase List, invoice view, print, purchase return, supplier balance, inventory and stock movement, with one bill, its original number, the return intact and the ledger balanced. Stages 05 and 06 unchanged. See §14B. |

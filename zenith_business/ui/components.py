@@ -403,15 +403,17 @@ class RowActions(QWidget):
         btn = ghost_button(label)
         if variant:
             btn.setProperty("variant", variant)
-        # A row action lives inside a table cell, which is shorter than a normal
-        # form button. Left at its natural height the button overflows the cell
-        # and its LABEL is clipped away, leaving what looks like an empty box.
-        # The height comes from the stylesheet (QPushButton[role="row-action"]),
-        # because a stylesheet min-height overrides setFixedHeight(); the width
-        # is measured from the label so the text is never squeezed out.
+        # A row action lives inside a table cell, which is shorter and narrower
+        # than a normal form button, and either dimension can clip its LABEL away
+        # and leave what looks like an empty box. The height comes from the
+        # stylesheet (QPushButton[role="row-action"]), because a stylesheet
+        # min-height overrides setFixedHeight(). The width floor is the button's
+        # OWN size hint, after polishing so the sheet's padding and font are in
+        # it — a hand-rolled "text width + margins" guess lands a pixel short
+        # under a different font or DPI, and a pixel is enough to lose the label.
         btn.setProperty("role", "row-action")
-        btn.setMinimumWidth(btn.fontMetrics().horizontalAdvance(label)
-                            + int(Spacing.MD) * 2)
+        btn.ensurePolished()
+        btn.setMinimumWidth(btn.sizeHint().width())
         btn.clicked.connect(lambda _c=False, h=handler: h())
         self._lay.insertWidget(self._lay.count() - 1, btn)  # before the stretch
         return btn
