@@ -39,8 +39,16 @@ def _company_info(ctx: ApplicationContext) -> CompanyInfo:
     logo = (row.get("logo_path") or "").strip()
     if logo and not Path(logo).is_file():
         logo = ""
+    # The business name the owner typed during first-run setup is stored as a
+    # SETTING, while the Company screen writes the companies row. A customer who
+    # has not opened that screen still has a name, and printing the PRODUCT name
+    # on their own report instead is simply wrong — these documents carry the
+    # customer's identity, never Zenith's. Falling back through the setting keeps
+    # the product name as the last resort it was meant to be.
+    setup_name = (ctx.settings_repo.get("company.name") or "").strip()
     return CompanyInfo(
-        name=(row.get("display_name") or row.get("legal_name") or "Zenith Business"),
+        name=(row.get("display_name") or row.get("legal_name")
+              or setup_name or "Zenith Business"),
         address=" ".join(x for x in (row.get("address"), row.get("city")) if x),
         phone=row.get("phone") or "",
         email=row.get("email") or "",
@@ -94,27 +102,20 @@ def build_inventory_report_print(ctx: ApplicationContext, payload: dict):
 def build_costing_report_print(ctx: ApplicationContext, payload: dict):
     """Build the printable costing report (Stage 08).
 
-    Reuses the Stage 06 inventory report sheet rather than introducing a second
-    print standard: same A4-only composition, same customer business identity,
-    same already-translated headers carried from the screen.
+    The totals travel BESIDE the rows, not inside them, so the sheet's item
+    count counts items. The customer's identity comes from the shared source, in
+    full — tax id included.
     """
     from zenith_business.ui.documents.costing_report_page import _MONEY_KEYS
-    from zenith_business.ui.print.inventory_report_document import InventoryReportPrintData
-    from zenith_business.ui.print.sales_report_document import ReportCompany
+    from zenith_business.ui.print.costing_report_document import CostingReportPrintData
 
-    ci = _company_info(ctx)
-    company = ReportCompany(name=ci.name, address=ci.address, phone=ci.phone,
-                            email=ci.email, logo_path=ci.logo_path)
-    rows = list(payload["rows"])
-    # The summary belongs on the sheet too — a valuation without its total, or a
-    # gross profit without its margin, is half a report.
-    for label, value, column in payload.get("summary", []):
-        # Each total sits under the column it totals, already formatted by the
-        # screen, so the sheet and the screen read identically.
-        rows.append({payload["columns"][0][1]: label, column: value})
-    return InventoryReportPrintData(
-        company=company, title=payload["title"], columns=payload["columns"],
-        rows=rows, money_keys=frozenset(_MONEY_KEYS))
+    # Title and headers arrive already translated by the screen, so the printed
+    # sheet always matches the language the operator is looking at.
+    return CostingReportPrintData(
+        company=_company_info(ctx), title=payload["title"],
+        columns=payload["columns"], rows=payload["rows"],
+        money_keys=frozenset(_MONEY_KEYS),
+        totals=[(label, value) for label, value, _column in payload.get("summary", [])])
 
 
 def _lines_from(ctx: ApplicationContext, rows: list[dict]) -> list[InvoiceLine]:

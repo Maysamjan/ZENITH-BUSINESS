@@ -521,12 +521,17 @@ class MainWindow(QMainWindow):
             WarehouseTransferPage,
         )
         from zenith_business.ui.documents.costing_report_page import CostingReportPage
+        from zenith_business.ui.documents.costing_report_preview import (
+            CostingReportPreviewPage,
+        )
         from zenith_business.ui.documents.inventory_report_page import InventoryReportPage
         from zenith_business.ui.documents.inventory_report_preview import (
             InventoryReportPreviewPage,
         )
         ctx, t = self._context, self._translator
         self._inv_report_preview = InventoryReportPreviewPage(
+            t, on_back=lambda: self._inventory_report_back())
+        self._cost_report_preview = CostingReportPreviewPage(
             t, on_back=lambda: self._inventory_report_back())
         self._inventory_report_back = self.show_home
         self._inventory_pages = {
@@ -540,7 +545,8 @@ class MainWindow(QMainWindow):
             "cost_reports": CostingReportPage(ctx, t, on_close=self.show_home,
                                               on_print=self._open_costing_report_print),
         }
-        for page in list(self._inventory_pages.values()) + [self._inv_report_preview]:
+        for page in (list(self._inventory_pages.values())
+                     + [self._inv_report_preview, self._cost_report_preview]):
             self.content.addWidget(page)
         for name in self._inventory_pages:
             self._stage03_actions[name] = lambda n=name: self._show_inventory(n)
@@ -575,8 +581,8 @@ class MainWindow(QMainWindow):
         data = build_costing_report_print(self._context, payload)
         self._inventory_report_back = lambda: self.content.setCurrentWidget(
             self._inventory_pages["cost_reports"])
-        self._inv_report_preview.show_report(data)
-        self.content.setCurrentWidget(self._inv_report_preview)
+        self._cost_report_preview.show_report(data)
+        self.content.setCurrentWidget(self._cost_report_preview)
 
     def _open_sales_report_print(self, payload: dict) -> None:
         from zenith_business.ui.documents.print_builder import build_sales_report_print
