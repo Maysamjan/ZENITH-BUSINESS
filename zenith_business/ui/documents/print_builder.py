@@ -115,7 +115,11 @@ def build_costing_report_print(ctx: ApplicationContext, payload: dict):
         company=_company_info(ctx), title=payload["title"],
         columns=payload["columns"], rows=payload["rows"],
         money_keys=frozenset(_MONEY_KEYS),
-        totals=[(label, value) for label, value, _column in payload.get("summary", [])])
+        totals=[(label, value) for label, value, _column in payload.get("summary", [])],
+        # Gross Profit's rows are calculation steps — net sales, COGS, the
+        # profit — not stock. Counting them as items would be nonsense, so the
+        # line is left off that sheet entirely.
+        show_item_count=payload.get("kind") != "gross_profit")
 
 
 def _lines_from(ctx: ApplicationContext, rows: list[dict]) -> list[InvoiceLine]:

@@ -61,6 +61,10 @@ class CostingReportPrintData:
     rows: list[dict]                        # ITEMS only — never totals
     money_keys: frozenset
     totals: list[tuple[str, str]] = field(default_factory=list)  # (label, value)
+    #: Whether an "N item(s)" line belongs at the foot. A valuation lists stock,
+    #: so counting it is useful; Gross Profit lists calculation steps, and
+    #: calling "Net sales" an item is simply wrong.
+    show_item_count: bool = True
 
 
 def _stylesheet(scale: float, rtl: bool) -> str:
@@ -131,11 +135,13 @@ class CostingReportPrintDocument(QWidget):
         if totals is not None:
             col.addWidget(totals)
         # Counts ITEMS. The totals live outside the table precisely so this
-        # number means what it says.
-        foot = QLabel(self._t.gettext("inv.items_count")
-                      .replace("{n}", str(len(self._d.rows))))
-        foot.setProperty("p", "pagefoot")
-        col.addWidget(foot)
+        # number means what it says — and a report whose rows are not items
+        # omits the line rather than miscounting them as stock.
+        if self._d.show_item_count:
+            foot = QLabel(self._t.gettext("inv.items_count")
+                          .replace("{n}", str(len(self._d.rows))))
+            foot.setProperty("p", "pagefoot")
+            col.addWidget(foot)
 
     # ---- header ----------------------------------------------------------
 

@@ -50,6 +50,18 @@ jobs:
           pip install -e .
           pip install pyinstaller
 
+      # The Dari sheet asks for the bundled Vazirmatn with no fallback, which
+      # only helps if Windows actually has it registered. Segoe UI and Tahoma
+      # exist here and do NOT exist on the Linux dev machine, so this is the
+      # platform where a silent substitution would happen — verify it here
+      # rather than infer it from a machine that cannot reproduce the problem.
+      - name: Verify the Dari report font resolves to bundled Vazirmatn (Windows)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          pip install pytest
+          python -m pytest tests/test_stage08_report_fixes.py -v -k "font or dari or bundled"
+
       - name: Freeze ZenithBusiness.exe
         run: pyinstaller packaging/zenith_business.spec --noconfirm --clean
 

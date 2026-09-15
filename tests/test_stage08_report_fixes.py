@@ -193,3 +193,114 @@ def test_dari_stays_right_to_left(shop, qapp):
     data = build_costing_report_print(shop, _valuation_payload(shop, LANG_DARI))
     doc = CostingReportPrintDocument(data, Translator(LANG_DARI))
     assert doc.layoutDirection() == Qt.LayoutDirection.RightToLeft
+
+
+# ---- the Gross Profit sheet counts nothing -------------------------------
+
+def _payload(ctx, kind, language=LANG_ENGLISH):
+    from zenith_business.ui.documents.costing_report_page import CostingReportPage
+
+    page = CostingReportPage(ctx, Translator(language))
+    page._set_kind(kind)
+    return page._last
+
+
+def test_gross_profit_prints_no_item_count(shop, qapp):
+    """Net sales and COGS are calculation steps, not stock."""
+    from PyQt6.QtWidgets import QLabel
+
+    from zenith_business.ui.documents.print_builder import build_costing_report_print
+    from zenith_business.ui.print.costing_report_document import CostingReportPrintDocument
+
+    data = build_costing_report_print(shop, _payload(shop, "gross_profit"))
+    assert data.show_item_count is False
+    doc = CostingReportPrintDocument(data, Translator(LANG_ENGLISH))
+    printed = " ".join(lab.text() for lab in doc.findChildren(QLabel))
+    assert "item(s)" not in printed
+    # The figures live in the table, and must still all be on the sheet.
+    from PyQt6.QtWidgets import QTableWidget
+    table = doc.findChildren(QTableWidget)[0]
+    rows = [table.item(r, 0).text() for r in range(table.rowCount())]
+    assert "Gross profit" in rows and "Net sales" in rows
+
+
+def test_gross_profit_prints_no_item_count_in_dari(shop, qapp):
+    from PyQt6.QtWidgets import QLabel
+
+    from zenith_business.ui.documents.print_builder import build_costing_report_print
+    from zenith_business.ui.print.costing_report_document import CostingReportPrintDocument
+
+    data = build_costing_report_print(shop, _payload(shop, "gross_profit", LANG_DARI))
+    doc = CostingReportPrintDocument(data, Translator(LANG_DARI))
+    printed = " ".join(lab.text() for lab in doc.findChildren(QLabel))
+    assert "قلم" not in printed
+
+
+def test_the_valuation_still_counts_its_items(shop, qapp):
+    """Removing the count from one report must not remove it from the other."""
+    from PyQt6.QtWidgets import QLabel
+
+    from zenith_business.ui.documents.print_builder import build_costing_report_print
+    from zenith_business.ui.print.costing_report_document import CostingReportPrintDocument
+
+    data = build_costing_report_print(shop, _payload(shop, "valuation"))
+    assert data.show_item_count is True
+    doc = CostingReportPrintDocument(data, Translator(LANG_ENGLISH))
+    printed = [lab.text() for lab in doc.findChildren(QLabel)]
+    assert "2 item(s)" in printed
+
+
+def test_the_cogs_report_still_counts_its_items(shop, qapp):
+    from zenith_business.ui.documents.print_builder import build_costing_report_print
+
+    assert build_costing_report_print(shop, _payload(shop, "cogs")).show_item_count is True
+
+
+# ---- the bundled Dari font must survive packaging ------------------------
+
+def test_the_bundled_dari_font_is_registered_at_runtime(qapp):
+    """The face the sheet asks for has to be one Qt actually has.
+
+    Asking for "Vazirmatn" with no fallback only helps if Vazirmatn is loaded;
+    otherwise Qt picks a default and the sheet looks foreign again. This runs on
+    whatever platform the suite runs on — including Windows in CI.
+    """
+    from zenith_business.core.fonts import FONT_FAMILY, apply_base_font, is_bundled_available
+
+    apply_base_font(qapp)
+    assert is_bundled_available(), f"{FONT_FAMILY} was not registered with Qt"
+
+
+def test_dari_text_actually_resolves_to_the_bundled_font(shop, qapp):
+    """Not what the stylesheet asks for — what Qt resolves it to."""
+    from PyQt6.QtGui import QFontInfo
+    from PyQt6.QtWidgets import QLabel, QTableWidget
+
+    from zenith_business.core.fonts import FONT_FAMILY, apply_base_font
+    from zenith_business.ui.documents.print_builder import build_costing_report_print
+    from zenith_business.ui.print.costing_report_document import CostingReportPrintDocument
+
+    apply_base_font(qapp)
+    data = build_costing_report_print(shop, _payload(shop, "valuation", LANG_DARI))
+    doc = CostingReportPrintDocument(data, Translator(LANG_DARI))
+    doc.ensurePolished()
+    resolved = {QFontInfo(w.font()).family()
+                for w in doc.findChildren(QLabel) + doc.findChildren(QTableWidget)}
+    assert resolved, "the sheet rendered no text at all"
+    assert resolved == {FONT_FAMILY}, f"Dari fell back to {resolved - {FONT_FAMILY}}"
+
+
+def test_the_font_files_are_packaged_with_the_application():
+    """A Windows build with no font files would silently fall back."""
+    from pathlib import Path
+
+    import zenith_business
+
+    fonts = Path(zenith_business.__file__).parent / "resources" / "fonts"
+    faces = sorted(p.name for p in fonts.glob("Vazirmatn-*.ttf"))
+    assert faces, "the bundled Vazirmatn faces are missing from the package"
+    spec = (Path(zenith_business.__file__).parent.parent
+            / "packaging" / "zenith_business.spec").read_text()
+    assert "collect_data_files" in spec and "zenith_business" in spec, (
+        "the PyInstaller spec no longer collects the resource tree, so a frozen"
+        " build would ship without the Dari font")
