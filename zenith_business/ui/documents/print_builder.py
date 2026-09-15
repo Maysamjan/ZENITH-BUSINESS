@@ -91,6 +91,32 @@ def build_inventory_report_print(ctx: ApplicationContext, payload: dict):
         rows=payload["rows"], money_keys=frozenset(_MONEY_KEYS))
 
 
+def build_costing_report_print(ctx: ApplicationContext, payload: dict):
+    """Build the printable costing report (Stage 08).
+
+    Reuses the Stage 06 inventory report sheet rather than introducing a second
+    print standard: same A4-only composition, same customer business identity,
+    same already-translated headers carried from the screen.
+    """
+    from zenith_business.ui.documents.costing_report_page import _MONEY_KEYS
+    from zenith_business.ui.print.inventory_report_document import InventoryReportPrintData
+    from zenith_business.ui.print.sales_report_document import ReportCompany
+
+    ci = _company_info(ctx)
+    company = ReportCompany(name=ci.name, address=ci.address, phone=ci.phone,
+                            email=ci.email, logo_path=ci.logo_path)
+    rows = list(payload["rows"])
+    # The summary belongs on the sheet too — a valuation without its total, or a
+    # gross profit without its margin, is half a report.
+    for label, value, column in payload.get("summary", []):
+        # Each total sits under the column it totals, already formatted by the
+        # screen, so the sheet and the screen read identically.
+        rows.append({payload["columns"][0][1]: label, column: value})
+    return InventoryReportPrintData(
+        company=company, title=payload["title"], columns=payload["columns"],
+        rows=rows, money_keys=frozenset(_MONEY_KEYS))
+
+
 def _lines_from(ctx: ApplicationContext, rows: list[dict]) -> list[InvoiceLine]:
     unit_by_id: dict = {u["id"]: u for u in ctx.units_repo.list_all()}
     item_by_id: dict = {}

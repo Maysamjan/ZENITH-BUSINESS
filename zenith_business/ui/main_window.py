@@ -520,6 +520,7 @@ class MainWindow(QMainWindow):
             StockMovementPage,
             WarehouseTransferPage,
         )
+        from zenith_business.ui.documents.costing_report_page import CostingReportPage
         from zenith_business.ui.documents.inventory_report_page import InventoryReportPage
         from zenith_business.ui.documents.inventory_report_preview import (
             InventoryReportPreviewPage,
@@ -535,6 +536,9 @@ class MainWindow(QMainWindow):
             "inv_movements": StockMovementPage(ctx, t, on_close=self.show_home),
             "inv_reports": InventoryReportPage(ctx, t, on_close=self.show_home,
                                                on_print=self._open_inventory_report_print),
+            # Stage 08 — the same ledger, read for value instead of quantity.
+            "cost_reports": CostingReportPage(ctx, t, on_close=self.show_home,
+                                              on_print=self._open_costing_report_print),
         }
         for page in list(self._inventory_pages.values()) + [self._inv_report_preview]:
             self.content.addWidget(page)
@@ -546,6 +550,7 @@ class MainWindow(QMainWindow):
             ("inv.nav_adjust", True, "inv_adjust"),
             ("inv.nav_transfer", True, "inv_transfer"),
             ("inv.nav_reports", True, "inv_reports"),
+            ("cost.nav_reports", True, "cost_reports"),
         ]
 
     def _show_inventory(self, name: str) -> None:
@@ -561,6 +566,15 @@ class MainWindow(QMainWindow):
         data = build_inventory_report_print(self._context, payload)
         self._inventory_report_back = lambda: self.content.setCurrentWidget(
             self._inventory_pages["inv_reports"])
+        self._inv_report_preview.show_report(data)
+        self.content.setCurrentWidget(self._inv_report_preview)
+
+    def _open_costing_report_print(self, payload: dict) -> None:
+        """Preview a costing report on the shared inventory-report sheet."""
+        from zenith_business.ui.documents.print_builder import build_costing_report_print
+        data = build_costing_report_print(self._context, payload)
+        self._inventory_report_back = lambda: self.content.setCurrentWidget(
+            self._inventory_pages["cost_reports"])
         self._inv_report_preview.show_report(data)
         self.content.setCurrentWidget(self._inv_report_preview)
 

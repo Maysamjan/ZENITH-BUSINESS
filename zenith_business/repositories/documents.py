@@ -12,6 +12,7 @@ from __future__ import annotations
 from zenith_business.core.clock import now_iso
 from zenith_business.core.money import D, money_to_db, qty_to_db, rate_to_db
 from zenith_business.repositories.base import BaseRepository
+from zenith_business.services.costing import MovementCoster
 
 
 class SalesRepository(BaseRepository):
@@ -326,13 +327,26 @@ class InventoryRepository(BaseRepository):
         created_by: int | None = None,
         notes: str | None = None,
     ) -> int:
+        """Record one stock movement — and what it was worth (Stage 08).
+
+        Every posting path in the application funnels through here, which is
+        precisely why the costing engine is consulted here: no route can create
+        stock that nobody costed, and none of the locked Stage 05/06/07 services
+        had to learn about cost to get it. Callers pass exactly what they always
+        passed; the cost is derived, never supplied by the caller.
+        """
+        unit_cost, total_cost = MovementCoster(self._conn).cost_movement(
+            item_id=item_id, warehouse_id=warehouse_id, movement_type=movement_type,
+            quantity=quantity, reference_type=reference_type,
+            reference_id=reference_id, reference_line_id=reference_line_id)
         return self._insert(
             "INSERT INTO inventory_movements (item_id, warehouse_id, movement_type, quantity,"
             " unit_id, reference_type, reference_id, reference_line_id, movement_date,"
-            " created_by, created_at, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " created_by, created_at, notes, unit_cost, total_cost)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (item_id, warehouse_id, movement_type, qty_to_db(quantity), unit_id,
              reference_type, reference_id, reference_line_id, movement_date,
-             created_by, now_iso(), notes))
+             created_by, now_iso(), notes, unit_cost, total_cost))
 
     def stock_on_hand(self, item_id: int, warehouse_id: int | None = None) -> str:
         """Signed sum of movement quantities → current stock (canonical string).

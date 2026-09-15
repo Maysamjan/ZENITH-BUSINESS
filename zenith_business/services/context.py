@@ -93,6 +93,8 @@ from zenith_business.services.sales_documents import SalesDocumentService
 from zenith_business.services.roles import RoleService
 from zenith_business.services.sales import SalesService
 from zenith_business.services.sales_reports import SalesReportService
+from zenith_business.repositories.costing_s8 import CostingReadRepository
+from zenith_business.services.costing_reports import CostingReportService
 from zenith_business.services.search_providers import ItemSearchProvider, PartySearchProvider
 from zenith_business.services.session import SessionContext
 from zenith_business.services.setup import InitialSetupService
@@ -237,6 +239,13 @@ class ApplicationContext:
         self.sales_report_repo = SalesReportRepository(db)
         self.sales_reports = SalesReportService(
             self.sales_report_repo, self.session, self.authz)
+
+        # ---- Stage 08 costing & valuation (read-only over the costed ledger) ----
+        # Sales reporting is passed in rather than re-implemented: net sales has
+        # exactly one definition, and it belongs to the module above.
+        self.costing_repo = CostingReadRepository(db)
+        self.costing_reports = CostingReportService(
+            self.costing_repo, self.sales_reports, self.authz)
 
         # ---- reusable search providers (§12, §16) ----
         self.item_search = ItemSearchProvider(self.items_repo)

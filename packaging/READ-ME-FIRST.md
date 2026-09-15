@@ -1,18 +1,18 @@
-# Zenith Business — Stage 07 Owner Test Build
+# Zenith Business — Stage 08 Owner Test Build
 
 This is a **self-contained Windows test build** of Zenith Business, including the
-locked **Stages 01–06** and the completed **Stage 07 (Purchases Parity — Purchase
-& Supplier Management)**. It ships with a **fresh test database already loaded
-with sample data** so you can run the full acceptance test without typing any
-setup.
+locked **Stages 01–07** and the completed **Stage 08 (Costing & Inventory
+Valuation)**. It ships with a **fresh test database already loaded with sample
+data** so you can run the full acceptance test without typing any setup.
 
-> **New in this build:** a purchase bill now behaves exactly like a sales
-> invoice. Cash / Credit / **Partial** payment on the bill, **correcting a bill
-> in place** (same document number), **partial and full purchase returns**, a
-> dedicated **Suppliers** screen, and a Purchase List / bill / printed bill /
-> supplier balance / stock that all agree with each other.
+> **New in this build:** the system now knows what your stock actually **cost**.
+> **Weighted average cost** per item, **inventory value** per item / per
+> warehouse / company total, **cost of goods sold** on every sale, and a **gross
+> profit** figure (net sales − COGS) — with three new A4 reports in English and
+> Dari. Cost stays correct through returns, corrections, adjustments and
+> transfers, and **a warehouse transfer never changes what your stock is worth**.
 >
-> **Start with section 3 — it is the Stage 07 checklist.**
+> **Start with section 3 — it is the Stage 08 checklist.**
 
 Nothing is installed on your PC. Everything lives inside this one folder. You do
 **not** need Python or an internet connection to run it.
@@ -62,71 +62,71 @@ Already-posted documents (so lists and printing work immediately):
 
 ---
 
-## 3. Stage 07 checklist — what to test in this build
+## 3. Stage 08 checklist — what to test in this build
 
-Everything below is **new in Stage 07**. The sample data already contains two
-posted credit bills — **PUR-000001** (National Foods) and **PUR-000002** (Kabul
-Wholesale Co.) — so you can start immediately.
+Everything below is **new in Stage 08**. Find it under **Item Reports →
+Costing & Valuation**.
 
-**A. Suppliers screen** — *Base Data → Suppliers.*
-Confirm it lists only suppliers, and shows Supplier Code, Name, Business Name,
-Phone, Current Balance, Total Purchases, Total Paid, Remaining Payable and
-Status. Check that **Total Purchases − Total Paid = Remaining Payable** on every
-row. Press **View Account** — it opens that supplier's ledger showing **the same
-three figures**. **New Supplier** opens the normal person form with *Supplier*
-already ticked, so a supplier is still one person record, not a duplicate.
+**A. The headline test — do the numbers come out right?**
+*Buy & Sell → Purchase Invoice.* Buy **10 Rice @ 100**, save. Buy **10 Rice @
+120**, save. Then open *Item Reports → Costing & Valuation → Inventory
+Valuation*:
 
-**B. Purchase payment: Cash / Credit / Partial** — *Buy & Sell → Purchase
-Invoice.*
-Add a line (say Qty 12 × 100). Then:
-- **Cash** → Paid fills to the Grand Total, Remaining 0.
-- **Credit** → Paid 0, Remaining = Grand Total.
-- **Partial** → type your own Paid; Remaining recalculates as you type. Try to
-  type more than the Grand Total or a negative number — it should be refused.
+| Must show | |
+|---|---|
+| Quantity | **20** |
+| Average Cost | **110.00** |
+| Inventory Value | **2,200.00** |
 
-**C. The line total must always agree** *(a defect you reported).*
-With Qty 12 and Unit Price 100, the row's **Total** must read **1,200** — the
-same as the Subtotal and Grand Total. Change the Qty, the Price or the Discount
-and confirm the row total changes **immediately** every time.
+Now sell **5 Rice @ 150** and check **Gross Profit**:
 
-**D. Correct a saved bill — same document number** — *Buy & Sell → Purchases.*
-Press **Correct** on a posted bill. Change a quantity or a price and Save.
-Confirm it is still **the same bill number** — no second bill is created — and
-that the supplier balance and the stock both moved by the difference only.
+| Must show | |
+|---|---|
+| Net sales | **750.00** |
+| Cost of goods sold | **550.00** |
+| Gross profit | **200.00** |
+| Remaining quantity / value | **15** / **1,650.00** |
 
-**E. Partial purchase return** — *Buy & Sell → Purchase Return.*
-Look up a bill by number (`2`, `000002` or `PUR-000002` all work). Return part of
-a line. Then check all five of these agree:
-- **Purchases list** shows Invoiced, **Returned**, **Net Total**, Paid, Remaining.
-- **Reopening the bill** shows the reduced quantity, plus a read-only
-  **Returned Items** panel — the history is kept, not erased.
-- **Print** shows the net bill.
-- The **supplier balance** dropped by the returned amount.
-- **Stock** went down by the returned quantity (*Item Reports → Stock Movement*).
+**B. Cost must never come from the selling price.**
+Sell one item at a wildly high price. The **average cost must not move** and the
+inventory value must not go up — you did not get richer by asking for more.
 
-**F. Full purchase return.**
-Return everything on a bill. Net Total should reach **0**, the supplier's payable
-for that bill should clear, the stock should come back out in full, and the
-printed bill should say the whole bill was returned rather than printing blank.
+**C. Inventory Valuation, per warehouse.**
+Switch the **Warehouse** filter. Each warehouse shows its own quantity, average
+and value, and the warehouse figures add up to the company total.
 
-**G. A later supplier payment must not duplicate anything** — *Receipts &
-Payments → Make Payment.*
-Pay something against a supplier who has an open bill. The **bill itself must not
-change**; only the payment and the balance move. Total Paid on the Suppliers
-screen should rise by exactly what you paid.
+**D. A warehouse transfer must NOT change the company's inventory value.**
+*Item Reports → Warehouse Transfer.* Note the total inventory value, move some
+stock between warehouses, then look again: **the total must be identical**. Only
+where the stock sits should change.
 
-**H. Dari + right-to-left.**
-Switch to **دری** (top-right) and repeat B, D and E. The purchase screens, the
-Suppliers screen and the supplier ledger must all flip to a genuine right-to-left
-layout, and a **purchase return note must appear in Dari, using the Dari item
-name** — not "Rice — Qty 4 returned." *(Known and accepted for now: the ledger's
-**Description** column still shows the English document text, e.g.
-`Purchase PUR-000001`. It is cosmetic — the **Type** column beside it is
-translated — and it is scheduled for a later localization pass.)*
+**E. Returns keep the cost straight.**
+- **Sales return** — the goods come back at the cost they left at, so the value
+  returns to where it was and COGS drops by the same amount.
+- **Purchase return** — the goods go back at **what you paid for them**, not at
+  the average. Return the expensive bill and the cheap stock is what remains.
+
+**F. Corrections keep the cost straight.**
+Correct a saved purchase to a different price, and correct a saved sale to a
+different quantity. After each, the valuation, the COGS and the gross profit must
+all still agree with the stock on hand.
+
+**G. Stock adjustment.**
+Adjust stock **in** — the quantity rises and the **average cost stays the same**.
+Adjust **out** — the stock leaves at the average cost.
+
+**H. The three reports print, in both languages.**
+Each report has **Print** (A4). Check Inventory Valuation, COGS and Gross Profit
+in **English and دری**; the printed sheet must be in the same language as the
+screen and carry your own business name.
 
 **I. Nothing from earlier stages broke.**
-Post a normal credit sale and a receipt, and confirm the customer ledger still
-adds up: **Total Sales − Received = Current Receivable**.
+Purchases, sales, returns, corrections, supplier balances and the Suppliers
+screen must all behave exactly as they did in the Stage 07 build.
+
+> **Known and accepted for now:** the printed sheet's footer counts the total
+> rows too (a 2-item valuation says "4 item(s)"), and the ledger's Description
+> column is still English in Dari. Both are cosmetic and on the list.
 
 ---
 
@@ -260,5 +260,5 @@ For this portable build, all data stays inside this folder under **`appdata\`**
 `appdata_seed\` holds the pristine copy used by **Reset-Test-Data.bat**. Deleting
 the whole folder removes every trace of the test build from your PC.
 
-> Note: this is a **test** build for acceptance only. Stage 07 is **not locked or
+> Note: this is a **test** build for acceptance only. Stage 08 is **not locked or
 > merged** yet — it is waiting for your approval after you finish testing.
