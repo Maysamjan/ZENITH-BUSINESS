@@ -23,6 +23,25 @@ COGS_CODE = "5000"
 #: Kept out of operating expenses so an empty account cannot distort a P&L.
 PURCHASES_CODE = "5100"
 
+#: The entry that PUT a party in debt, per side. Everything else against that
+#: party either settles it or adjusts it.
+_BASE_CHARGE: dict[str, str] = {"CUSTOMER": "SALE", "SUPPLIER": "PURCHASE"}
+
+#: Adjustments whose ``source_id`` is already the original document's id, so the
+#: document they belong to is known without a lookup.
+_DIRECT_ADJUSTMENT: dict[str, str] = {
+    "SALE_CORRECTION": "SALE", "SALE_VOID": "SALE",
+    "PURCHASE_CORRECTION": "PURCHASE", "PURCHASE_VOID": "PURCHASE",
+}
+
+#: Returns whose ``source_id`` is the RETURN's own id — the invoice or bill it
+#: credits has to be read from the return document.
+#: source_type -> (table, column holding the parent id, parent source_type)
+_RETURN_PARENT: dict[str, tuple[str, str, str]] = {
+    "SALES_RETURN": ("sales_returns", "sale_id", "SALE"),
+    "PURCHASE_RETURN": ("purchase_returns", "purchase_id", "PURCHASE"),
+}
+
 
 class AccountingReadRepository(BaseRepository):
     """Ledger reads behind the financial statements."""
@@ -126,6 +145,12 @@ class AccountingReadRepository(BaseRepository):
 
         A charge is what put the party in debt (an invoice for a customer, a bill
         for a supplier); a settlement is what reduced it.
+
+        Each row also carries ``charge_key``: the document it belongs to, where
+        that is knowable. A receipt or a payment does not say which invoice it
+        settles, so its key is ``None`` and ageing falls back to the oldest-debt
+        rule. A return, a correction or a void **does** name its document, and
+        crediting the wrong invoice would misstate how old the debt is.
         """
         where = ["l.party_type = ?", "l.party_id IS NOT NULL"]
         params: list = [party_type]
@@ -138,13 +163,42 @@ class AccountingReadRepository(BaseRepository):
             "  JOIN financial_entries e ON e.id = l.entry_id"
             f" WHERE {' AND '.join(where)}"
             " ORDER BY e.entry_date, e.id", params)
+        base = _BASE_CHARGE.get(party_type)
+        parents = self._return_parents(rows)
         out = []
         for r in rows:
             net = D(r["debit"]) - D(r["credit"])
             amount = net if party_type == "CUSTOMER" else -net
             if amount == 0:
                 continue
+            source_type, source_id = r["source_type"], r["source_id"]
+            if source_type == base:
+                key = (base, source_id)
+            elif source_type in _DIRECT_ADJUSTMENT:
+                key = (_DIRECT_ADJUSTMENT[source_type], source_id)
+            elif source_type in _RETURN_PARENT:
+                parent = parents.get((source_type, source_id))
+                key = (_RETURN_PARENT[source_type][2], parent) if parent else None
+            else:
+                key = None
             out.append({"party_id": r["party_id"], "date": r["entry_date"],
-                        "reference": r["entry_no"], "source_type": r["source_type"],
-                        "amount": amount})
+                        "reference": r["entry_no"], "source_type": source_type,
+                        "source_id": source_id, "charge_key": key,
+                        "is_charge": source_type == base, "amount": amount})
+        return out
+
+    def _return_parents(self, rows: list[dict]) -> dict[tuple[str, int], int]:
+        """Map each return entry to the invoice or bill it credits, one query each."""
+        out: dict[tuple[str, int], int] = {}
+        for source_type, (table, column, _parent) in _RETURN_PARENT.items():
+            ids = {r["source_id"] for r in rows
+                   if r["source_type"] == source_type and r["source_id"] is not None}
+            if not ids:
+                continue
+            marks = ",".join("?" * len(ids))
+            for row in self._all(
+                    f"SELECT id, {column} AS parent_id FROM {table}"
+                    f" WHERE id IN ({marks})", list(ids)):
+                if row["parent_id"] is not None:
+                    out[(source_type, row["id"])] = row["parent_id"]
         return out

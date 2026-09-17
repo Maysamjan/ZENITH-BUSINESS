@@ -75,6 +75,19 @@ def _owners_scenario(ctx):
     return sale
 
 
+def assert_buckets_add_up(report):
+    """Ageing may move money between buckets; it may never create or lose any."""
+    buckets = sum((Decimal(v) for v in report["totals"].values()), Decimal(0))
+    assert buckets == Decimal(report["total"]), (
+        f"buckets total {buckets}, the balance is {report['total']}")
+    for row in report["rows"]:
+        row_total = sum((Decimal(row[k]) for k in
+                         ("current", "d1_30", "d31_60", "d61_90", "d90_plus")),
+                        Decimal(0))
+        assert row_total == Decimal(row["balance"]), (
+            f"{row.get('party_code')}: buckets {row_total} vs balance {row['balance']}")
+
+
 def assert_statements_reconcile(ctx):
     """Everything that must hold after ANY activity, whatever it was."""
     reports = ctx.accounting_reports
@@ -265,6 +278,103 @@ def test_a_payment_clears_the_oldest_debt_first(books):
     assert ar["total"] == "400.00"
     assert ar["totals"]["d1_30"] == "400.00"
     assert ar["totals"]["d90_plus"] == "0.00"
+
+
+def test_a_return_credits_its_own_invoice_not_the_oldest_one(books):
+    """A credit note names its document, so it must not pay down an older one.
+
+    Found on real data during the Stage 09 verification: a return against a
+    recent invoice was being applied oldest-first like an unallocated payment,
+    which left the recent invoice standing at full value and made an untouched
+    old invoice look part-paid. The balance was right and the ageing was not,
+    which is the one thing an ageing report exists to get right.
+    """
+    _buy(books, quantity="40", date="2026-01-01")
+    _sell(books, quantity="10", price="200", date="2026-01-10")    # old, 2,000
+    recent = _sell(books, quantity="5", price="200", date="2026-06-10")  # 1,000
+    line = books.sales_repo.lines_for(recent.id)[0]
+    books.sales_documents.post_return(
+        sale_id=recent.id, return_date="2026-06-15",
+        lines=[ReturnLine(sale_line_id=line["id"], quantity="2")])   # credit 400
+
+    ar = books.accounting_reports.receivables(as_of="2026-06-25")
+    assert ar["total"] == "2600.00"
+    # the 400 belongs to the June invoice: 1,000 - 400 = 600 still recent
+    assert ar["totals"]["d1_30"] == "600.00"
+    # and the January invoice is untouched, not 400 lighter
+    assert ar["totals"]["d90_plus"] == "2000.00"
+    assert_buckets_add_up(ar)
+
+
+def test_a_voided_invoice_leaves_the_ageing_entirely(books):
+    _buy(books, quantity="40", date="2026-01-01")
+    _sell(books, quantity="10", price="200", date="2026-01-10")    # old, 2,000
+    doomed = _sell(books, quantity="5", price="200", date="2026-06-10")
+    books.sales_documents.void_sale(sale_id=doomed.id, reason="Test",
+                                    void_date="2026-06-12")
+
+    ar = books.accounting_reports.receivables(as_of="2026-06-25")
+    assert ar["total"] == "2000.00"
+    # the voided invoice is gone from its own bucket ...
+    assert ar["totals"]["d1_30"] == "0.00"
+    # ... and did not quietly pay down the January one
+    assert ar["totals"]["d90_plus"] == "2000.00"
+    assert_buckets_add_up(ar)
+
+
+def test_a_correction_ages_with_the_invoice_it_amends(books):
+    _buy(books, quantity="40", date="2026-01-01")
+    _sell(books, quantity="10", price="200", date="2026-01-10")    # old, 2,000
+    amended = _sell(books, quantity="5", price="200", date="2026-06-10")
+    books.sales_documents.correct_sale(
+        sale_id=amended.id, currency_code="AFN", warehouse_id=books.main,
+        party_id=books.cus, amount_paid="0", sale_date="2026-06-10",
+        lines=[SaleLine(item_id=books.item, unit_id=books.bag,
+                        quantity="3", unit_price="200")])           # 1,000 -> 600
+
+    ar = books.accounting_reports.receivables(as_of="2026-06-25")
+    assert ar["total"] == "2600.00"
+    assert ar["totals"]["d1_30"] == "600.00"
+    assert ar["totals"]["d90_plus"] == "2000.00"
+    assert_buckets_add_up(ar)
+
+
+def test_a_purchase_return_credits_its_own_bill(books):
+    """The same rule on the supplier side."""
+    old = _buy(books, quantity="10", price="100", date="2026-01-05")   # 1,000
+    recent = _buy(books, quantity="5", price="100", date="2026-06-10")  # 500
+    line = books.purchases_repo.lines_for(recent.id)[0]
+    books.purchase_documents.post_return(
+        purchase_id=recent.id, return_date="2026-06-15",
+        lines=[PurchaseReturnLine(purchase_line_id=line["id"], quantity="2")])
+
+    ap = books.accounting_reports.payables(as_of="2026-06-25")
+    assert ap["total"] == "1300.00"
+    assert ap["totals"]["d1_30"] == "300.00"     # 500 - 200, on its own bill
+    assert ap["totals"]["d90_plus"] == "1000.00"  # January bill untouched
+    assert_buckets_add_up(ap)
+
+
+def test_an_unallocated_receipt_still_clears_the_oldest_debt(books):
+    """The oldest-first rule stays where it belongs: money that names nothing."""
+    _buy(books, quantity="40", date="2026-01-01")
+    old = _sell(books, quantity="10", price="200", date="2026-01-10")   # 2,000
+    _sell(books, quantity="5", price="200", date="2026-06-10")         # 1,000
+    line = books.sales_repo.lines_for(old.id)[0]
+    # a return on the OLD invoice, plus a receipt that names no invoice at all
+    books.sales_documents.post_return(
+        sale_id=old.id, return_date="2026-06-14",
+        lines=[ReturnLine(sale_line_id=line["id"], quantity="2")])     # 400
+    books.receipts.post_receipt(party_id=books.cus, account_id=books.cash,
+                                amount="600", currency_code="AFN",
+                                receipt_date="2026-06-20")
+    ar = books.accounting_reports.receivables(as_of="2026-06-25")
+    assert ar["total"] == "2000.00"
+    # the return took its own invoice to 1,600; the receipt then cleared the
+    # oldest 600 of that, leaving 1,000 old and the June 1,000 recent
+    assert ar["totals"]["d90_plus"] == "1000.00"
+    assert ar["totals"]["d1_30"] == "1000.00"
+    assert_buckets_add_up(ar)
 
 
 # ---- COGS posting ---------------------------------------------------------

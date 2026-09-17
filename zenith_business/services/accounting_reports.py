@@ -342,17 +342,58 @@ class AccountingReportService:
 
     @staticmethod
     def _age_party(documents: list[dict], today: str) -> dict[str, Decimal]:
-        """Age one party's outstanding balance, settling oldest charges first.
+        """Age one party's outstanding balance by the age of the debt still standing.
 
-        Payments do not say which invoice they settle, so the standard rule
-        applies: money received clears the oldest debt. What survives is aged by
-        the date of the charge that is still standing, which is why the buckets
-        always add back to the party's balance.
+        Two different rules, because two different kinds of credit exist:
+
+        * A **return, correction or void names its own document**, so it is
+          applied to that invoice. Anything else misstates the very thing the
+          report is for: a voided invoice would keep sitting in a recent bucket
+          while an untouched older invoice looked part-paid.
+        * A **receipt or payment names nothing**, so the standard rule applies —
+          money clears the oldest debt first.
+
+        Either way nothing is created or dropped, which is why the buckets always
+        add back to the party's balance.
         """
         buckets = {key: D(0) for key, _days in AGEING_BUCKETS}
-        charges = [dict(d) for d in documents if d["amount"] > 0]
-        credit = sum((-d["amount"] for d in documents if d["amount"] < 0), D(0))
-        for charge in charges:                       # already in date order
+        charges: dict[tuple, dict] = {}
+        order: list[tuple] = []
+        loose: list[dict] = []
+        credit = D(0)
+
+        # 1. The documents that created the debt, oldest first.
+        taken: set[int] = set()
+        for i, d in enumerate(documents):
+            key = d.get("charge_key")
+            if d.get("is_charge") and key is not None and key not in charges:
+                charges[key] = {"date": d["date"], "amount": d["amount"]}
+                order.append(key)
+                taken.add(i)
+
+        # 2. Everything else: attach it to its own document where it names one.
+        for i, d in enumerate(documents):
+            if i in taken:
+                continue
+            key = d.get("charge_key")
+            if key is not None and key in charges:
+                # A correction can raise a bill as well as lower it; either way it
+                # amends that document and keeps that document's age.
+                charges[key]["amount"] += d["amount"]
+            elif d["amount"] > 0:
+                loose.append({"date": d["date"], "amount": d["amount"]})
+            else:
+                credit += -d["amount"]
+
+        items = [charges[key] for key in order] + loose
+        items.sort(key=lambda c: c["date"])
+        # A credit note can exceed what is left on its own document. The excess is
+        # money owed back, which settles the rest oldest-first like any payment.
+        for charge in items:
+            if charge["amount"] < 0:
+                credit += -charge["amount"]
+                charge["amount"] = D(0)
+        for charge in items:
             if credit <= 0:
                 break
             applied = min(credit, charge["amount"])
@@ -363,7 +404,7 @@ class AccountingReportService:
             today_date = date.fromisoformat(today)
         except ValueError:
             today_date = date.today()
-        for charge in charges:
+        for charge in items:
             if charge["amount"] <= 0:
                 continue
             try:

@@ -15,7 +15,7 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 5.1 |
+| PROJECT_MASTER.md Version | 5.2 |
 | Current Stage | **09 — ACCOUNTING REPORTS & FINANCIAL STATEMENTS — 🧪 READY FOR OWNER REVIEW (NOT locked, NOT merged). Stages 01–08 LOCKED. PR #4 NOT merged. Stage 10 not started.** |
 | Database Schema Version | **11** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data, 0004 stage04_sales_purchases_returns, 0005 stage05_receipts_payments_expenses, 0006 owner_fixes_walkin_ledger_void, 0007 round2_sales_correction, 0008 stage06_inventory, 0009 stage07_purchases_parity, 0010 stage08_costing_valuation, 0011 stage09_accounting_reports) |
 | Last Updated | 2026-09-17 |
@@ -3060,7 +3060,63 @@ reconciliation they listed:
 Then held through a sales return, a sale correction and a void. All six reports
 were driven through the real main window in EN and Dari with the on-screen
 figures compared against the engine. `tests/test_stage09_accounting.py` adds
-**26 tests**.
+**31 tests**.
+
+#### 14D.5a Second verification round — the six reports the owner named
+
+A larger dataset was built specifically so that **every ageing bucket is really
+populated** as of 2026-09-17 (two customers, two suppliers, seven invoices, five
+bills, part-payments on both sides), because a scenario where everything lands in
+"Current" cannot test ageing at all.
+
+| Report | Verified |
+|---|---|
+| General Ledger | per account, running balance ends at the closing; opening + Dr − Cr == closing; **every** account's GL closing == its TB closing; unfiltered GL totals == TB totals; a date filter returns only rows in range and its own opening/closing are consistent |
+| Cash & Bank | cash in 5,000 / out 3,100 / closing 1,900; bank in 1,000 / out 900 / closing 100; each fund's closing == its TB closing **and** its General Ledger closing |
+| Receivables ageing | Current 1,100 · 1–30 2,220 · 31–60 2,100 · 61–90 3,000 · 90+ 4,000 → 13,280; each party's buckets add to that party's balance; total == TB Accounts Receivable == the customer ledgers |
+| Payables ageing | Current 1,400 · 1–30 2,600 · 31–60 3,600 · 61–90 3,900 · 90+ 22,000 → 33,500; total == TB Accounts Payable (a credit balance) == the supplier ledgers |
+| COGS reversal after a Sales Return | on an item whose average cost is exactly 50.00, selling 10 charges 500.00 and returning 4 reverses **exactly 200.00** — 4 × cost, *not* 4 × the 90.00 selling price |
+| COGS after a Sale Correction / Void | correcting 10 → 6 leaves exactly 300.00 charged (not 800.00, which double counting would give); voiding returns COGS to its pre-sale figure to the cent, and Inventory returns to the Stage 08 valuation |
+
+After **every** step above the four standing invariants were re-checked: the trial
+balance balances, the balance sheet balances, GL Inventory == the Stage 08
+valuation, and the P&L COGS == the Stage 08 COGS.
+
+**One defect was found by this round and fixed** — see §14D.5b. It was found only
+because the dataset contained a return, a correction and a void against *recent*
+invoices while *older* invoices were still open; the earlier scenario could not
+have exposed it.
+
+#### 14D.5b Defect found and fixed: ageing credited the wrong invoice
+
+`_age_party` applied **every** credit oldest-debt-first. That rule is right for a
+receipt or a payment, which name no invoice — but a **return, a correction and a
+void all name the document they belong to**, and crediting an older invoice
+instead misstates the one thing an ageing report exists to state.
+
+On the verification data the customer's balance was right (12,420.00, equal to his
+customer ledger) while the ageing was wrong:
+
+| Bucket | Before the fix | After the fix | Truth |
+|---|---|---|---|
+| 1–30 days | 3,480.00 | **2,220.00** | 1,680 (28 Aug) + 540 (10 Sep sale net of its own return) — the **voided** 14 Sep invoice must not appear at all |
+| 90+ days | 2,740.00 | **4,000.00** | the untouched 20 Apr invoice, which nothing had paid |
+
+The fix: `AccountingReadRepository.party_documents` now returns a `charge_key` for
+each row — the document it belongs to. `SALE_CORRECTION`, `SALE_VOID`,
+`PURCHASE_CORRECTION` and `PURCHASE_VOID` already carry the original document's id
+as their `source_id`; `SALES_RETURN` and `PURCHASE_RETURN` carry the *return's* id,
+so the parent is read from `sales_returns.sale_id` / `purchase_returns.purchase_id`
+in one query per side. `_age_party` then applies an identified credit to **its own**
+document and keeps the oldest-first rule strictly for money that identifies
+nothing. A credit larger than what is left on its own document spills into the
+oldest-first pool, so nothing is created or lost and **the buckets still add back
+to the party balance** — asserted per party and in total.
+
+Stage 09 code only; **no locked stage was touched** and §33 did not apply. +5
+regression tests: a return credits its own invoice, a voided invoice leaves the
+ageing entirely, a correction ages with the invoice it amends, the same on the
+supplier side, and an unallocated receipt still clears the oldest debt.
 
 ### 14D.6 Known limitations (carried into review)
 
@@ -3071,6 +3127,15 @@ figures compared against the engine. `tests/test_stage09_accounting.py` adds
   inspected directly without ever opening a report will not yet hold the charge.
 * **Ageing has no credit terms** — "Current" means not yet past its document
   date, because the system has no payment-terms field yet.
+* **The ageing screen and its print show no per-bucket totals row.** Each party's
+  own buckets are shown and the overall balance is on the status line and the
+  printed total, but "how much of everything owed is 90+ days old" has to be added
+  by eye. The engine already returns those totals (`report["totals"]`); only the
+  display omits them. Recommended for Stage 10.
+* **General Ledger descriptions are stored English text**, and the COGS lines read
+  "Cost of goods sold — movement 14" — an internal movement id rather than the
+  invoice number a reader would recognise. Consistent with the Stage 07 decision to
+  leave stored descriptions alone, but worth revisiting.
 * **Seeded account names are English** (as noted since Stage 05); a Dari
   statement shows translated headings with English account names.
 * **Single currency in the statements** — the GL is posted in document currency,
@@ -3083,6 +3148,7 @@ figures compared against the engine. `tests/test_stage09_accounting.py` adds
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-09-17 | 5.2 | **Stage 09 — second verification round on the six reports the owner named (still NOT locked, NOT merged).** General Ledger, Cash & Bank, Receivables ageing, Payables ageing, COGS reversal after a Sales Return, and COGS after a Sale Correction / Void, each on a real on-disk database built so that **every ageing bucket is genuinely populated** — the earlier scenario put everything in "Current" and so could not test ageing at all. **One defect found and fixed:** ageing applied *every* credit oldest-debt-first, which is right for a receipt or payment (they name no invoice) but wrong for a return, correction or void, which all name the document they belong to. The party balance was right and the ageing was not — a **voided** invoice still sat in the 1–30 bucket (3,480 instead of 2,220) while an untouched April invoice looked part-paid (2,740 instead of 4,000). `party_documents` now returns a `charge_key` per row, resolving `SALES_RETURN` / `PURCHASE_RETURN` to their parent document, and `_age_party` credits the named document while keeping oldest-first strictly for money that identifies nothing; excess spills to the oldest-first pool so **the buckets still add back to the party balance**. Stage 09 code only — **no locked stage touched, §33 not applicable**. COGS proven to reverse at **cost** and never at selling price (returning 4 of 10 at cost 50.00 reverses exactly 200.00, not 360.00), a correction leaves exactly the corrected quantity charged, and a void returns COGS and Inventory to their pre-sale figures to the cent. +5 tests; **675 pass**. Two display gaps recorded as limitations: the ageing reports show no per-bucket totals row, and GL descriptions cite an internal movement id. See §14D.5a / §14D.5b. |
 | 2026-09-17 | 5.1 | **Stage 09 — Accounting Reports & Financial Statements implemented (READY FOR OWNER REVIEW; NOT locked, NOT merged).** Six statements over the existing double-entry ledger — Trial Balance, Profit & Loss, Balance Sheet, General Ledger, Cash & Bank and Receivables/Payables with ageing — plus the **COGS accounting integration** Stage 08 left open. The baseline was reproduced first: the ledger balanced but Inventory read 1,000 against stock genuinely worth 375, overstated by exactly the 625 of cost nothing ever posted. `CogsPostingService` charges `Dr COGS / Cr Inventory` **from the Stage 08 movement cost**, never recomputed and never from the selling price; each entry is dated by the movement's own date and every report syncs before reading, so no locked Stage 05/07/08 code had to change and the §33 procedure was not needed. **Exactly-once is a unique index** (migration 0011, schema v11) on `(source_type='COGS', source_id=<movement id>)`, and a test asserts the database itself refuses a duplicate; returns, corrections and voids reverse correctly because each posts its own costed movement. Equity carries the period result so **A = L + E** holds without a year close (out of scope). Two UI defects found by reading the screens: the status line guessed at formatting and printed "Balanced: **0.00**" instead of "Yes" — `D()` returns zero for unparseable text rather than raising — and Qt ate the `&` in "Profit & Loss" as a mnemonic. **The owner's scenario reconciles on a real on-disk database**: net sales 1,000 − COGS 625 = gross 375, − expenses 100 = **net profit 275**; trial balance Dr 2,725 == Cr 2,725; balance sheet 1,275 == 1,275; GL == TB on every account; receivable and payable == the party ledgers; COGS journal == Stage 08; and **GL Inventory 375 == Stage 08 valuation 375** where it had been 1,000. +26 tests. See §14D. |
 | 2026-09-17 | 5.0 | **🔒 Stage 08 — Costing & Inventory Valuation LOCKED (owner-approved).** Manually accepted on the Stage 08 Windows test build; locked at `b0fcd2a`, the same commit that was tested — **644 tests pass**, schema **v10**, 58 test files. Frozen contracts are in §8 and the lock record with the accepted state is §14C.10. The frozen set: **weighted average per (item, warehouse)** as the one costing method; cost captured when a movement happens and never re-derived, because a purchase correction rewrites its line in place; the single choke point at `InventoryRepository.add_movement`, so no locked service was modified to obtain costing; the per-movement valuation rules (purchase at the price paid, sale at the current average, reversals at the original cost, purchase returns at what was paid, sale returns at the cost they left at, transfer in at the exact value that left); **COGS selected by `reference_type`** so a corrected invoice is not counted twice; gross profit as net sales − COGS with net sales read from the locked Sales Reporting engine; money-precision `total_cost` so every subtotal adds up; migration 0010 with its idempotent backfill and replay boundary; and the three A4 EN/Dari report contracts including Dari pinned to bundled Vazirmatn, verified on windows-latest before each build. Also repairs three change-log rows that had been appended with a literal `\\n` and rendered as one run-on line. PR #4 still not merged; Stage 09 not started. |
 | 2026-09-15 | 4.3 | **Stage 08 — Gross Profit item count removed + Windows font verification (still NOT locked, NOT merged).** The Gross Profit sheet counted its own calculation steps as stock ("5 item(s)" / "۵ قلم"); net sales and COGS are not items, so the count is omitted from that report entirely while Inventory Valuation and COGS keep theirs. The Windows build workflow now runs the Dari font tests **on windows-latest before freezing the exe**: the silent Segoe UI / Tahoma substitution this guards against cannot occur on the Linux dev machine, where those faces do not exist, so it is verified on the platform where it can actually fail and a regression fails the build instead of shipping. +7 tests; **644 pass**. See §14C.9. |
