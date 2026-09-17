@@ -122,6 +122,30 @@ def build_costing_report_print(ctx: ApplicationContext, payload: dict):
         show_item_count=payload.get("kind") != "gross_profit")
 
 
+def build_accounting_report_print(ctx: ApplicationContext, payload: dict):
+    """Build a printable financial statement (Stage 09).
+
+    Reuses the Stage 08 costing sheet: the same A4 composition, the same customer
+    business identity, the same Dari-pinned font. The period travels in the title
+    so a printed statement always says which window it covers — a Trial Balance
+    without its dates is not evidence of anything.
+    """
+    from zenith_business.ui.documents.accounting_report_page import _MONEY_KEYS
+    from zenith_business.ui.print.costing_report_document import CostingReportPrintData
+
+    title = payload["title"]
+    period = payload.get("period")
+    if period:
+        title = f"{title}  ·  {period}"
+    return CostingReportPrintData(
+        company=_company_info(ctx), title=title,
+        columns=payload["columns"], rows=payload["rows"],
+        money_keys=frozenset(_MONEY_KEYS),
+        totals=[(label, value) for label, value, _column in payload.get("summary", [])],
+        # A statement's rows are accounts, figures or parties — never stock items.
+        show_item_count=False)
+
+
 def _lines_from(ctx: ApplicationContext, rows: list[dict]) -> list[InvoiceLine]:
     unit_by_id: dict = {u["id"]: u for u in ctx.units_repo.list_all()}
     item_by_id: dict = {}

@@ -15,9 +15,9 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 5.0 |
-| Current Stage | **08 — COSTING & INVENTORY VALUATION — 🔒 LOCKED (2026-09-17, owner-approved). Stages 01–08 LOCKED. PR #4 NOT merged. Stage 09 not started.** |
-| Database Schema Version | **10** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data, 0004 stage04_sales_purchases_returns, 0005 stage05_receipts_payments_expenses, 0006 owner_fixes_walkin_ledger_void, 0007 round2_sales_correction, 0008 stage06_inventory, 0009 stage07_purchases_parity, 0010 stage08_costing_valuation) |
+| PROJECT_MASTER.md Version | 5.1 |
+| Current Stage | **09 — ACCOUNTING REPORTS & FINANCIAL STATEMENTS — 🧪 READY FOR OWNER REVIEW (NOT locked, NOT merged). Stages 01–08 LOCKED. PR #4 NOT merged. Stage 10 not started.** |
+| Database Schema Version | **11** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data, 0004 stage04_sales_purchases_returns, 0005 stage05_receipts_payments_expenses, 0006 owner_fixes_walkin_ledger_void, 0007 round2_sales_correction, 0008 stage06_inventory, 0009 stage07_purchases_parity, 0010 stage08_costing_valuation, 0011 stage09_accounting_reports) |
 | Last Updated | 2026-09-17 |
 
 **Stage gate:** Stage 00 (constitution) and **Stage 01 (foundation, incl.
@@ -245,6 +245,7 @@ requested module is implemented.
 | 06 | Inventory & Stock Management | ✅ **LOCKED** (owner-approved 2026-09-04; PR #4 not merged) |
 | 07 | Purchases Parity / Purchase & Supplier Management | ✅ **LOCKED** (owner-approved 2026-09-11; PR #4 not merged) |
 | 08 | Costing & Inventory Valuation (weighted average) | ✅ **LOCKED** (owner-approved 2026-09-17; PR #4 not merged) |
+| 09 | Accounting Reports & Financial Statements | 🧪 **READY FOR OWNER REVIEW** (NOT locked, NOT merged) |
 
 ---
 
@@ -2941,10 +2942,148 @@ via the §33 STOP procedure — the same discipline that produced §13K.2.
 
 ---
 
+## 14D. Stage 09 — Accounting Reports & Financial Statements (IMPLEMENTED — READY FOR OWNER REVIEW)
+
+**Stage 09 is NOT locked and NOT merged. Stage 10 is not started.** Stages 05–08
+are LOCKED and **none of them was modified** — including the COGS integration,
+which is the part that looked like it would have to touch locked sale posting.
+
+### 14D.0 Baseline — reproduced before anything was written
+
+The owner's scenario on a real on-disk database (buy 8 @ 125, sell 5 @ 200, rent
+100) showed a ledger that balanced and still told a false story:
+
+| | |
+|---|---|
+| Cost of Goods Sold (5000) | **0.00** — the sale never charged cost |
+| Inventory (1200) | **1,000.00**, while the stock was genuinely worth **375.00** |
+| Overstatement | **625.00** — exactly the COGS that was never posted |
+
+A purchase debited Inventory and a sale credited only Revenue, so **Inventory
+only ever grew**. Stage 08 already knew the 625; nothing charged it.
+
+### 14D.1 COGS integration — and why no locked code had to change
+
+Posting from inside the sale would mean editing LOCKED Stage 05/07 services, or
+turning the Stage 08 repository choke point into a journal-posting orchestrator —
+a repository posting double-entry is the wrong place for it, and both would break
+a locked contract. `CogsPostingService` instead **reads** the costed ledger and
+posts what is missing::
+
+    Dr  Cost of Goods Sold     the cost the goods left at
+        Cr  Inventory
+
+Two properties make that equivalent to posting inline, and they are the reason
+the §33 procedure was **not** needed:
+
+* each entry is dated with the **movement's own date**, so a statement for any
+  past period is correct once posted; and
+* every report calls `sync()` before it reads, so what a user sees is never
+  missing a cost.
+
+The amount is **taken from the Stage 08 movement**, never recomputed and never
+from the selling price. Because the value comes from the movement, the hard cases
+need no special handling: a **sales return** posts a movement that brings goods
+back at the cost they left at, so its journal is the exact reverse; a
+**correction** or **void** posts its compensating movement the same way; and a
+corrected invoice is never double-charged.
+
+**Exactly once is a database guarantee, not a hopeful check.** A COGS entry is
+keyed `source_type='COGS'`, `source_id=<movement id>` under a **unique index**
+(migration 0011), so a repeated or concurrent run cannot produce a second charge.
+A test asserts the database itself refuses the duplicate.
+
+### 14D.2 Migration 0011 (schema v11, forward/idempotent, appended never edited)
+
+The COGS uniqueness index, reporting indexes on account / entry date / party, and
+an `accounting.reports` permission granted to Administrator, Manager and
+Accountant. **No back-fill is needed**: history is posted on demand and dated by
+the movement it came from, so an upgraded database reports last month correctly.
+
+### 14D.3 The six statements
+
+All read `financial_entry_lines` — there is no reporting store — and all sum with
+`Decimal`, never a SQL aggregate (§24).
+
+| Report | Contract |
+|---|---|
+| **Trial Balance** | opening / debit / credit / closing per account; **total debits == total credits** |
+| **Profit & Loss** | Net Sales − COGS = Gross Profit; − Operating Expenses = Net Profit |
+| **Balance Sheet** | **Assets = Liabilities + Equity** |
+| **General Ledger** | date, reference, description, debit, credit, running balance; date and account filters |
+| **Cash & Bank** | opening / in / out / closing for the fund accounts |
+| **Receivables / Payables** | per party, aged Current / 1–30 / 31–60 / 61–90 / 90+ |
+
+**COGS is an expense but not an operating one** — it sits above the gross-profit
+line, so operating expenses are every other EXPENSE account. Adding an expense
+account needs no code change.
+
+**Equity carries the period's own result.** A balance sheet built only from
+EQUITY accounts cannot balance while income and expense accounts are open,
+because the profit has nowhere to sit. There is **no year close in Stage 09** (out
+of scope by instruction), so the result is folded into equity as its own line.
+That is what makes `A = L + E` an identity rather than a hope.
+
+**Ageing settles the oldest debt first.** Payments do not say which invoice they
+clear, so the standard rule applies; what survives is aged by the date of the
+charge still standing, which is why the buckets always add back to the party's
+balance.
+
+### 14D.4 Two defects caught by looking at the screens
+
+1. **"Balanced: 0.00" instead of "Yes".** The status line guessed whether a value
+   was money by trying to parse it — and `D()` turns anything unparseable into
+   **zero rather than raising**, so the word "Yes" printed as "0.00". Summary
+   entries now carry how to format themselves instead of being guessed at.
+2. **"Profit _Loss" and "Cash _Bank" on the tabs.** Qt reads a lone `&` as a
+   keyboard mnemonic; the report titles are the first in the application to
+   contain one. They are escaped like every other label.
+
+### 14D.5 Verification
+
+The owner's mandatory scenario on a real on-disk database, with every
+reconciliation they listed:
+
+| Check | Result |
+|---|---|
+| Net sales / COGS / expenses | 1,000 / 625 / 100 |
+| Gross profit | **375.00** |
+| **Net profit** | **275.00** |
+| Trial balance | Dr 2,725.00 == Cr 2,725.00 |
+| Balance sheet | Assets 1,275.00 == Liabilities + Equity 1,275.00 |
+| General Ledger vs Trial Balance | every account agrees |
+| Customer receivable vs customer ledger | 1,000.00 == 1,000.00 |
+| Supplier payable vs supplier ledger | 1,000.00 == 1,000.00 |
+| COGS journal vs Stage 08 COGS | 625.00 == 625.00 |
+| **GL Inventory vs Stage 08 valuation** | **375.00 == 375.00** (was 1,000 vs 375) |
+
+Then held through a sales return, a sale correction and a void. All six reports
+were driven through the real main window in EN and Dari with the on-screen
+figures compared against the engine. `tests/test_stage09_accounting.py` adds
+**26 tests**.
+
+### 14D.6 Known limitations (carried into review)
+
+* **No period close or year close** — out of scope by instruction. The period
+  result is shown in equity rather than moved to retained earnings.
+* **COGS is posted when a report is read**, not inside the sale transaction. The
+  entry is dated by the movement so every period is correct, but a database
+  inspected directly without ever opening a report will not yet hold the charge.
+* **Ageing has no credit terms** — "Current" means not yet past its document
+  date, because the system has no payment-terms field yet.
+* **Seeded account names are English** (as noted since Stage 05); a Dari
+  statement shows translated headings with English account names.
+* **Single currency in the statements** — the GL is posted in document currency,
+  so a multi-currency book would need a presentation-currency pass.
+* **No cash-flow statement** and no comparative/prior-period columns.
+
+---
+
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-09-17 | 5.1 | **Stage 09 — Accounting Reports & Financial Statements implemented (READY FOR OWNER REVIEW; NOT locked, NOT merged).** Six statements over the existing double-entry ledger — Trial Balance, Profit & Loss, Balance Sheet, General Ledger, Cash & Bank and Receivables/Payables with ageing — plus the **COGS accounting integration** Stage 08 left open. The baseline was reproduced first: the ledger balanced but Inventory read 1,000 against stock genuinely worth 375, overstated by exactly the 625 of cost nothing ever posted. `CogsPostingService` charges `Dr COGS / Cr Inventory` **from the Stage 08 movement cost**, never recomputed and never from the selling price; each entry is dated by the movement's own date and every report syncs before reading, so no locked Stage 05/07/08 code had to change and the §33 procedure was not needed. **Exactly-once is a unique index** (migration 0011, schema v11) on `(source_type='COGS', source_id=<movement id>)`, and a test asserts the database itself refuses a duplicate; returns, corrections and voids reverse correctly because each posts its own costed movement. Equity carries the period result so **A = L + E** holds without a year close (out of scope). Two UI defects found by reading the screens: the status line guessed at formatting and printed "Balanced: **0.00**" instead of "Yes" — `D()` returns zero for unparseable text rather than raising — and Qt ate the `&` in "Profit & Loss" as a mnemonic. **The owner's scenario reconciles on a real on-disk database**: net sales 1,000 − COGS 625 = gross 375, − expenses 100 = **net profit 275**; trial balance Dr 2,725 == Cr 2,725; balance sheet 1,275 == 1,275; GL == TB on every account; receivable and payable == the party ledgers; COGS journal == Stage 08; and **GL Inventory 375 == Stage 08 valuation 375** where it had been 1,000. +26 tests. See §14D. |
 | 2026-09-17 | 5.0 | **🔒 Stage 08 — Costing & Inventory Valuation LOCKED (owner-approved).** Manually accepted on the Stage 08 Windows test build; locked at `b0fcd2a`, the same commit that was tested — **644 tests pass**, schema **v10**, 58 test files. Frozen contracts are in §8 and the lock record with the accepted state is §14C.10. The frozen set: **weighted average per (item, warehouse)** as the one costing method; cost captured when a movement happens and never re-derived, because a purchase correction rewrites its line in place; the single choke point at `InventoryRepository.add_movement`, so no locked service was modified to obtain costing; the per-movement valuation rules (purchase at the price paid, sale at the current average, reversals at the original cost, purchase returns at what was paid, sale returns at the cost they left at, transfer in at the exact value that left); **COGS selected by `reference_type`** so a corrected invoice is not counted twice; gross profit as net sales − COGS with net sales read from the locked Sales Reporting engine; money-precision `total_cost` so every subtotal adds up; migration 0010 with its idempotent backfill and replay boundary; and the three A4 EN/Dari report contracts including Dari pinned to bundled Vazirmatn, verified on windows-latest before each build. Also repairs three change-log rows that had been appended with a literal `\\n` and rendered as one run-on line. PR #4 still not merged; Stage 09 not started. |
 | 2026-09-15 | 4.3 | **Stage 08 — Gross Profit item count removed + Windows font verification (still NOT locked, NOT merged).** The Gross Profit sheet counted its own calculation steps as stock ("5 item(s)" / "۵ قلم"); net sales and COGS are not items, so the count is omitted from that report entirely while Inventory Valuation and COGS keep theirs. The Windows build workflow now runs the Dari font tests **on windows-latest before freezing the exe**: the silent Segoe UI / Tahoma substitution this guards against cannot occur on the Linux dev machine, where those faces do not exist, so it is verified on the platform where it can actually fail and a regression fails the build instead of shipping. +7 tests; **644 pass**. See §14C.9. |
 | 2026-09-15 | 4.2 | **Stage 08 — three printed-report defects fixed (still NOT locked, NOT merged).** Owner-reported, each reproduced before being touched. **(1) Business identity:** first-run setup stores the business name as a *setting* while the Company screen writes the `companies` row, and the shared `_company_info` read only the row — so a customer who never opened that screen saw the PRODUCT name *"Zenith Business"* on their own report. It now falls back through the setup name, with the product name as the last resort it was meant to be; address, phone, email and **tax id** print when configured. Shared with the locked Stage 05/06/07 reports, and reported as a confirmed bug fix against those stages' own stated contract rather than a behaviour change. **(2) Item count:** a two-item valuation said "4 item(s)" because the totals had been folded in as table rows; Stage 08 now has its own print document where the table holds items and the totals are a block beneath it — the locked Stage 06 document is untouched. **(3) Dari font:** the shared stack lists system faces after Vazirmatn, so on Windows Qt could substitute Segoe UI or Tahoma for Persian text; this never reproduced on Linux, where those faces do not exist, which is why it reached the owner. Dari is now pinned to the bundled **Vazirmatn** with no fallback across title, headers, table, totals and footer, in the stylesheet and on the widget font. **English is unchanged** and RTL is unaffected. +13 tests; **637 pass**. See §14C.9. |

@@ -504,6 +504,42 @@ class MainWindow(QMainWindow):
         self._stage03_actions["sales_report"] = lambda: self._show_sales_report()
         self._stage03_commands.setdefault("menu.account_reports", []).insert(
             0, ("rep.nav_sales", True, "sales_report"))
+        self._build_stage09_pages()
+
+    def _build_stage09_pages(self) -> None:
+        """Financial statements — the ledger read as Trial Balance, P&L and the rest."""
+        from zenith_business.ui.documents.accounting_report_page import (
+            AccountingReportPage,
+        )
+        from zenith_business.ui.documents.costing_report_preview import (
+            CostingReportPreviewPage,
+        )
+        ctx, t = self._context, self._translator
+        self._acc_report_preview = CostingReportPreviewPage(
+            t, on_back=lambda: self.content.setCurrentWidget(self._accounting_report))
+        self._accounting_report = AccountingReportPage(
+            ctx, t, on_close=self.show_home,
+            on_print=self._open_accounting_report_print)
+        self.content.addWidget(self._accounting_report)
+        self.content.addWidget(self._acc_report_preview)
+        self._stage03_actions["accounting_report"] = (
+            lambda: self._show_accounting_report())
+        self._stage03_commands.setdefault("menu.account_reports", []).insert(
+            0, ("acc.nav_reports", True, "accounting_report"))
+
+    def _show_accounting_report(self) -> None:
+        if hasattr(self._accounting_report, "reload"):
+            self._accounting_report.reload()
+        self.content.setCurrentWidget(self._accounting_report)
+
+    def _open_accounting_report_print(self, payload: dict) -> None:
+        """Preview a financial statement on the shared A4 report sheet."""
+        from zenith_business.ui.documents.print_builder import (
+            build_accounting_report_print,
+        )
+        data = build_accounting_report_print(self._context, payload)
+        self._acc_report_preview.show_report(data)
+        self.content.setCurrentWidget(self._acc_report_preview)
 
     def _show_sales_report(self) -> None:
         if hasattr(self._sales_report, "reload"):

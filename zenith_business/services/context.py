@@ -95,6 +95,9 @@ from zenith_business.services.sales import SalesService
 from zenith_business.services.sales_reports import SalesReportService
 from zenith_business.repositories.costing_s8 import CostingReadRepository
 from zenith_business.services.costing_reports import CostingReportService
+from zenith_business.repositories.accounting_s9 import AccountingReadRepository
+from zenith_business.services.accounting_reports import AccountingReportService
+from zenith_business.services.cogs_posting import CogsPostingService
 from zenith_business.services.search_providers import ItemSearchProvider, PartySearchProvider
 from zenith_business.services.session import SessionContext
 from zenith_business.services.setup import InitialSetupService
@@ -246,6 +249,18 @@ class ApplicationContext:
         self.costing_repo = CostingReadRepository(db)
         self.costing_reports = CostingReportService(
             self.costing_repo, self.sales_reports, self.authz)
+
+        # ---- Stage 09 accounting reports over the double-entry ledger ----
+        # The COGS posting service charges Stage 08's movement cost to the
+        # accounts; the reports sync it before every read, so the statements are
+        # never missing a cost and no locked posting path had to change.
+        self.cogs_posting = CogsPostingService(
+            db, self.financial_repo, self.accounts_repo, self.numbering,
+            self.session, self.authz, self.audit)
+        self.accounting_repo = AccountingReadRepository(db)
+        self.accounting_reports = AccountingReportService(
+            self.accounting_repo, self.cogs_posting, self.sales_reports,
+            self.party_ledger, self.authz)
 
         # ---- reusable search providers (§12, §16) ----
         self.item_search = ItemSearchProvider(self.items_repo)

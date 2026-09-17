@@ -1,18 +1,18 @@
-# Zenith Business — Stage 08 Owner Test Build
+# Zenith Business — Stage 09 Owner Test Build
 
 This is a **self-contained Windows test build** of Zenith Business, including the
-locked **Stages 01–07** and the completed **Stage 08 (Costing & Inventory
-Valuation)**. It ships with a **fresh test database already loaded with sample
-data** so you can run the full acceptance test without typing any setup.
+locked **Stages 01–08** and the completed **Stage 09 (Accounting Reports &
+Financial Statements)**. It ships with a **fresh test database already loaded
+with sample data** so you can run the full acceptance test without typing any
+setup.
 
-> **New in this build:** the system now knows what your stock actually **cost**.
-> **Weighted average cost** per item, **inventory value** per item / per
-> warehouse / company total, **cost of goods sold** on every sale, and a **gross
-> profit** figure (net sales − COGS) — with three new A4 reports in English and
-> Dari. Cost stays correct through returns, corrections, adjustments and
-> transfers, and **a warehouse transfer never changes what your stock is worth**.
+> **New in this build:** your books now produce real **financial statements** —
+> Trial Balance, Profit & Loss, Balance Sheet, General Ledger, Cash & Bank, and
+> Receivables / Payables with ageing — all in English and Dari, printable on A4.
+> The **cost of goods sold is now posted to the accounts**, so Inventory in the
+> ledger finally matches the stock you actually hold.
 >
-> **Start with section 3 — it is the Stage 08 checklist.**
+> **Start with section 3 — it is the Stage 09 checklist.**
 
 Nothing is installed on your PC. Everything lives inside this one folder. You do
 **not** need Python or an internet connection to run it.
@@ -62,71 +62,60 @@ Already-posted documents (so lists and printing work immediately):
 
 ---
 
-## 3. Stage 08 checklist — what to test in this build
+## 3. Stage 09 checklist — what to test in this build
 
-Everything below is **new in Stage 08**. Find it under **Item Reports →
-Costing & Valuation**.
+Everything below is new. Find it under **Account Reports → Financial
+Statements**. Pick a **Period** (financial year, this year, this month, or your
+own From/To dates) at the top of the screen.
 
-**A. The headline test — do the numbers come out right?**
-*Buy & Sell → Purchase Invoice.* Buy **10 Rice @ 100**, save. Buy **10 Rice @
-120**, save. Then open *Item Reports → Costing & Valuation → Inventory
-Valuation*:
+**A. The headline test — do the books add up?**
+Post a purchase, a sale and an expense, then open the reports:
 
-| Must show | |
+| Report | What must be true |
 |---|---|
-| Quantity | **20** |
-| Average Cost | **110.00** |
-| Inventory Value | **2,200.00** |
+| **Trial Balance** | **Total debit = Total credit**, and the footer says *Balanced: Yes* |
+| **Profit & Loss** | Net sales − cost of goods sold = **Gross profit**; − expenses = **Net profit** |
+| **Balance Sheet** | **Total assets = Total liabilities + equity**, footer says *Balanced: Yes* |
 
-Now sell **5 Rice @ 150** and check **Gross Profit**:
+Worked example you can reproduce: buy 8 bags @ 125, sell 5 @ 200, pay 100 rent.
+Net sales **1,000**, cost of goods sold **625**, gross profit **375**, expenses
+**100**, **net profit 275**.
 
-| Must show | |
-|---|---|
-| Net sales | **750.00** |
-| Cost of goods sold | **550.00** |
-| Gross profit | **200.00** |
-| Remaining quantity / value | **15** / **1,650.00** |
+**B. Cost of goods sold now reaches the accounts.**
+On the **Trial Balance**, account **5000 Cost of Goods Sold** must show the cost
+of what you sold — not zero. And **1200 Inventory** must equal the value on
+*Item Reports → Costing & Valuation → Inventory Valuation*. Those two numbers
+were previously different; they must now be identical.
 
-**B. Cost must never come from the selling price.**
-Sell one item at a wildly high price. The **average cost must not move** and the
-inventory value must not go up — you did not get richer by asking for more.
+**C. General Ledger.**
+Pick an **Account** and a date range. Every line shows date, reference,
+description, debit, credit and a **running balance**. The closing balance must
+equal that account's closing on the Trial Balance.
 
-**C. Inventory Valuation, per warehouse.**
-Switch the **Warehouse** filter. Each warehouse shows its own quantity, average
-and value, and the warehouse figures add up to the company total.
+**D. Cash & Bank.**
+Opening, money in, money out and closing for each cash/bank fund. The closing
+must match the same account on the Trial Balance.
 
-**D. A warehouse transfer must NOT change the company's inventory value.**
-*Item Reports → Warehouse Transfer.* Note the total inventory value, move some
-stock between warehouses, then look again: **the total must be identical**. Only
-where the stock sits should change.
+**E. Receivables and Payables, with ageing.**
+Each customer's outstanding balance split into **Current / 1–30 / 31–60 / 61–90 /
+90+ days**. Two things to check: the buckets add up to the balance, and the total
+matches the customer's own ledger (*Account Reports → Customer Ledger*). Same for
+suppliers.
 
-**E. Returns keep the cost straight.**
-- **Sales return** — the goods come back at the cost they left at, so the value
-  returns to where it was and COGS drops by the same amount.
-- **Purchase return** — the goods go back at **what you paid for them**, not at
-  the average. Return the expensive bill and the cheap stock is what remains.
+**F. Returns and corrections keep the books straight.**
+Return part of a sale, then correct a saved sale. After each, re-open the Trial
+Balance and Balance Sheet — both must still balance, and cost of goods sold must
+still match the costing report.
 
-**F. Corrections keep the cost straight.**
-Correct a saved purchase to a different price, and correct a saved sale to a
-different quantity. After each, the valuation, the COGS and the gross profit must
-all still agree with the stock on hand.
+**G. Print, in both languages.**
+Each report has **Print** (A4). Check a Trial Balance, a Profit & Loss and a
+Balance Sheet in **English and دری** — the sheet must carry your own business
+name and be in the same language as the screen.
 
-**G. Stock adjustment.**
-Adjust stock **in** — the quantity rises and the **average cost stays the same**.
-Adjust **out** — the stock leaves at the average cost.
-
-**H. The three reports print, in both languages.**
-Each report has **Print** (A4). Check Inventory Valuation, COGS and Gross Profit
-in **English and دری**; the printed sheet must be in the same language as the
-screen and carry your own business name.
-
-**I. Nothing from earlier stages broke.**
-Purchases, sales, returns, corrections, supplier balances and the Suppliers
-screen must all behave exactly as they did in the Stage 07 build.
-
-> **Known and accepted for now:** the printed sheet's footer counts the total
-> rows too (a 2-item valuation says "4 item(s)"), and the ledger's Description
-> column is still English in Dari. Both are cosmetic and on the list.
+> **Not in this build, by design:** there is no **period close or year close**
+> yet. Because of that, the profit for the period is shown inside Equity on the
+> balance sheet as "Result for the period" rather than moved into retained
+> earnings. Seeded account names are still English.
 
 ---
 
@@ -260,5 +249,5 @@ For this portable build, all data stays inside this folder under **`appdata\`**
 `appdata_seed\` holds the pristine copy used by **Reset-Test-Data.bat**. Deleting
 the whole folder removes every trace of the test build from your PC.
 
-> Note: this is a **test** build for acceptance only. Stage 08 is **not locked or
+> Note: this is a **test** build for acceptance only. Stage 09 is **not locked or
 > merged** yet — it is waiting for your approval after you finish testing.

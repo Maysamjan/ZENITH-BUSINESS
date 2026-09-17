@@ -11,12 +11,15 @@ from zenith_business.database.schema_stage05 import STAGE05_PERMISSIONS
 from zenith_business.database.schema_owner_fixes import OWNER_FIX_PERMISSIONS
 from zenith_business.database.schema_round2 import ROUND2_PERMISSIONS
 from zenith_business.database.schema_stage07 import STAGE07_PERMISSIONS
+from zenith_business.database.schema_stage09 import STAGE09_PERMISSIONS
 
 # Total permission codes after all forward migrations
-# (baseline + 03 + 04 + 05 + 0006 + 0007 + 0009; 0008 added none).
+# (baseline + 03 + 04 + 05 + 0006 + 0007 + 0009 + 0011;
+#  0008 and 0010 added none).
 _ALL_PERMISSIONS = (len(PERMISSIONS) + len(STAGE03_PERMISSIONS) + len(STAGE04_PERMISSIONS)
                    + len(STAGE05_PERMISSIONS) + len(OWNER_FIX_PERMISSIONS)
-                   + len(ROUND2_PERMISSIONS) + len(STAGE07_PERMISSIONS))
+                   + len(ROUND2_PERMISSIONS) + len(STAGE07_PERMISSIONS)
+                   + len(STAGE09_PERMISSIONS))
 
 
 def _tables(db: Database) -> set[str]:
@@ -34,8 +37,8 @@ def test_migrate_applies_all_pending() -> None:
     assert runner.current_version() == 0
     applied = runner.migrate()
     # baseline + 03/04/05 + owner-fix + round2 + stage06 inventory
-    # + stage07 purchases parity + stage08 costing
-    assert applied == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    # + stage07 purchases parity + stage08 costing + stage09 accounting
+    assert applied == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     assert runner.current_version() == runner.latest_version()
     tables = _tables(db)
     for expected in ("users", "roles", "permissions", "sales", "purchases",

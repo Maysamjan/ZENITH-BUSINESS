@@ -25,6 +25,7 @@ from zenith_business.database.schema_round2 import migrate_round2
 from zenith_business.database.schema_stage06 import migrate_stage06
 from zenith_business.database.schema_stage07 import migrate_stage07
 from zenith_business.database.schema_stage08 import migrate_stage08
+from zenith_business.database.schema_stage09 import migrate_stage09
 
 _logger = get_logger("database.migrations")
 
@@ -49,6 +50,7 @@ MIGRATIONS: list[Migration] = [
     Migration(8, "stage06_inventory", migrate_stage06),
     Migration(9, "stage07_purchases_parity", migrate_stage07),
     Migration(10, "stage08_costing_valuation", migrate_stage08),
+    Migration(11, "stage09_accounting_reports", migrate_stage09),
 ]
 
 
