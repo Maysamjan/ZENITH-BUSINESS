@@ -2920,7 +2920,7 @@ not started.**
 
 | | |
 |---|---|
-| Locked commit | `b0fcd2a` |
+| Locked commit | `4027a9c` (the lock record itself; the code it locks is `b0fcd2a`) |
 | Manually tested build | `b0fcd2a` — release `stage08-test-build`, asset `ZenithBusiness-Stage08-TestBuild-win64.zip`, SHA-256 `b762cb41…5b0f276` |
 | Difference between them | **none** — the tested build is the locked commit |
 | Tests | **644 pass**, 58 test files |
