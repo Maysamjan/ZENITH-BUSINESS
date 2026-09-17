@@ -289,6 +289,7 @@ class AccountingReportPage(QWidget):
         # (i18n key, value, column it belongs under, how to format it).
         summary: list[tuple[str, str, str, str]] = []
         rows: list[dict] = []
+        total_row: dict | None = None
 
         if self._kind == "trial_balance":
             report = svc.trial_balance(date_from=date_from, date_to=date_to)
@@ -336,17 +337,45 @@ class AccountingReportPage(QWidget):
                       else svc.payables(as_of=date_to))
             rows = report["rows"]
             summary = [("acc.sum_total", report["total"], "balance", "money")]
+            total_row = self._ageing_total_row(report)
 
         self._last = {
             "kind": self._kind, "rows": rows,
-            "title": self._t.gettext(REPORTS[self._kind][0]),
+            "title": self._title_for(),
             "columns": [(self._t.gettext(h), key, align)
                         for h, key, align in REPORTS[self._kind][1]],
             "period": f"{date_from} — {date_to}",
             "summary": [(self._t.gettext(k), self._summary_text(v, how), column)
                         for k, v, column, how in summary],
+            # An ageing report answers "how much of what I am owed is overdue,
+            # and by how long" — which cannot be read off per-party rows without
+            # adding a column up by eye, so the totals are a row of their own.
+            "total_row": total_row,
         }
-        self._render(rows, self._last["summary"])
+        self._render(rows, self._last["summary"], total_row)
+
+    def _title_for(self) -> str:
+        """The report's name, and for a General Ledger the account it covers.
+
+        A printed ledger page that does not say which account it is is not
+        evidence of anything — the same reason the period travels in the title.
+        """
+        title = self._t.gettext(REPORTS[self._kind][0])
+        if self._kind != "general_ledger":
+            return title
+        account_id = self._account_combo.currentData()
+        if account_id is None:
+            return title
+        account = next((a for a in self._ctx.accounting_repo.accounts()
+                        if a["id"] == account_id), None)
+        return f"{title} — {account['code']} {account['name']}" if account else title
+
+    def _ageing_total_row(self, report: dict) -> dict:
+        """The bucket totals, shaped like a table row so it prints under them."""
+        row = {"party_code": "", "name": self._t.gettext("acc.sum_total"),
+               "balance": report["total"]}
+        row.update(report["totals"])
+        return row
 
     @staticmethod
     def _summary_text(value, how: str) -> str:
@@ -405,7 +434,8 @@ class AccountingReportPage(QWidget):
                      "amount": report["total_liabilities_equity"]})
         return rows
 
-    def _render(self, rows: list[dict], summary: list[tuple[str, str, str]]) -> None:
+    def _render(self, rows: list[dict], summary: list[tuple[str, str, str]],
+                total_row: dict | None = None) -> None:
         cols = REPORTS[self._kind][1]
         self._table.setColumnCount(len(cols))
         self._table.setHorizontalHeaderLabels([self._t.gettext(h) for h, _k, _a in cols])
@@ -417,8 +447,10 @@ class AccountingReportPage(QWidget):
                 i, QHeaderView.ResizeMode.Stretch if key == stretch
                 else QHeaderView.ResizeMode.ResizeToContents)
         self._table.setRowCount(0)
-        self._table.setRowCount(len(rows))
-        for r, data in enumerate(rows):
+        display = list(rows) + ([total_row] if total_row else [])
+        self._table.setRowCount(len(display))
+        last = len(display) - 1 if total_row else -1
+        for r, data in enumerate(display):
             for c, (_h, key, align) in enumerate(cols):
                 value = data.get(key)
                 text = ("" if value is None or str(value) == ""
@@ -427,6 +459,8 @@ class AccountingReportPage(QWidget):
                 a = (Qt.AlignmentFlag.AlignRight if align == "r"
                      else Qt.AlignmentFlag.AlignLeft)
                 item.setTextAlignment(a | Qt.AlignmentFlag.AlignVCenter)
+                if r == last:
+                    font = item.font(); font.setBold(True); item.setFont(font)
                 self._table.setItem(r, c, item)
         parts = [f"{label}: {value}" for label, value, _column in summary]
         self._status.setText("   ·   ".join(parts) if parts

@@ -503,3 +503,98 @@ def test_the_statements_require_the_accounting_permission(books, monkeypatch):
     monkeypatch.setattr(books.authz, "require", deny)
     with pytest.raises(AuthorizationError):
         books.accounting_reports.trial_balance(**PERIOD)
+
+
+# ---- report polish: what the customer actually reads ----------------------
+
+def test_the_ledger_names_the_document_not_an_internal_movement_id(books):
+    """A ledger line is read by the business owner, not by a developer."""
+    sale = _owners_scenario(books)
+    books.accounting_reports.trial_balance(**PERIOD)          # reading posts it
+    cogs = books.accounts_repo.id_by_code("5000")
+    gl = books.accounting_reports.general_ledger(account_id=cogs, **PERIOD)
+
+    document_no = books.sales_repo.get(sale.id)["document_no"]
+    assert gl["rows"], "the COGS account has no lines"
+    for row in gl["rows"]:
+        assert "movement" not in row["description"].lower(), (
+            f"an internal movement id reached the ledger: {row['description']!r}")
+    assert gl["rows"][0]["description"] == f"COGS — {document_no}"
+
+
+def test_every_kind_of_cost_charge_names_its_own_document(books):
+    _buy(books, quantity="20")
+    sale = _sell(books, quantity="10")
+    line = books.sales_repo.lines_for(sale.id)[0]
+    books.sales_documents.post_return(
+        sale_id=sale.id, return_date="2026-03-10",
+        lines=[ReturnLine(sale_line_id=line["id"], quantity="2")])
+    books.accounting_reports.trial_balance(**PERIOD)
+    cogs = books.accounts_repo.id_by_code("5000")
+    texts = [r["description"] for r in
+             books.accounting_reports.general_ledger(account_id=cogs, **PERIOD)["rows"]]
+
+    sale_no = books.sales_repo.get(sale.id)["document_no"]
+    assert f"COGS — {sale_no}" in texts
+    reversal = [t for t in texts if t.startswith("COGS Reversal — ")]
+    assert reversal, f"the return did not name its credit note: {texts}"
+    assert reversal[0].split("— ")[1].startswith("SRET-")
+
+
+def test_a_correction_and_a_void_name_the_invoice_they_act_on(books):
+    _buy(books, quantity="30")
+    sale = _sell(books, quantity="10")
+    books.sales_documents.correct_sale(
+        sale_id=sale.id, currency_code="AFN", warehouse_id=books.main,
+        party_id=books.cus, amount_paid="0", sale_date="2026-03-05",
+        lines=[SaleLine(item_id=books.item, unit_id=books.bag,
+                        quantity="6", unit_price="200")])
+    books.sales_documents.void_sale(sale_id=sale.id, reason="T", void_date="2026-03-20")
+    books.accounting_reports.trial_balance(**PERIOD)
+    cogs = books.accounts_repo.id_by_code("5000")
+    texts = [r["description"] for r in
+             books.accounting_reports.general_ledger(account_id=cogs, **PERIOD)["rows"]]
+
+    document_no = books.sales_repo.get(sale.id)["document_no"]
+    assert f"COGS Correction — {document_no}" in texts
+    assert f"COGS Void — {document_no}" in texts
+    assert not [t for t in texts if "movement" in t.lower()]
+
+
+def test_the_migration_rewrites_descriptions_already_posted(books):
+    """An upgraded database must not keep showing the old internal wording."""
+    from zenith_business.database.schema_stage09b import migrate_stage09b
+
+    sale = _owners_scenario(books)
+    books.accounting_reports.trial_balance(**PERIOD)
+    conn = books.db.connection()
+    # put the pre-fix text back, exactly as the first version wrote it
+    conn.execute("UPDATE financial_entries SET description ="
+                 " 'Cost of goods sold — movement ' || source_id"
+                 " WHERE source_type = 'COGS'")
+    migrate_stage09b(conn)
+
+    rows = conn.execute("SELECT description FROM financial_entries"
+                        " WHERE source_type = 'COGS'").fetchall()
+    assert rows
+    document_no = books.sales_repo.get(sale.id)["document_no"]
+    assert all(r[0] == f"COGS — {document_no}" for r in rows), rows
+    # and it is re-runnable without touching what it already fixed
+    migrate_stage09b(conn)
+    assert [r[0] for r in conn.execute(
+        "SELECT description FROM financial_entries WHERE source_type = 'COGS'")] == \
+        [r[0] for r in rows]
+
+
+def test_the_migration_leaves_an_edited_description_alone(books):
+    from zenith_business.database.schema_stage09b import migrate_stage09b
+
+    _owners_scenario(books)
+    books.accounting_reports.trial_balance(**PERIOD)
+    conn = books.db.connection()
+    conn.execute("UPDATE financial_entries SET description = 'Operator note'"
+                 " WHERE source_type = 'COGS'")
+    migrate_stage09b(conn)
+    assert [r[0] for r in conn.execute(
+        "SELECT description FROM financial_entries WHERE source_type = 'COGS'")] \
+        == ["Operator note"]

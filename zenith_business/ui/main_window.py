@@ -511,11 +511,11 @@ class MainWindow(QMainWindow):
         from zenith_business.ui.documents.accounting_report_page import (
             AccountingReportPage,
         )
-        from zenith_business.ui.documents.costing_report_preview import (
-            CostingReportPreviewPage,
+        from zenith_business.ui.documents.accounting_report_preview import (
+            AccountingReportPreviewPage,
         )
         ctx, t = self._context, self._translator
-        self._acc_report_preview = CostingReportPreviewPage(
+        self._acc_report_preview = AccountingReportPreviewPage(
             t, on_back=lambda: self.content.setCurrentWidget(self._accounting_report))
         self._accounting_report = AccountingReportPage(
             ctx, t, on_close=self.show_home,

@@ -15,7 +15,7 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 5.2 |
+| PROJECT_MASTER.md Version | 5.3 |
 | Current Stage | **09 — ACCOUNTING REPORTS & FINANCIAL STATEMENTS — 🧪 READY FOR OWNER REVIEW (NOT locked, NOT merged). Stages 01–08 LOCKED. PR #4 NOT merged. Stage 10 not started.** |
 | Database Schema Version | **11** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data, 0004 stage04_sales_purchases_returns, 0005 stage05_receipts_payments_expenses, 0006 owner_fixes_walkin_ledger_void, 0007 round2_sales_correction, 0008 stage06_inventory, 0009 stage07_purchases_parity, 0010 stage08_costing_valuation, 0011 stage09_accounting_reports) |
 | Last Updated | 2026-09-17 |
@@ -3000,6 +3000,13 @@ an `accounting.reports` permission granted to Administrator, Manager and
 Accountant. **No back-fill is needed**: history is posted on demand and dated by
 the movement it came from, so an upgraded database reports last month correctly.
 
+**Migration 0012 (schema v12)** was appended in the report-polish round: a
+data-only rewrite of COGS journal descriptions from the internal
+`Cost of goods sold — movement <id>` to the document reference
+`COGS — SALE-000009`. It changes no amount, date, account or line, is
+re-runnable, and matches on the old text so an operator-edited description is
+left alone. See §14D.5c.
+
 ### 14D.3 The six statements
 
 All read `financial_entry_lines` — there is no reporting store — and all sum with
@@ -3118,6 +3125,45 @@ regression tests: a return credits its own invoice, a voided invoice leaves the
 ageing entirely, a correction ages with the invoice it amends, the same on the
 supplier side, and an unallocated receipt still clears the oldest debt.
 
+#### 14D.5c Report polish round — ageing totals, ledger naming, ledger header
+
+Three owner-requested report fixes, each verified on the real A4 preview rather
+than in the payload alone.
+
+1. **Ageing totals row.** Receivables and Payables now carry a bold totals row —
+   Current, 1–30, 31–60, 61–90, 90+ and Balance — on screen and on the printed
+   sheet, under the columns they total. The row stays **out of** `rows`: that
+   separation is the Stage 08 lesson that folding totals into a table made a
+   two-item valuation report "4 item(s)". Statements whose totals are not
+   per-column (trial balance, P&L, balance sheet, general ledger, cash & bank)
+   have no such row and are unchanged.
+2. **General Ledger descriptions name the document.** `Cost of goods sold —
+   movement 14` exposed an `inventory_movements` row id the customer cannot look
+   up. Lines now read `COGS — SALE-000009`, `COGS Reversal — SRET-000001`,
+   `COGS Correction — SALE-000009`, `COGS Void — SALE-000009`. Migration **0012**
+   (schema v12) rewrites descriptions already posted, so an upgraded database does
+   not keep the old wording; it is data-only, re-runnable, and matches on the old
+   text so an operator-edited description is left alone.
+3. **The printed General Ledger names its account** — `General Ledger — 5000 Cost
+   of Goods Sold  ·  2026-01-01 — 2026-09-17`.
+
+**A fourth defect was found while checking the printed sheet for (3).** The title
+label had no width limit and did not wrap, so the longer title overflowed to the
+left and printed **over the business name**: the header came out reading *"Kabul
+Traders Ltd ods Sold"* — hiding both the customer's identity and the account the
+page had just been changed to show. Stage 08's titles are two or three words, so
+the unbounded label had never been stressed. The Stage 09 sheet pins the title's
+width and lets it wrap; the width is **pinned rather than capped**, because a
+word-wrapping `QLabel` reports a narrow size hint and a maximum alone still left
+it in five lines. The identity block gets a trailing stretch so its lines stay
+together when the header grows. The printed ageing total also appeared **twice** —
+once in the new row and once in the totals block beneath — so the block is omitted
+when a columnar totals row is present.
+
+All of this is Stage 09's own code: the print sheet is a **subclass** of the
+LOCKED Stage 08 document, which is not modified and renders exactly as before.
+`tests/test_stage09_report_polish.py` adds **17 tests**; **697 pass**.
+
 ### 14D.6 Known limitations (carried into review)
 
 * **No period close or year close** — out of scope by instruction. The period
@@ -3127,15 +3173,10 @@ supplier side, and an unallocated receipt still clears the oldest debt.
   inspected directly without ever opening a report will not yet hold the charge.
 * **Ageing has no credit terms** — "Current" means not yet past its document
   date, because the system has no payment-terms field yet.
-* **The ageing screen and its print show no per-bucket totals row.** Each party's
-  own buckets are shown and the overall balance is on the status line and the
-  printed total, but "how much of everything owed is 90+ days old" has to be added
-  by eye. The engine already returns those totals (`report["totals"]`); only the
-  display omits them. Recommended for Stage 10.
-* **General Ledger descriptions are stored English text**, and the COGS lines read
-  "Cost of goods sold — movement 14" — an internal movement id rather than the
-  invoice number a reader would recognise. Consistent with the Stage 07 decision to
-  leave stored descriptions alone, but worth revisiting.
+* **General Ledger descriptions are stored English text.** The COGS lines now name
+  the document (`COGS — SALE-000009`) rather than an internal id, but the label
+  itself is English in a Dari statement, as are the seeded account names. Stored
+  descriptions were left English by owner decision in Stage 07.
 * **Seeded account names are English** (as noted since Stage 05); a Dari
   statement shows translated headings with English account names.
 * **Single currency in the statements** — the GL is posted in document currency,
@@ -3148,6 +3189,7 @@ supplier side, and an unallocated receipt still clears the oldest debt.
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-09-17 | 5.3 | **Stage 09 — report polish: ageing totals, ledger naming, ledger header (still NOT locked, NOT merged).** Three owner-requested fixes. **(1) Ageing totals row** — Receivables and Payables now show a bold Current / 1–30 / 31–60 / 61–90 / 90+ / Balance row on screen and on the printed sheet, under the columns it totals; the row is kept OUT of `rows`, the Stage 08 lesson that folding totals into a table reported a two-item valuation as "4 item(s)". Statements whose totals are not per-column are unchanged. **(2) General Ledger descriptions name the document** — `Cost of goods sold — movement 14` exposed an internal `inventory_movements` id; lines now read `COGS — SALE-000009`, `COGS Reversal — SRET-000001`, `COGS Correction — SALE-000009`, `COGS Void — SALE-000009`, and **migration 0012 (schema v12)** rewrites entries already posted, data-only, re-runnable, leaving an operator-edited description alone. **(3) The printed ledger names its account** — `General Ledger — 5000 Cost of Goods Sold`. **A fourth defect was found while checking the printed sheet for (3):** the unbounded, non-wrapping title overflowed left and printed OVER the business name — the header read *"Kabul Traders Ltd ods Sold"*, hiding both the identity and the account the fix had just added. The Stage 09 sheet PINS the title width (a capped word-wrapping QLabel still reports a narrow size hint and stayed squeezed into five lines) and keeps the identity lines together; the printed ageing total, which appeared twice, is no longer repeated in the totals block. All Stage 09 code — the sheet is a **subclass** of the LOCKED Stage 08 document, which is untouched and renders as before. +17 tests; **697 pass**. See §14D.5c. |
 | 2026-09-17 | 5.2 | **Stage 09 — second verification round on the six reports the owner named (still NOT locked, NOT merged).** General Ledger, Cash & Bank, Receivables ageing, Payables ageing, COGS reversal after a Sales Return, and COGS after a Sale Correction / Void, each on a real on-disk database built so that **every ageing bucket is genuinely populated** — the earlier scenario put everything in "Current" and so could not test ageing at all. **One defect found and fixed:** ageing applied *every* credit oldest-debt-first, which is right for a receipt or payment (they name no invoice) but wrong for a return, correction or void, which all name the document they belong to. The party balance was right and the ageing was not — a **voided** invoice still sat in the 1–30 bucket (3,480 instead of 2,220) while an untouched April invoice looked part-paid (2,740 instead of 4,000). `party_documents` now returns a `charge_key` per row, resolving `SALES_RETURN` / `PURCHASE_RETURN` to their parent document, and `_age_party` credits the named document while keeping oldest-first strictly for money that identifies nothing; excess spills to the oldest-first pool so **the buckets still add back to the party balance**. Stage 09 code only — **no locked stage touched, §33 not applicable**. COGS proven to reverse at **cost** and never at selling price (returning 4 of 10 at cost 50.00 reverses exactly 200.00, not 360.00), a correction leaves exactly the corrected quantity charged, and a void returns COGS and Inventory to their pre-sale figures to the cent. +5 tests; **675 pass**. Two display gaps recorded as limitations: the ageing reports show no per-bucket totals row, and GL descriptions cite an internal movement id. See §14D.5a / §14D.5b. |
 | 2026-09-17 | 5.1 | **Stage 09 — Accounting Reports & Financial Statements implemented (READY FOR OWNER REVIEW; NOT locked, NOT merged).** Six statements over the existing double-entry ledger — Trial Balance, Profit & Loss, Balance Sheet, General Ledger, Cash & Bank and Receivables/Payables with ageing — plus the **COGS accounting integration** Stage 08 left open. The baseline was reproduced first: the ledger balanced but Inventory read 1,000 against stock genuinely worth 375, overstated by exactly the 625 of cost nothing ever posted. `CogsPostingService` charges `Dr COGS / Cr Inventory` **from the Stage 08 movement cost**, never recomputed and never from the selling price; each entry is dated by the movement's own date and every report syncs before reading, so no locked Stage 05/07/08 code had to change and the §33 procedure was not needed. **Exactly-once is a unique index** (migration 0011, schema v11) on `(source_type='COGS', source_id=<movement id>)`, and a test asserts the database itself refuses a duplicate; returns, corrections and voids reverse correctly because each posts its own costed movement. Equity carries the period result so **A = L + E** holds without a year close (out of scope). Two UI defects found by reading the screens: the status line guessed at formatting and printed "Balanced: **0.00**" instead of "Yes" — `D()` returns zero for unparseable text rather than raising — and Qt ate the `&` in "Profit & Loss" as a mnemonic. **The owner's scenario reconciles on a real on-disk database**: net sales 1,000 − COGS 625 = gross 375, − expenses 100 = **net profit 275**; trial balance Dr 2,725 == Cr 2,725; balance sheet 1,275 == 1,275; GL == TB on every account; receivable and payable == the party ledgers; COGS journal == Stage 08; and **GL Inventory 375 == Stage 08 valuation 375** where it had been 1,000. +26 tests. See §14D. |
 | 2026-09-17 | 5.0 | **🔒 Stage 08 — Costing & Inventory Valuation LOCKED (owner-approved).** Manually accepted on the Stage 08 Windows test build; locked at `b0fcd2a`, the same commit that was tested — **644 tests pass**, schema **v10**, 58 test files. Frozen contracts are in §8 and the lock record with the accepted state is §14C.10. The frozen set: **weighted average per (item, warehouse)** as the one costing method; cost captured when a movement happens and never re-derived, because a purchase correction rewrites its line in place; the single choke point at `InventoryRepository.add_movement`, so no locked service was modified to obtain costing; the per-movement valuation rules (purchase at the price paid, sale at the current average, reversals at the original cost, purchase returns at what was paid, sale returns at the cost they left at, transfer in at the exact value that left); **COGS selected by `reference_type`** so a corrected invoice is not counted twice; gross profit as net sales − COGS with net sales read from the locked Sales Reporting engine; money-precision `total_cost` so every subtotal adds up; migration 0010 with its idempotent backfill and replay boundary; and the three A4 EN/Dari report contracts including Dari pinned to bundled Vazirmatn, verified on windows-latest before each build. Also repairs three change-log rows that had been appended with a literal `\\n` and rendered as one run-on line. PR #4 still not merged; Stage 09 not started. |

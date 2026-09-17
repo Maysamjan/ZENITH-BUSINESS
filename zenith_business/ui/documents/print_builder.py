@@ -131,19 +131,29 @@ def build_accounting_report_print(ctx: ApplicationContext, payload: dict):
     without its dates is not evidence of anything.
     """
     from zenith_business.ui.documents.accounting_report_page import _MONEY_KEYS
-    from zenith_business.ui.print.costing_report_document import CostingReportPrintData
+    from zenith_business.ui.print.accounting_report_document import (
+        AccountingReportPrintData,
+    )
 
     title = payload["title"]
     period = payload.get("period")
     if period:
         title = f"{title}  ·  {period}"
-    return CostingReportPrintData(
+    total_row = payload.get("total_row")
+    # A report with a columnar totals row has already printed its total, under
+    # the column it belongs to. Repeating it in the block beneath would put the
+    # same figure on the page twice.
+    totals = ([] if total_row else
+              [(label, value) for label, value, _column in payload.get("summary", [])])
+    return AccountingReportPrintData(
         company=_company_info(ctx), title=title,
         columns=payload["columns"], rows=payload["rows"],
-        money_keys=frozenset(_MONEY_KEYS),
-        totals=[(label, value) for label, value, _column in payload.get("summary", [])],
+        money_keys=frozenset(_MONEY_KEYS), totals=totals,
         # A statement's rows are accounts, figures or parties — never stock items.
-        show_item_count=False)
+        show_item_count=False,
+        # Ageing totals line up under the buckets they total; other statements
+        # have no such row and print exactly as before.
+        total_row=total_row)
 
 
 def _lines_from(ctx: ApplicationContext, rows: list[dict]) -> list[InvoiceLine]:

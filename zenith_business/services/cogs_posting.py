@@ -60,6 +60,28 @@ _ACCT_INVENTORY = "1200"
 #: The ledger's own marker for a cost charge.
 SOURCE_TYPE = "COGS"
 
+#: What each kind of cost charge is called in the General Ledger. A reader of the
+#: ledger is the business owner, not a developer, so the line names the DOCUMENT
+#: that caused the cost — never an internal movement id.
+COGS_DESCRIPTION_LABELS: dict[str, str] = {
+    "SALE": "COGS",
+    "SALES_RETURN": "COGS Reversal",
+    "SALE_CORRECTION": "COGS Correction",
+    "SALE_VOID": "COGS Void",
+}
+
+
+def cogs_description(reference_type: str, document_no: str | None) -> str:
+    """The General Ledger text for a cost charge, e.g. ``COGS — SALE-000009``.
+
+    With no document to name — which should not happen, but a ledger line must
+    still read sensibly if it does — the label stands alone rather than falling
+    back to an internal identifier.
+    """
+    label = COGS_DESCRIPTION_LABELS.get(reference_type, "COGS")
+    document = (document_no or "").strip()
+    return f"{label} — {document}" if document else label
+
 
 class CogsPostingService:
     """Posts the Stage 08 movement cost to Cost of Goods Sold / Inventory."""
@@ -81,8 +103,14 @@ class CogsPostingService:
         marks = ",".join("?" * len(COGS_REFERENCE_TYPES))
         rows = self._db.connection().execute(
             "SELECT m.id, m.movement_date, m.total_cost, m.reference_type,"
-            "       m.reference_id, m.item_id"
+            "       m.reference_id, m.item_id,"
+            # The document that caused the movement, so the journal can name it.
+            "       COALESCE(s.document_no, sr.document_no) AS document_no"
             "  FROM inventory_movements m"
+            "  LEFT JOIN sales s ON s.id = m.reference_id"
+            "       AND m.reference_type IN ('SALE', 'SALE_CORRECTION', 'SALE_VOID')"
+            "  LEFT JOIN sales_returns sr ON sr.id = m.reference_id"
+            "       AND m.reference_type = 'SALES_RETURN'"
             f" WHERE m.reference_type IN ({marks})"
             "   AND m.total_cost IS NOT NULL"
             "   AND NOT EXISTS (SELECT 1 FROM financial_entries e"
@@ -90,7 +118,8 @@ class CogsPostingService:
             " ORDER BY m.id",
             (*COGS_REFERENCE_TYPES, SOURCE_TYPE)).fetchall()
         return [{"id": r[0], "movement_date": r[1], "total_cost": r[2],
-                 "reference_type": r[3], "reference_id": r[4], "item_id": r[5]}
+                 "reference_type": r[3], "reference_id": r[4], "item_id": r[5],
+                 "document_no": r[6]}
                 for r in rows]
 
     # ---- posting ---------------------------------------------------------
@@ -136,7 +165,8 @@ class CogsPostingService:
                 # moved in, not to the day this ran.
                 entry_date=movement["movement_date"],
                 source_type=SOURCE_TYPE, source_id=movement["id"],
-                description=f"Cost of goods sold — movement {movement['id']}",
+                description=cogs_description(movement["reference_type"],
+                                             movement.get("document_no")),
                 created_by=self._session.user_id)
         except sqlite3.IntegrityError:
             # The unique index refused a duplicate: another run got there first,
