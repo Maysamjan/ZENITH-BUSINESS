@@ -15,10 +15,10 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 4.3 |
-| Current Stage | **08 — COSTING & INVENTORY VALUATION — 🧪 READY FOR OWNER REVIEW (NOT locked, NOT merged). Stages 01–07 LOCKED. PR #4 NOT merged. Stage 09 not started.** |
+| PROJECT_MASTER.md Version | 5.0 |
+| Current Stage | **08 — COSTING & INVENTORY VALUATION — 🔒 LOCKED (2026-09-17, owner-approved). Stages 01–08 LOCKED. PR #4 NOT merged. Stage 09 not started.** |
 | Database Schema Version | **10** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data, 0004 stage04_sales_purchases_returns, 0005 stage05_receipts_payments_expenses, 0006 owner_fixes_walkin_ledger_void, 0007 round2_sales_correction, 0008 stage06_inventory, 0009 stage07_purchases_parity, 0010 stage08_costing_valuation) |
-| Last Updated | 2026-09-15 |
+| Last Updated | 2026-09-17 |
 
 **Stage gate:** Stage 00 (constitution) and **Stage 01 (foundation, incl.
 01B–01G refinements + typography)** are owner-approved and **LOCKED** (Master
@@ -244,7 +244,7 @@ requested module is implemented.
 | 05 | Receipts, Payments & Expenses (+ Sales Reporting, owner rounds 1–2) | ✅ **LOCKED** (owner-approved 2026-09-04) |
 | 06 | Inventory & Stock Management | ✅ **LOCKED** (owner-approved 2026-09-04; PR #4 not merged) |
 | 07 | Purchases Parity / Purchase & Supplier Management | ✅ **LOCKED** (owner-approved 2026-09-11; PR #4 not merged) |
-| 08 | Costing & Inventory Valuation (weighted average) | 🧪 **READY FOR OWNER REVIEW** (NOT locked, NOT merged) |
+| 08 | Costing & Inventory Valuation (weighted average) | ✅ **LOCKED** (owner-approved 2026-09-17; PR #4 not merged) |
 
 ---
 
@@ -660,6 +660,94 @@ the **measured widget**, never from arithmetic over fonts and padding.
 orders, goods-received notes, landed cost, supplier price history and purchase
 approval workflow — none are built. Stage 07 locks the **purchase document engine,
 its reads, the payment model and the supplier view**, not those unbuilt features.
+
+### 🔒 Stage 08 — Costing & Inventory Valuation — LOCKED (2026-09-17, owner-approved)
+
+Owner-approved after manual acceptance testing of the Stage 08 Windows test build
+(`b0fcd2a`, **644 tests**, schema **v10**). Built additively on locked Stages
+01–07; no locked service was modified to obtain costing. The following are
+**frozen**; Stage 09+ must respect them and use the §33 STOP procedure to change
+any of them. Full record: §14C.
+
+**A. The costing method is WEIGHTED AVERAGE, per (item, warehouse).** One engine,
+`services/costing.py`, decides what every movement is worth. No FIFO, no LIFO, no
+per-screen cost logic. The average is kept per item **per warehouse**, because
+valuation must be reportable per warehouse and a transfer must not change what
+the company is worth. A company-level average is always `value / quantity` across
+warehouses — never an average of averages.
+
+**B. Cost is captured when the movement happens, and is never re-derived.**
+`inventory_movements.unit_cost` and `.total_cost` are historical facts recorded
+once, exactly like the quantity. This is not a preference: `correct_purchase`
+rewrites its line row **in place**, so after a correction the price a movement was
+actually made at is gone, and a cost worked out later would use today's price for
+yesterday's receipt. A later edit posts a **new compensating movement**; history
+is never rewritten.
+
+**C. The single choke point.** Cost is resolved inside
+`InventoryRepository.add_movement`, which every posting path already funnels
+through. No route can create stock that nobody costed, and callers pass exactly
+what they always passed — cost is derived, never supplied by a caller.
+
+**D. The valuation rules, frozen movement by movement.**
+
+| Movement | Valued at |
+|---|---|
+| Purchase | the price actually paid — `line total / quantity`, so a discount lowers the cost of the goods |
+| Opening stock | the item's purchase price (the only cost figure that exists at that moment) |
+| Sale, issue, transfer out | the **current weighted average** of that item in that warehouse |
+| Correction / void reversal | the cost the ORIGINAL movement went at — never today's average |
+| Purchase return | what was paid for those goods, found through the return's link to the purchase line |
+| Sale return | the cost the sale took them out at |
+| Transfer in | the **exact value** that left the other warehouse |
+| Adjustment in | the current average (so the average is undisturbed); the item's purchase price when there is no stock to average |
+| Adjustment out | the current average |
+
+**E. COGS is selected by `reference_type`, not `movement_type`.** The sales side
+is `SALE`, `SALES_RETURN`, `SALE_CORRECTION`, `SALE_VOID`. This is a frozen
+contract because getting it wrong is invisible: filtering on `movement_type`
+counts an original sale **and** its replacement while ignoring the compensating
+movement that undoes the first charge, so a corrected invoice reports its goods as
+sold twice. COGS is net of sales returns, and `cogs_for_sale(sale_id)` answers for
+one invoice.
+
+**F. Gross profit is `net sales − COGS`, and net sales is NOT redefined here.** It
+is read from the locked Sales Reporting engine. Margin is reported against net
+sales and is left **blank** rather than zero when there are no sales.
+
+**G. Rounding, decided deliberately.** `total_cost` is stored at **money**
+precision so every subtotal at every grouping level adds up exactly — sub-cent
+storage was tried and rejected because warehouse rows then stopped adding up to
+the company total. `unit_cost` keeps finer costing precision as an audit figure.
+A transfer moves the **exact paired value** rather than a re-multiplied unit cost,
+so company value is unchanged to the cent.
+
+**H. Schema (migration 0010, v10, forward/idempotent).**
+`inventory_movements.unit_cost`, `.total_cost`, an `(item_id, warehouse_id, id)`
+index, and an **idempotent backfill** that replays an existing ledger through the
+same engine. A replay excludes the row being costed (`before_id`) — a movement
+must not be inside the average it is about to be priced from.
+
+**I. The report contracts.** `CostingReportService.valuation / cogs /
+gross_profit / cogs_for_sale / item_value`, over `CostingReadRepository`. Three
+A4-only reports in EN/Dari — Inventory Valuation, Cost of Goods Sold, Gross
+Profit — on the Stage 08 print sheet: the customer's business identity (logo,
+name, address, phone, email, tax id) from the shared source; **totals rendered
+outside the table** so an item count counts items; the count **omitted entirely**
+from Gross Profit, whose rows are calculation steps; and Dari pinned to the
+bundled **Vazirmatn with no fallback** across title, headers, table, totals and
+footer, with English keeping the shared stack. Verified on windows-latest in CI
+before every build.
+
+**J. The reconciliation invariants.** Value on hand is the ledger's own
+`total_cost` sum; item rows and warehouse rows both add up to the company total; a
+transfer never changes company value; every movement carries a cost. Money is
+summed with `Decimal` in Python, never a SQL aggregate (§24).
+
+**Not locked by Stage 08:** FIFO/LIFO valuation, a COGS accounting journal, landed
+cost, standard costing, revaluation, stock-taking sessions and multi-currency
+costing — none are built. Stage 08 locks the **weighted-average engine, the
+costed ledger, its reads and the three reports**, not those unbuilt features.
 
 ---
 
@@ -2634,9 +2722,10 @@ via the §33 STOP procedure — the same discipline that produced §13K.2.
 
 ---
 
-## 14C. Stage 08 — Costing & Inventory Valuation (IMPLEMENTED — READY FOR OWNER REVIEW)
+## 14C. Stage 08 — Costing & Inventory Valuation (🔒 LOCKED 2026-09-17)
 
-**Stage 08 is NOT locked and NOT merged. Stage 09 is not started.** The
+**Stage 08 is LOCKED (2026-09-17, owner-approved); PR #4 is NOT merged and
+Stage 09 is not started.** The lock record is §14C.10; frozen contracts are §8. The
 constitution has required this since day one (§4.7 / Spec §11: *"Weighted Average
 Cost. Single, centralized, testable costing engine. Sales use the correct cost
 basis for COGS/gross profit. No duplicated cost logic."*). Until now the system
@@ -2750,6 +2839,21 @@ A transfer left the company value at **1,369.33 before and after**.
 driven through the real main window in EN and Dari on an on-disk database, with
 the figures on screen compared against the engine rather than merely counted.
 
+### 14C.8 Known limitations (carried into review)
+
+* **Valuation is weighted average only** — no FIFO/LIFO, by instruction.
+* **Opening stock is valued at the item's purchase price**, the only cost figure
+  the system has at that moment; an explicit opening *value* field would be a
+  Stage 09+ question.
+* **An inbound adjustment into empty stock** falls back to the item's purchase
+  price, since there is nothing to average.
+* **No accounting posting for COGS yet.** Stage 08 reports cost; it does not post
+  a COGS/Inventory journal, which belongs with the accounting stage.
+* **The valuation is "as of now" by default.** An `as_of` date is supported by the
+  read layer, but the screen offers a live position rather than a historical one.
+* **Cross-unit quantity totals.** A company "total quantity" adds bags to litres;
+  it is a tally, not a business figure. The meaningful company total is the value.
+
 ### 14C.9 Owner report round — three printed-report defects fixed
 
 Owner-reported, each reproduced on real data before being touched, and each
@@ -2805,16 +2909,35 @@ fail, and a regression there fails the build rather than shipping.
 that the locked Stage 06 print data is still untouched and one that fails if the
 PyInstaller spec ever stops bundling the font files.
 
-### 14C.8 Known limitations (carried into review)
+### 14C.10 🔒 LOCK RECORD — Stage 08 owner-approved and LOCKED (2026-09-17)
 
-* **Valuation is weighted average only** — no FIFO/LIFO, by instruction.
-* **Opening stock is valued at the item's purchase price**, the only cost figure
-  the system has at that moment; an explicit opening *value* field would be a
-  Stage 09+ question.
-* **An inbound adjustment into empty stock** falls back to the item's purchase
-  price, since there is nothing to average.
-* **No accounting posting for COGS yet.** Stage 08 reports cost; it does not post
-  a COGS/Inventory journal, which belongs with the accounting stage.
+**Stage 08 — Costing & Inventory Valuation is LOCKED.** Owner-approved after
+manual acceptance testing of the Stage 08 Windows test build. Its frozen public
+contracts are in §8. **PR #4 is not merged** (owner's instruction). **Stage 09 is
+not started.**
+
+**Accepted state**
+
+| | |
+|---|---|
+| Locked commit | `b0fcd2a` |
+| Manually tested build | `b0fcd2a` — release `stage08-test-build`, asset `ZenithBusiness-Stage08-TestBuild-win64.zip`, SHA-256 `b762cb41…5b0f276` |
+| Difference between them | **none** — the tested build is the locked commit |
+| Tests | **644 pass**, 58 test files |
+| Database schema | **v10** (migration 0010 `stage08_costing_valuation`) |
+| Costing method | Weighted average, per (item, warehouse) |
+| Windows verification | the Dari font tests run on `windows-latest` before the exe is frozen; 8 passed on the runner that produced the accepted build |
+
+**The owner's acceptance numbers, reproduced on a real on-disk database:** buy
+10 @ 100 and 10 @ 120 → qty 20, average 110, value 2,200; sell 5 @ 150 → net
+sales 750, COGS 550, gross profit 200, remaining 15 @ 1,650. The chain
+**Inventory Qty = Costing = Inventory Value = COGS = Reports** held after every
+one of the eight steps, including a sales return, a purchase return, a sale
+correction, a purchase correction, a stock adjustment and a warehouse transfer
+that left company value at 1,369.33 before and after.
+
+**Stage 08 behaviour must not change from here** except to fix a confirmed bug,
+via the §33 STOP procedure — the same discipline that produced §13K.2.
 
 ---
 
@@ -2822,7 +2945,11 @@ PyInstaller spec ever stops bundling the font files.
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
-| 2026-09-15 | 4.3 | **Stage 08 — Gross Profit item count removed + Windows font verification (still NOT locked, NOT merged).** The Gross Profit sheet counted its own calculation steps as stock ("5 item(s)" / "۵ قلم"); net sales and COGS are not items, so the count is omitted from that report entirely while Inventory Valuation and COGS keep theirs. The Windows build workflow now runs the Dari font tests **on windows-latest before freezing the exe**: the silent Segoe UI / Tahoma substitution this guards against cannot occur on the Linux dev machine, where those faces do not exist, so it is verified on the platform where it can actually fail and a regression fails the build instead of shipping. +7 tests; **644 pass**. See §14C.9. |\n| 2026-09-15 | 4.2 | **Stage 08 — three printed-report defects fixed (still NOT locked, NOT merged).** Owner-reported, each reproduced before being touched. **(1) Business identity:** first-run setup stores the business name as a *setting* while the Company screen writes the `companies` row, and the shared `_company_info` read only the row — so a customer who never opened that screen saw the PRODUCT name *"Zenith Business"* on their own report. It now falls back through the setup name, with the product name as the last resort it was meant to be; address, phone, email and **tax id** print when configured. Shared with the locked Stage 05/06/07 reports, and reported as a confirmed bug fix against those stages' own stated contract rather than a behaviour change. **(2) Item count:** a two-item valuation said "4 item(s)" because the totals had been folded in as table rows; Stage 08 now has its own print document where the table holds items and the totals are a block beneath it — the locked Stage 06 document is untouched. **(3) Dari font:** the shared stack lists system faces after Vazirmatn, so on Windows Qt could substitute Segoe UI or Tahoma for Persian text; this never reproduced on Linux, where those faces do not exist, which is why it reached the owner. Dari is now pinned to the bundled **Vazirmatn** with no fallback across title, headers, table, totals and footer, in the stylesheet and on the widget font. **English is unchanged** and RTL is unaffected. +13 tests; **637 pass**. See §14C.9. |\n| 2026-09-15 | 4.1 | **Stage 08 — Costing & Inventory Valuation implemented (READY FOR OWNER REVIEW; NOT locked, NOT merged).** The constitution's weighted-average costing requirement (§4.7 / Spec §11), unbuilt until now. Migration **0010** (schema v10) adds `unit_cost` / `total_cost` to `inventory_movements` and **back-fills an existing database** through the same engine, so the ledger row that says how much stock moved now also says what it was worth — one source of truth, not a second one. The engine lives at the single choke point every posting path already funnels through (`InventoryRepository.add_movement`), so **no locked Stage 05/06/07 service changed**: purchases cost at the price paid, sales at the current average (that is COGS), reversals at the cost the original went at, purchase returns at what was paid, sale returns at the cost they left at, and a transfer in at the EXACT value that left — so a transfer never changes what the company is worth. Cost is captured when a movement happens because it **cannot** be re-derived later: a purchase correction rewrites its line in place, so the original price is genuinely gone. Three reports (Inventory Valuation, COGS, Gross Profit = net sales − COGS) in EN/Dari on the existing A4 sheet; net sales comes from the locked Sales Reporting engine rather than a second definition. **Two engine bugs the tests caught:** COGS double-counted a corrected invoice (selecting by `movement_type` instead of `reference_type`) — on real data that moved COGS from 976.67 to 426.67 and gross profit from −376.67 to +173.33 — and the backfill averaged a movement against itself. The owner's scenario reconciles on a real on-disk database at every step across purchases, sale, sales return, purchase return, sale correction, purchase correction, adjustment and transfer: **qty 20, average 110, value 2,200; sell 5 → net sales 750, COGS 550, gross profit 200, remaining 15 @ 1,650.** +24 tests. Also corrects the §7 status row, which still showed Stage 07 as awaiting review after it was locked. No P&L or balance sheet (out of scope). See §14C. |\n| 2026-09-11 | 4.0 | **🔒 Stage 07 — Purchases Parity / Purchase & Supplier Management LOCKED (owner-approved).** Manually accepted on the Stage 07 Windows test build (`5a8ea99`); locked at `c10dfd4`, **600 tests pass**, schema **v9**, 56 test files. Frozen contracts are in §8 and the lock record with the accepted state is §14B.12. The frozen set: `PurchaseDocumentService.net_view` as the single "what is this bill worth now" read that the list, the reopened bill, the print, the supplier balance and the reports all consume; `correct_purchase` amending the ORIGINAL bill in place with surviving line ids and a difference-only journal, `void_purchase` blocked while a return exists, and a return never rewriting the bill; the Cash / Credit / **Partial** payment model with a later payment going only through the Supplier Payment module; the refusal to post an unpaid bill to an unregistered supplier; migration 0009; **Suppliers as a view of the shared people** — no supplier table, no second form, no duplicated balance; `total − paid == balance` on both ledgers; the consistency chain Purchase List = Invoice View = Print = Return = Supplier Balance = Inventory = Stock Movement; and derived-at-render line totals and return notes. **One defect found during the lock run and fixed before freezing:** a row-action button's minimum width was computed by hand and landed a pixel short under a different font, which is enough for Qt to clip the label away — the empty-box failure originally reported. Width now comes from the button's own polished size hint, the action column from the assembled widget's hint plus the table's per-cell overhead, and the fit re-runs on `showEvent` because rows are built before the page has geometry. Verified on the real main window in EN and Dari across Suppliers, Persons and Items. PR #4 still not merged; Stage 08 not started. |
+| 2026-09-17 | 5.0 | **🔒 Stage 08 — Costing & Inventory Valuation LOCKED (owner-approved).** Manually accepted on the Stage 08 Windows test build; locked at `b0fcd2a`, the same commit that was tested — **644 tests pass**, schema **v10**, 58 test files. Frozen contracts are in §8 and the lock record with the accepted state is §14C.10. The frozen set: **weighted average per (item, warehouse)** as the one costing method; cost captured when a movement happens and never re-derived, because a purchase correction rewrites its line in place; the single choke point at `InventoryRepository.add_movement`, so no locked service was modified to obtain costing; the per-movement valuation rules (purchase at the price paid, sale at the current average, reversals at the original cost, purchase returns at what was paid, sale returns at the cost they left at, transfer in at the exact value that left); **COGS selected by `reference_type`** so a corrected invoice is not counted twice; gross profit as net sales − COGS with net sales read from the locked Sales Reporting engine; money-precision `total_cost` so every subtotal adds up; migration 0010 with its idempotent backfill and replay boundary; and the three A4 EN/Dari report contracts including Dari pinned to bundled Vazirmatn, verified on windows-latest before each build. Also repairs three change-log rows that had been appended with a literal `\\n` and rendered as one run-on line. PR #4 still not merged; Stage 09 not started. |
+| 2026-09-15 | 4.3 | **Stage 08 — Gross Profit item count removed + Windows font verification (still NOT locked, NOT merged).** The Gross Profit sheet counted its own calculation steps as stock ("5 item(s)" / "۵ قلم"); net sales and COGS are not items, so the count is omitted from that report entirely while Inventory Valuation and COGS keep theirs. The Windows build workflow now runs the Dari font tests **on windows-latest before freezing the exe**: the silent Segoe UI / Tahoma substitution this guards against cannot occur on the Linux dev machine, where those faces do not exist, so it is verified on the platform where it can actually fail and a regression fails the build instead of shipping. +7 tests; **644 pass**. See §14C.9. |
+| 2026-09-15 | 4.2 | **Stage 08 — three printed-report defects fixed (still NOT locked, NOT merged).** Owner-reported, each reproduced before being touched. **(1) Business identity:** first-run setup stores the business name as a *setting* while the Company screen writes the `companies` row, and the shared `_company_info` read only the row — so a customer who never opened that screen saw the PRODUCT name *"Zenith Business"* on their own report. It now falls back through the setup name, with the product name as the last resort it was meant to be; address, phone, email and **tax id** print when configured. Shared with the locked Stage 05/06/07 reports, and reported as a confirmed bug fix against those stages' own stated contract rather than a behaviour change. **(2) Item count:** a two-item valuation said "4 item(s)" because the totals had been folded in as table rows; Stage 08 now has its own print document where the table holds items and the totals are a block beneath it — the locked Stage 06 document is untouched. **(3) Dari font:** the shared stack lists system faces after Vazirmatn, so on Windows Qt could substitute Segoe UI or Tahoma for Persian text; this never reproduced on Linux, where those faces do not exist, which is why it reached the owner. Dari is now pinned to the bundled **Vazirmatn** with no fallback across title, headers, table, totals and footer, in the stylesheet and on the widget font. **English is unchanged** and RTL is unaffected. +13 tests; **637 pass**. See §14C.9. |
+| 2026-09-15 | 4.1 | **Stage 08 — Costing & Inventory Valuation implemented (READY FOR OWNER REVIEW; NOT locked, NOT merged).** The constitution's weighted-average costing requirement (§4.7 / Spec §11), unbuilt until now. Migration **0010** (schema v10) adds `unit_cost` / `total_cost` to `inventory_movements` and **back-fills an existing database** through the same engine, so the ledger row that says how much stock moved now also says what it was worth — one source of truth, not a second one. The engine lives at the single choke point every posting path already funnels through (`InventoryRepository.add_movement`), so **no locked Stage 05/06/07 service changed**: purchases cost at the price paid, sales at the current average (that is COGS), reversals at the cost the original went at, purchase returns at what was paid, sale returns at the cost they left at, and a transfer in at the EXACT value that left — so a transfer never changes what the company is worth. Cost is captured when a movement happens because it **cannot** be re-derived later: a purchase correction rewrites its line in place, so the original price is genuinely gone. Three reports (Inventory Valuation, COGS, Gross Profit = net sales − COGS) in EN/Dari on the existing A4 sheet; net sales comes from the locked Sales Reporting engine rather than a second definition. **Two engine bugs the tests caught:** COGS double-counted a corrected invoice (selecting by `movement_type` instead of `reference_type`) — on real data that moved COGS from 976.67 to 426.67 and gross profit from −376.67 to +173.33 — and the backfill averaged a movement against itself. The owner's scenario reconciles on a real on-disk database at every step across purchases, sale, sales return, purchase return, sale correction, purchase correction, adjustment and transfer: **qty 20, average 110, value 2,200; sell 5 → net sales 750, COGS 550, gross profit 200, remaining 15 @ 1,650.** +24 tests. Also corrects the §7 status row, which still showed Stage 07 as awaiting review after it was locked. No P&L or balance sheet (out of scope). See §14C. |
+| 2026-09-11 | 4.0 | **🔒 Stage 07 — Purchases Parity / Purchase & Supplier Management LOCKED (owner-approved).** Manually accepted on the Stage 07 Windows test build (`5a8ea99`); locked at `c10dfd4`, **600 tests pass**, schema **v9**, 56 test files. Frozen contracts are in §8 and the lock record with the accepted state is §14B.12. The frozen set: `PurchaseDocumentService.net_view` as the single "what is this bill worth now" read that the list, the reopened bill, the print, the supplier balance and the reports all consume; `correct_purchase` amending the ORIGINAL bill in place with surviving line ids and a difference-only journal, `void_purchase` blocked while a return exists, and a return never rewriting the bill; the Cash / Credit / **Partial** payment model with a later payment going only through the Supplier Payment module; the refusal to post an unpaid bill to an unregistered supplier; migration 0009; **Suppliers as a view of the shared people** — no supplier table, no second form, no duplicated balance; `total − paid == balance` on both ledgers; the consistency chain Purchase List = Invoice View = Print = Return = Supplier Balance = Inventory = Stock Movement; and derived-at-render line totals and return notes. **One defect found during the lock run and fixed before freezing:** a row-action button's minimum width was computed by hand and landed a pixel short under a different font, which is enough for Qt to clip the label away — the empty-box failure originally reported. Width now comes from the button's own polished size hint, the action column from the assembled widget's hint plus the table's per-cell overhead, and the fit re-runs on `showEvent` because rows are built before the page has geometry. Verified on the real main window in EN and Dari across Suppliers, Persons and Items. PR #4 still not merged; Stage 08 not started. |
 | 2026-09-06 | 3.2 | **Stage 07 — final approval preparation (still NOT locked, NOT merged).** Documentation and regression cover only; **no behaviour changed**. The party-ledger totals fix is now recorded as **§33 amendment 01** to LOCKED Stage 05 (§13K.2) in the five-part form the procedure requires — change, necessity, affected components, migration risk, alternatives — with the owner's approval to keep it (*"Keep the confirmed customer_totals fix. Do NOT revert it."*) and the note that it is the only change to locked Stage 05 behaviour since the lock. New `tests/test_locked_stage05_ledger_totals.py` (**17 tests**) proves the identity itself — `total − paid == balance` — rather than remembered example numbers, for **both** ledgers across an empty account, credit documents, money settled on the document, separate Receipt/Payment documents, partial returns, full returns, a mixed history, a dual-role party whose two sides must not borrow from each other, the reported 1,000/−400/200 case, and the figures the Suppliers screen actually renders. The English ledger **Description** text is left as it is by owner decision and documented as a future localization item (§14B.11): it is stored at posting time, is cosmetic, and its eventual fix touches locked Stage 04/05 posting. **600 tests pass.** No other Stage 05 or Stage 06 change. |
 | 2026-09-05 | 3.1 | **Stage 07 — dedicated Suppliers screen (still NOT locked, NOT merged).** The §14B.9 deviation is closed the way the owner directed: Persons stays the shared master data structure internally, and the UI gains a real **Suppliers** screen. `SuppliersPage` subclasses `PersonsPage` as pure configuration — `PersonsPage` was refactored into overridable hooks so this is a second *presentation*, not a second page, a second table or a second supplier record. It shows Supplier Code, Name, Business Name, Phone, Current Balance, Total Purchases, Total Paid, Remaining Payable, Status and View Account, with Search, New Supplier (the same person form, Supplier pre-ticked), Edit and Open Supplier Ledger — every figure read from `party_ledger.supplier_ledger(...)`, the same call the ledger screen makes, so no balance is duplicated. Wiring it up exposed a **confirmed reconciliation bug**: `supplier_totals` and `customer_totals` counted documents gross of returns and ignored the amount paid on the document itself, so a supplier read Purchases 1,000 − Paid 200 against a Payable of 400. Both now derive so **total − paid == balance** always holds — reported under §33 because it corrects a figure shown by the Stage 05-locked customer ledger summary. Two shared-table rendering defects fixed, each reproduced by measuring the live widget: a row-action button was 42px tall in a 26px cell (a stylesheet `min-height` overrides `setFixedHeight`, so the height now comes from the sheet), and `RowActions` applied an unscoped `background: transparent` that also stripped its children's fill, leaving white text on a white row — the reason **View Account rendered as an empty box**. **583 tests pass** (+2). EN and Dari verified inside the real main window on an on-disk database, so RTL is genuinely exercised; the Suppliers list and the ledger behind View Account show the same 1,100 / 400 / 700. Stages 05 and 06 behaviour otherwise unchanged. See §14B.10. |
 | 2026-09-04 | 3.0 | **Stage 07 — Purchases Parity implemented (READY FOR OWNER REVIEW; NOT locked, NOT merged).** Purchases now carry the contracts the sales side earned across three owner rounds. Seven gaps recorded in §14B.0 were each reproduced on a real database first, then fixed: a **credit purchase from an unregistered supplier** was accepted and posted an anonymous payable no ledger could show (now refused; a fully paid cash purchase from an unregistered supplier stays allowed); the **Purchase List** read 1000 while the payable read 600 after a 400 return (now Billed / Returned / Net Total / Paid / Remaining, all `Decimal`-summed); the **printed bill ignored returns** (now nets quantities, and says so when the whole bill went back); a bill could **not be reopened, corrected or voided** (`correct_purchase` amends the SAME bill in place with surviving line ids, compensating movements, a difference-only journal and an audited diff; `void_purchase` reverses stock/ledger/payable and is blocked while a return exists); purchase returns saved **no readable note**; the purchase invoice had **no payment selector** (Cash / Credit / **Partial** per §14B.7, Paid never negative or above the total, Remaining live); and there was **no `purchases.correct` permission**. Migration **0009** (schema v9) adds that permission with grants, `purchases.corrected_from_id` and a returns index. Reopening a bill mirrors the invoice — net position, read-only **Returned Items**, Previous Balance excluding the bill, the recorded payment type — and saving folds the returned quantities back so history is preserved. Two labelling defects found in screenshot review: the purchase chip showed the payable under a "Supplier Ref." label (now **Supplier Balance**) and the printed bill said "Bill To / Customer Code" for a supplier (additive `InvoiceData.party_kind` → **Bill From / Supplier**; the sales default is unchanged). The Persons list gained a ledger-derived **Balance** column. A later **Supplier Payment** leaves the bill untouched — no duplicate entry. **568 tests pass** (+30); the mandatory workflow (buy 1000 credit → return 4 → correct to 8 → pay 200) reconciles across Purchase List, invoice view, print, purchase return, supplier balance, inventory and stock movement, with one bill, its original number, the return intact and the ledger balanced. Stages 05 and 06 unchanged. See §14B. |
