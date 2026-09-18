@@ -249,5 +249,5 @@ For this portable build, all data stays inside this folder under **`appdata\`**
 `appdata_seed\` holds the pristine copy used by **Reset-Test-Data.bat**. Deleting
 the whole folder removes every trace of the test build from your PC.
 
-> Note: this is a **test** build for acceptance only. Stage 09 is **not locked or
-> merged** yet — it is waiting for your approval after you finish testing.
+> Note: this is a **test** build for acceptance only. Stage 09 was approved and
+> **locked on 2026-09-18** at commit `b8a2cfc`; it is **not merged** yet.

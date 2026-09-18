@@ -15,7 +15,7 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 5.3 |
+| PROJECT_MASTER.md Version | 6.0 |
 | Current Stage | **09 — ACCOUNTING REPORTS & FINANCIAL STATEMENTS — 🧪 READY FOR OWNER REVIEW (NOT locked, NOT merged). Stages 01–08 LOCKED. PR #4 NOT merged. Stage 10 not started.** |
 | Database Schema Version | **11** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data, 0004 stage04_sales_purchases_returns, 0005 stage05_receipts_payments_expenses, 0006 owner_fixes_walkin_ledger_void, 0007 round2_sales_correction, 0008 stage06_inventory, 0009 stage07_purchases_parity, 0010 stage08_costing_valuation, 0011 stage09_accounting_reports) |
 | Last Updated | 2026-09-17 |
@@ -245,7 +245,7 @@ requested module is implemented.
 | 06 | Inventory & Stock Management | ✅ **LOCKED** (owner-approved 2026-09-04; PR #4 not merged) |
 | 07 | Purchases Parity / Purchase & Supplier Management | ✅ **LOCKED** (owner-approved 2026-09-11; PR #4 not merged) |
 | 08 | Costing & Inventory Valuation (weighted average) | ✅ **LOCKED** (owner-approved 2026-09-17; PR #4 not merged) |
-| 09 | Accounting Reports & Financial Statements | 🧪 **READY FOR OWNER REVIEW** (NOT locked, NOT merged) |
+| 09 | Accounting Reports & Financial Statements | ✅ **LOCKED** (owner-approved 2026-09-18; PR #4 not merged) |
 
 ---
 
@@ -749,6 +749,127 @@ summed with `Decimal` in Python, never a SQL aggregate (§24).
 cost, standard costing, revaluation, stock-taking sessions and multi-currency
 costing — none are built. Stage 08 locks the **weighted-average engine, the
 costed ledger, its reads and the three reports**, not those unbuilt features.
+
+---
+
+### 🔒 Stage 09 — Accounting Reports & Financial Statements — LOCKED (2026-09-18, owner-approved)
+
+Owner-approved after manual acceptance testing of the Stage 09 Windows test build
+(`b8a2cfc`, **697 tests**, schema **v12**). Built additively on locked Stages
+01–08; **no locked service was modified** and the §33 procedure was not required.
+The following are **frozen**; Stage 10+ must respect them and use the §33 STOP
+procedure to change any of them. Full record: §14D.
+
+**A. One source, six readings — there is no reporting store.** Every statement
+reads `financial_entry_lines` and `financial_entries` directly, so the statements
+cannot disagree with each other or with the party ledgers. Money is summed with
+`Decimal` in Python, never a SQL aggregate (§24). No statement caches, snapshots
+or recomputes a figure another module owns.
+
+**B. The Trial Balance always balances.** Opening / debit / credit / closing per
+account, with `closing == opening + debit − credit` per row and **total debits ==
+total credits** over the report. `balanced` is a computed assertion, not a label.
+A liability or equity account closes **negative** by that formula: it is a credit
+balance, and the payable report restates it as the positive amount owed.
+
+**C. Profit & Loss is Net Sales, COGS, Gross Profit, Operating Expenses, Net
+Profit.** `Gross Profit = Net Sales − COGS` and `Net Profit = Gross Profit +
+Other Income − Operating Expenses`. Net sales is the ledger's revenue account and
+is **reconciled against, never replaced by**, the locked Sales Reporting engine.
+COGS is account `5000` and sits **above** the gross-profit line; every other
+EXPENSE account is operating, so adding an expense account needs no code change.
+
+**D. The Balance Sheet satisfies Assets = Liabilities + Equity.** Because Stage 09
+has **no year close** (out of scope by instruction), income and expense balances
+are folded into equity as the period's own result (`retained_result`). That is
+what makes the identity hold rather than a coincidence: a balance sheet built from
+EQUITY accounts alone cannot balance while income and expense accounts are open.
+
+**E. The General Ledger reconciles with the Trial Balance.** For every account,
+`general_ledger(account_id).closing == trial_balance` closing for that account,
+and `opening + total_debit − total_credit == closing`. Rows carry date, reference
+(`entry_no`), description, debit, credit and a **running balance** whose last row
+equals the closing. Date and account filtering are supported; with no account
+selected, opening and closing are **not** reported, because a running balance
+across every account nets to zero and would read as a figure rather than as "not
+applicable".
+
+**F. Cash & Bank reconciles with the GL and the Trial Balance.** It reports the
+`accounts.is_fund` accounts — opening, money in, money out, closing — and each
+fund's closing equals both its Trial Balance closing and its own General Ledger
+closing. The total closing is the sum of the fund rows.
+
+**G. Receivables and Payables reconcile with the party ledgers, and the ageing
+adds up.** Each party's balance equals that party's customer/supplier ledger, the
+report total equals the Trial Balance A/R (and A/P as a credit balance), and the
+buckets — **Current, 1–30, 31–60, 61–90, 90+** — add back to the balance, both per
+party and in total. Two settlement rules, and the distinction is the contract:
+
+* a **return, correction or void names the document it belongs to**, so it is
+  applied to **that** invoice or bill (`SALES_RETURN` / `PURCHASE_RETURN` resolve
+  through their parent document; corrections and voids already carry it), and
+* a **receipt or payment names nothing**, so it clears the **oldest debt first**.
+
+A credit larger than what remains on its own document spills into the oldest-first
+pool, so nothing is created or lost.
+
+**H. The ageing totals row is part of the report, on screen and in print.**
+Current / 1–30 / 31–60 / 61–90 / 90+ / Balance, emphasised, beneath the parties
+and aligned under the columns it totals. It is held **outside** the data rows —
+the Stage 08 rule that a totals row is never counted as a data row — and a
+statement whose totals are not per-column does not have one.
+
+**I. COGS posts exactly once, and reverses correctly.** `Dr 5000 Cost of Goods
+Sold / Cr 1200 Inventory`, taken from the Stage 08 movement `total_cost` —
+**never recomputed and never from the selling price**. Frozen properties:
+
+* **exactly once** is a database guarantee: `source_type='COGS'`,
+  `source_id=<inventory_movements.id>` under a partial UNIQUE index, so a repeated
+  or concurrent run cannot double-charge;
+* each entry is dated by the **movement's own date**, so a past period is correct;
+* every report calls `sync()` before reading, so the accounts are never stale;
+* a **sales return, correction and void** each post their own costed compensating
+  movement, so the journal is their exact reverse with no special case — a return
+  reverses at **cost**, not at the selling price;
+* the sales side is the Stage 08 set selected by `reference_type`:
+  `SALE`, `SALES_RETURN`, `SALE_CORRECTION`, `SALE_VOID`.
+
+**J. GL descriptions name business documents, never internal identifiers.**
+`COGS — SALE-000009`, `COGS Reversal — SRET-000001`,
+`COGS Correction — SALE-000009`, `COGS Void — SALE-000009`. An
+`inventory_movements` row id must not reach a customer-visible report. With no
+document to name, the label stands alone rather than falling back to an id.
+
+**K. Period handling is From Date / To Date plus the financial year.** Quick
+choices are the active financial year, this year, this month, and custom dates.
+**There is no period close and no year close** — out of scope by instruction, and
+(D) depends on that absence.
+
+**L. Reporting: A4 only, EN / Dari / RTL, customer business identity.** The
+financial statement sheet is a **subclass** of the locked Stage 08 costing
+document — Stage 08 is not modified and renders exactly as before. It inherits the
+customer's identity (logo, name, address, phone, email, tax id) from the shared
+source and Dari pinned to bundled **Vazirmatn with no fallback**; it adds the
+columnar totals row and a **bounded, wrapping title**. The title's width is
+**pinned, not capped**: a word-wrapping `QLabel` reports a narrow size hint, and an
+unbounded one overflowed and printed over the business name. The printed General
+Ledger **names its account** — `General Ledger — 5000 Cost of Goods Sold` — and
+every sheet carries its period. A figure already shown in a columnar totals row is
+not repeated in the totals block.
+
+**M. Schema (migrations 0011 and 0012, v12, forward/idempotent, appended never
+edited).** 0011: the COGS uniqueness index, reporting indexes on account / entry
+date / party, and the `accounting.reports` permission granted to Administrator,
+Manager and Accountant — the statements expose the whole business position and are
+gated in the service layer (§17). 0012: a **data-only** rewrite of COGS
+descriptions to document references, re-runnable, matching on the old text so an
+operator-edited description is left alone.
+
+**Not locked by Stage 09:** period close / year close, retained-earnings posting,
+a cash-flow statement, comparative or prior-period columns, budgets, cost centres,
+multi-currency presentation and credit terms — none are built. Stage 09 locks the
+**six statements, the COGS posting service, the ageing rules and the report
+contracts**, not those unbuilt features.
 
 ---
 
@@ -2942,11 +3063,13 @@ via the §33 STOP procedure — the same discipline that produced §13K.2.
 
 ---
 
-## 14D. Stage 09 — Accounting Reports & Financial Statements (IMPLEMENTED — READY FOR OWNER REVIEW)
+## 14D. Stage 09 — Accounting Reports & Financial Statements (🔒 LOCKED 2026-09-18)
 
-**Stage 09 is NOT locked and NOT merged. Stage 10 is not started.** Stages 05–08
-are LOCKED and **none of them was modified** — including the COGS integration,
-which is the part that looked like it would have to touch locked sale posting.
+**Stage 09 is LOCKED (owner-approved 2026-09-18) and NOT merged. Stage 10 is not
+started.** Stages 05–08 are LOCKED and **none of them was modified** — including
+the COGS integration, which is the part that looked like it would have to touch
+locked sale posting. The frozen contracts are in §8; the lock record with the
+accepted state is §14D.7.
 
 ### 14D.0 Baseline — reproduced before anything was written
 
@@ -3164,7 +3287,7 @@ All of this is Stage 09's own code: the print sheet is a **subclass** of the
 LOCKED Stage 08 document, which is not modified and renders exactly as before.
 `tests/test_stage09_report_polish.py` adds **17 tests**; **697 pass**.
 
-### 14D.6 Known limitations (carried into review)
+### 14D.6 Known limitations (carried INTO the lock, intentional)
 
 * **No period close or year close** — out of scope by instruction. The period
   result is shown in equity rather than moved to retained earnings.
@@ -3183,12 +3306,71 @@ LOCKED Stage 08 document, which is not modified and renders exactly as before.
   so a multi-currency book would need a presentation-currency pass.
 * **No cash-flow statement** and no comparative/prior-period columns.
 
+None of these was fixed during the lock run, by instruction. They are the
+recorded state of the locked stage, not defects.
+
+### 14D.7 Lock record — the accepted state
+
+**Stage 09 — Accounting Reports & Financial Statements is LOCKED.**
+Owner-approved on 2026-09-18 after manual acceptance testing of the Stage 09
+Windows test build.
+
+| | |
+|---|---|
+| Locked commit | **`b8a2cfc99dbb7ae81b756bb3958646b310a48a60`** |
+| Windows build target | **`b8a2cfc`** — the same commit that was tested (release `stage09-test-build`, run #29, `success`) |
+| Test count | **697 passing**, 60 test files |
+| Schema version | **v12** (migrations 0011 and 0012) |
+| Locked on | 2026-09-18 |
+| PR #4 | **not merged** |
+| Stage 10 | **not started** |
+
+**Verified at the lock run:** the full suite was run once more on the locked
+commit with the working tree clean at `b8a2cfc`, and the published Windows build
+targets that exact commit — no Stage 09 behaviour changed between the tested
+build and the lock.
+
+**What the acceptance covered.** The owner's mandatory scenario (net sales 1,000
+− COGS 625 = gross 375, − expenses 100 = **net profit 275**) on a real on-disk
+database, with trial balance Dr 2,725 == Cr 2,725, balance sheet 1,275 == 1,275,
+every account's GL closing equal to its TB closing, receivable and payable equal
+to the party ledgers, the COGS journal equal to the Stage 08 cost, and **GL
+Inventory 375 == Stage 08 valuation 375** where the accounts had held 1,000. Then
+a second round over the six reports the owner named — General Ledger, Cash & Bank,
+Receivables ageing, Payables ageing, COGS reversal after a Sales Return, and COGS
+after a Sale Correction / Void — on a dataset built so that **every ageing bucket
+is genuinely populated**, followed by the report-polish round. All driven through
+the real main window in English and Dari with the on-screen and printed figures
+compared against the engine.
+
+**Three defects were found by the owner's verification rounds and fixed before
+the lock**, each in Stage 09's own code:
+
+1. **Ageing credited the wrong invoice.** Every credit was applied oldest-first —
+   right for a receipt or payment, wrong for a return, correction or void, which
+   name the document they belong to. A **voided** invoice sat in the 1–30 bucket
+   (3,480 rather than 2,220) while an untouched April invoice looked part-paid
+   (2,740 rather than 4,000). The balance was right and the ageing was not, which
+   is the one thing an ageing report exists to get right.
+2. **The General Ledger exposed an internal movement id** (`Cost of goods sold —
+   movement 14`) to the customer.
+3. **The printed title overflowed onto the business name** — the header read
+   *"Kabul Traders Ltd ods Sold"*, hiding both the identity and the account the
+   header fix had just added. Found by reading the rendered sheet; the tests
+   passed because the title string itself was correct.
+
+**No locked stage was modified and the §33 procedure was not invoked at any point
+during Stage 09** — including the COGS accounting integration and the printed
+sheet, which is a subclass of the locked Stage 08 document rather than an edit to
+it.
+
 ---
 
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-09-18 | 6.0 | **🔒 Stage 09 — Accounting Reports & Financial Statements LOCKED (owner-approved).** Manually accepted on the Stage 09 Windows test build; locked at `b8a2cfc`, the same commit that was tested — **697 tests pass**, schema **v12**, 60 test files. Frozen contracts are in §8 and the lock record with the accepted state is §14D.7. The frozen set: **one source, six readings** — every statement reads `financial_entry_lines` directly, so there is no reporting store to drift; the Trial Balance always balances, with a liability closing negative because that is a credit balance; P&L as Net Sales − COGS = Gross Profit, − Operating Expenses = Net Profit, with net sales reconciled against rather than replacing the locked Sales Reporting engine; **Assets = Liabilities + Equity**, which holds because equity carries the period result in the absence of a year close; the General Ledger reconciling with the Trial Balance account by account, with a running balance and date/account filtering; Cash & Bank reconciling with both; receivables and payables reconciling with the party ledgers, with ageing buckets that add back to the balance under **two settlement rules** — a return, correction or void credits **the document it names**, a receipt or payment clears the **oldest debt first**; the ageing totals row on screen and in print, held outside the data rows; **COGS posted exactly once** under a database UNIQUE index, taken from the Stage 08 movement cost and never from the selling price, dated by the movement, reversing correctly on Return, Correction and Void; GL descriptions naming **business documents** (`COGS — SALE-000009`) and never an internal movement id; From/To plus financial year with **no period or year close**; and A4-only EN/Dari/RTL printing with the customer's business identity and Dari pinned to bundled Vazirmatn, on a **subclass** of the locked Stage 08 sheet. Migrations 0011 and 0012 (v12). **Three defects found by the owner's verification rounds and fixed before the lock:** ageing applied every credit oldest-first, so a voided invoice sat in the 1–30 bucket while an untouched April invoice looked part-paid; the ledger exposed `Cost of goods sold — movement 14`; and the printed title overflowed onto the business name, reading *"Kabul Traders Ltd ods Sold"* — found by reading the rendered sheet, since the title string itself was correct. **No locked stage was modified and §33 was never invoked during Stage 09.** Known limitations carried into the lock: no period/year close, COGS posted on report read rather than inside the sale, no credit terms in ageing, English stored descriptions and seeded account names, single-currency statements, and no cash-flow or comparative columns. PR #4 still not merged; Stage 10 not started. |
 | 2026-09-17 | 5.3 | **Stage 09 — report polish: ageing totals, ledger naming, ledger header (still NOT locked, NOT merged).** Three owner-requested fixes. **(1) Ageing totals row** — Receivables and Payables now show a bold Current / 1–30 / 31–60 / 61–90 / 90+ / Balance row on screen and on the printed sheet, under the columns it totals; the row is kept OUT of `rows`, the Stage 08 lesson that folding totals into a table reported a two-item valuation as "4 item(s)". Statements whose totals are not per-column are unchanged. **(2) General Ledger descriptions name the document** — `Cost of goods sold — movement 14` exposed an internal `inventory_movements` id; lines now read `COGS — SALE-000009`, `COGS Reversal — SRET-000001`, `COGS Correction — SALE-000009`, `COGS Void — SALE-000009`, and **migration 0012 (schema v12)** rewrites entries already posted, data-only, re-runnable, leaving an operator-edited description alone. **(3) The printed ledger names its account** — `General Ledger — 5000 Cost of Goods Sold`. **A fourth defect was found while checking the printed sheet for (3):** the unbounded, non-wrapping title overflowed left and printed OVER the business name — the header read *"Kabul Traders Ltd ods Sold"*, hiding both the identity and the account the fix had just added. The Stage 09 sheet PINS the title width (a capped word-wrapping QLabel still reports a narrow size hint and stayed squeezed into five lines) and keeps the identity lines together; the printed ageing total, which appeared twice, is no longer repeated in the totals block. All Stage 09 code — the sheet is a **subclass** of the LOCKED Stage 08 document, which is untouched and renders as before. +17 tests; **697 pass**. See §14D.5c. |
 | 2026-09-17 | 5.2 | **Stage 09 — second verification round on the six reports the owner named (still NOT locked, NOT merged).** General Ledger, Cash & Bank, Receivables ageing, Payables ageing, COGS reversal after a Sales Return, and COGS after a Sale Correction / Void, each on a real on-disk database built so that **every ageing bucket is genuinely populated** — the earlier scenario put everything in "Current" and so could not test ageing at all. **One defect found and fixed:** ageing applied *every* credit oldest-debt-first, which is right for a receipt or payment (they name no invoice) but wrong for a return, correction or void, which all name the document they belong to. The party balance was right and the ageing was not — a **voided** invoice still sat in the 1–30 bucket (3,480 instead of 2,220) while an untouched April invoice looked part-paid (2,740 instead of 4,000). `party_documents` now returns a `charge_key` per row, resolving `SALES_RETURN` / `PURCHASE_RETURN` to their parent document, and `_age_party` credits the named document while keeping oldest-first strictly for money that identifies nothing; excess spills to the oldest-first pool so **the buckets still add back to the party balance**. Stage 09 code only — **no locked stage touched, §33 not applicable**. COGS proven to reverse at **cost** and never at selling price (returning 4 of 10 at cost 50.00 reverses exactly 200.00, not 360.00), a correction leaves exactly the corrected quantity charged, and a void returns COGS and Inventory to their pre-sale figures to the cent. +5 tests; **675 pass**. Two display gaps recorded as limitations: the ageing reports show no per-bucket totals row, and GL descriptions cite an internal movement id. See §14D.5a / §14D.5b. |
 | 2026-09-17 | 5.1 | **Stage 09 — Accounting Reports & Financial Statements implemented (READY FOR OWNER REVIEW; NOT locked, NOT merged).** Six statements over the existing double-entry ledger — Trial Balance, Profit & Loss, Balance Sheet, General Ledger, Cash & Bank and Receivables/Payables with ageing — plus the **COGS accounting integration** Stage 08 left open. The baseline was reproduced first: the ledger balanced but Inventory read 1,000 against stock genuinely worth 375, overstated by exactly the 625 of cost nothing ever posted. `CogsPostingService` charges `Dr COGS / Cr Inventory` **from the Stage 08 movement cost**, never recomputed and never from the selling price; each entry is dated by the movement's own date and every report syncs before reading, so no locked Stage 05/07/08 code had to change and the §33 procedure was not needed. **Exactly-once is a unique index** (migration 0011, schema v11) on `(source_type='COGS', source_id=<movement id>)`, and a test asserts the database itself refuses a duplicate; returns, corrections and voids reverse correctly because each posts its own costed movement. Equity carries the period result so **A = L + E** holds without a year close (out of scope). Two UI defects found by reading the screens: the status line guessed at formatting and printed "Balanced: **0.00**" instead of "Yes" — `D()` returns zero for unparseable text rather than raising — and Qt ate the `&` in "Profit & Loss" as a mnemonic. **The owner's scenario reconciles on a real on-disk database**: net sales 1,000 − COGS 625 = gross 375, − expenses 100 = **net profit 275**; trial balance Dr 2,725 == Cr 2,725; balance sheet 1,275 == 1,275; GL == TB on every account; receivable and payable == the party ledgers; COGS journal == Stage 08; and **GL Inventory 375 == Stage 08 valuation 375** where it had been 1,000. +26 tests. See §14D. |
