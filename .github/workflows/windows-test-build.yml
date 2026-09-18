@@ -26,10 +26,10 @@ permissions:
   contents: write   # needed to publish the ZIP as a GitHub Release asset
 
 env:
-  STAGE: "09"
+  STAGE: "10"
   # Releases from earlier stages, removed once the new one is published so the
   # owner never has two differently-named ZIPs to choose between.
-  SUPERSEDED_TAGS: "stage05-test-build stage06-test-build stage07-test-build stage08-test-build"
+  SUPERSEDED_TAGS: "stage05-test-build stage06-test-build stage07-test-build stage08-test-build stage09-test-build"
 
 jobs:
   build:

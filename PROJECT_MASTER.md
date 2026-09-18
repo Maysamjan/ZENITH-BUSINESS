@@ -15,7 +15,7 @@
 | Project | Zenith Business |
 | Brand | Zenith Soft |
 | Master Spec Version | 1.0 |
-| PROJECT_MASTER.md Version | 6.0 |
+| PROJECT_MASTER.md Version | 6.1 |
 | Current Stage | **09 — ACCOUNTING REPORTS & FINANCIAL STATEMENTS — 🧪 READY FOR OWNER REVIEW (NOT locked, NOT merged). Stages 01–08 LOCKED. PR #4 NOT merged. Stage 10 not started.** |
 | Database Schema Version | **11** (0001 initial_schema, 0002 baseline_seed, 0003 stage03_master_data, 0004 stage04_sales_purchases_returns, 0005 stage05_receipts_payments_expenses, 0006 owner_fixes_walkin_ledger_void, 0007 round2_sales_correction, 0008 stage06_inventory, 0009 stage07_purchases_parity, 0010 stage08_costing_valuation, 0011 stage09_accounting_reports) |
 | Last Updated | 2026-09-17 |
@@ -246,6 +246,7 @@ requested module is implemented.
 | 07 | Purchases Parity / Purchase & Supplier Management | ✅ **LOCKED** (owner-approved 2026-09-11; PR #4 not merged) |
 | 08 | Costing & Inventory Valuation (weighted average) | ✅ **LOCKED** (owner-approved 2026-09-17; PR #4 not merged) |
 | 09 | Accounting Reports & Financial Statements | ✅ **LOCKED** (owner-approved 2026-09-18; PR #4 not merged) |
+| 10 | Single-PC Security, Backup & Customer-Side Licensing | 🧪 **READY FOR OWNER REVIEW** (NOT locked, NOT merged) |
 
 ---
 
@@ -3366,10 +3367,142 @@ it.
 
 ---
 
+## 14E. Stage 10 — Single-PC Security, Backup & Licensing (IMPLEMENTED — READY FOR OWNER REVIEW)
+
+**Stage 10 is NOT locked and NOT merged. Stage 11 is not started.** Stages 05–09
+are LOCKED and **none of them was modified**; the §33 procedure was not needed.
+
+### 14E.0 Baseline — what already existed
+
+Stage 10 was scoped against the code rather than against the brief. A probe on a
+real database found **35 of the required capabilities already present** and **22
+missing**. Stage 02 already hashed passwords with PBKDF2, counted failed
+attempts, locked the account temporarily, recorded the last login and audited all
+of it; the backup writer already produced verified, timestamped snapshots; the
+database already ran WAL with foreign keys on and explicit savepoint
+transactions; and Stage 01 had already reserved the licensing boundary with the
+exact requirements Stage 10 implements. **Stage 10 extends all of that and
+replaces none of it.**
+
+What was genuinely missing: a re-authentication check, recovery for the only
+account on the PC, audited settings, an audit viewer, a restore that survives
+failure, integrity verification of the live database, and the whole of licensing.
+
+### 14E.1 Licence verification — public key only
+
+Ed25519, implemented from RFC 8032 with `hashlib` and Python integers. A native
+crypto dependency was rejected deliberately: the project ships PyQt6 and nothing
+else (Master Spec §2), and a licence check is the wrong place to introduce a
+binary wheel that must then be bundled and kept current inside a PyInstaller
+build.
+
+**The application can verify and cannot sign.** No private key exists in the
+application code, and no shipped module accepts one or produces a signature. Two
+tests enforce it, one of them a repository-wide scan so a future change cannot
+quietly add signing. Signing lives only in `tests/tooling/` and in `tools/`,
+neither of which the PyInstaller spec can reach.
+
+**The verifier was checked, not trusted — and that immediately paid.** The first
+implementation **rejected every genuine signature**, because the x-recovery
+dropped the `(u·v⁷)` factor of the RFC formula. Every negative test still passed:
+a verifier that rejects everything rejects forgeries too. Only a cross-check
+against a reference implementation could have found it.
+
+### 14E.2 Machine binding — five traits, weighted
+
+| Trait | Weight | Why |
+|---|---|---|
+| `machine_guid` | 3 | per OS install; does not travel with a copied folder |
+| `volume_serial` | 2 | per filesystem |
+| `mac` | 1 | easy to change or spoof |
+| `cpu` | 1 | two identical PCs share it |
+| `hostname` | 1 | a second PC can be renamed to match |
+
+A licence activates at a score of **5 of 8**. The number is chosen, not guessed:
+the three weak traits total 3, so **5 is unreachable without a strong trait**. A
+PC with the same model, the same name and a cloned MAC still fails. A legitimate
+machine survives a disk swap (3+1+1), an OS reinstall that keeps the disk
+(2+1+1+1), a new network card or a rename. Traits are hashed with the product id,
+so a fingerprint is not a reusable hardware identifier — verified by asserting no
+raw value appears in the fingerprint or in an activation request.
+
+### 14E.3 Restore that is safe when it fails
+
+The Stage 02 restore validated carefully and then copied straight over the live
+database. Everything before the copy was safe; the copy was not — a disk filling
+up part way would leave **neither** the old database nor the new one, on the day
+the customer needs it most.
+
+Restore now takes a **safety backup** of current data, copies to a temporary file
+and swaps with `os.replace` (atomic on Windows and POSIX), **verifies the
+restored file** before calling it a success, and **puts the previous database
+back** if it does not verify. Stale WAL/SHM files are swept so SQLite cannot
+apply them to the restored database. It refuses to run without explicit
+confirmation and writes the audit entries the old path never wrote.
+
+Proven by simulating a disk-full failure mid-swap: the restore reports failure
+and the live database is still present, still passes integrity, still holds its
+data, with no partial file left behind.
+
+**A property worth stating:** a restore replaces the database, so audit entries
+written *before* the swap go with it. They are preserved in the safety copy, and
+the completion entry is written *after* the swap into the restored database, so
+it always records that a restore happened and which file it came from.
+
+### 14E.4 Demo, and where it is enforced
+
+`DemoPolicy` defines demo centrally. An expired demo **restricts access, never
+data**: nothing in demo mode deletes a row, trims history or rewrites the
+database, and backup and licence import stay reachable so the customer can always
+take their data with them.
+
+**Enforcement is at the application-shell level, not inside posting.** Gating
+individual postings would mean either editing locked Stage 05–09 services or
+putting a licence check inside `AuthorizationService.require`, which is a frozen
+Stage 03 contract. Neither is permitted without §33, and a licence gate is not a
+bug fix — so demo restriction is applied where Stage 10 owns the code. This is a
+deliberate scope decision, recorded for the owner rather than hidden.
+
+### 14E.5 Verification
+
+101 tests added; **798 pass**. All three screens driven through the real main
+window in English and Dari with RTL, on a real on-disk database.
+
+The full vendor round trip was exercised end to end: the application wrote a
+`.zreq`, the vendor tool signed it, and the application imported the resulting
+`.zlic` and reported **Licensed**. The tool's pure-Python signatures are
+**byte-identical** to the reference implementation.
+
+**One defect found by reading the rendered screen rather than the test output:**
+an activated installation still showed *"Development build (unlicensed)"* in the
+status bar, because the shell was still asking Stage 01's development provider
+instead of the real licence service.
+
+### 14E.6 Known limitations (carried into review)
+
+* **No vendor key is embedded yet.** The build reports *Unlicensed build* and
+  runs in Demo until the owner generates their signing key with `tools/` and
+  returns the public half. This is by the owner's own choice of key custody.
+* **Demo expiry restricts access, not individual postings** — see §14E.4.
+* **The audit log is append-only by construction, not by database constraint.**
+  No service can edit or delete an entry and no UI offers it, but a determined
+  person with direct SQLite access could still alter the file. Cryptographic
+  chaining would be the next step.
+* **Recovery code**: one active code at a time, and issuing a new one replaces
+  the old. If the owner loses both the password and the code, only a backup
+  restore recovers the installation.
+* **Machine binding cannot survive a motherboard replacement plus a fresh OS
+  install plus a new disk** — that is a new machine by every trait, and needs a
+  re-issued licence from the vendor.
+* **Audit action names and details are stored English text**, as since Stage 05.
+
+---
+
 ## 14. Change Log
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-09-18 | 6.1 | **Stage 10 — Single-PC Security, Backup & Customer-Side Licensing implemented (READY FOR OWNER REVIEW; NOT locked, NOT merged).** Scoped against the code first: a probe found **35 required capabilities already present** and 22 missing, so Stage 10 **extends** Stage 02's hashing, lockout, audit and backup rather than rebuilding them, and **no locked stage was modified**. **Licensing** is Ed25519 from RFC 8032 in pure stdlib — a native crypto dependency was rejected because the project ships PyQt6 and nothing else and a licence check is the wrong place to add a bundled binary wheel. The application **can verify and cannot sign**: no private key in application code, no shipped module that accepts one, enforced by a repository-wide scan test. **The verifier was cross-checked against a reference and that immediately paid — the first implementation rejected EVERY genuine signature** (a dropped `(u·v⁷)` factor), and every negative test still passed, because a verifier that rejects everything rejects forgeries too. **Machine binding** scores five weighted traits: weak traits total 3 so the threshold of 5 is unreachable without a strong one, which is what stops a look-alike PC while still surviving a disk swap, a NIC change, a rename or an OS reinstall. **Restore** now takes a safety backup, swaps atomically with `os.replace`, verifies the restored file and rolls back if it fails — proven by simulating a disk-full failure mid-swap, after which the live database is still present, healthy and complete. **Demo** restricts access and never data; it is enforced at the shell because gating individual postings would require touching locked services or the frozen `AuthorizationService.require` contract. Adds re-authentication behind every sensitive action (rate-limited like the login screen), a single-use recovery code for the only owner account, audited settings, an audit viewer, and a live-database integrity check alongside — not inside — Stage 01's locked `check_health`. Three screens in EN/Dari with RTL. **One defect found by reading the rendered screen:** an activated install still showed *"Development build (unlicensed)"* in the status bar. Full vendor round trip verified end to end, with the tool's pure-Python signatures byte-identical to the reference. +101 tests; **798 pass**. See §14E. |
 | 2026-09-18 | 6.0 | **🔒 Stage 09 — Accounting Reports & Financial Statements LOCKED (owner-approved).** Manually accepted on the Stage 09 Windows test build; locked at `b8a2cfc`, the same commit that was tested — **697 tests pass**, schema **v12**, 60 test files. Frozen contracts are in §8 and the lock record with the accepted state is §14D.7. The frozen set: **one source, six readings** — every statement reads `financial_entry_lines` directly, so there is no reporting store to drift; the Trial Balance always balances, with a liability closing negative because that is a credit balance; P&L as Net Sales − COGS = Gross Profit, − Operating Expenses = Net Profit, with net sales reconciled against rather than replacing the locked Sales Reporting engine; **Assets = Liabilities + Equity**, which holds because equity carries the period result in the absence of a year close; the General Ledger reconciling with the Trial Balance account by account, with a running balance and date/account filtering; Cash & Bank reconciling with both; receivables and payables reconciling with the party ledgers, with ageing buckets that add back to the balance under **two settlement rules** — a return, correction or void credits **the document it names**, a receipt or payment clears the **oldest debt first**; the ageing totals row on screen and in print, held outside the data rows; **COGS posted exactly once** under a database UNIQUE index, taken from the Stage 08 movement cost and never from the selling price, dated by the movement, reversing correctly on Return, Correction and Void; GL descriptions naming **business documents** (`COGS — SALE-000009`) and never an internal movement id; From/To plus financial year with **no period or year close**; and A4-only EN/Dari/RTL printing with the customer's business identity and Dari pinned to bundled Vazirmatn, on a **subclass** of the locked Stage 08 sheet. Migrations 0011 and 0012 (v12). **Three defects found by the owner's verification rounds and fixed before the lock:** ageing applied every credit oldest-first, so a voided invoice sat in the 1–30 bucket while an untouched April invoice looked part-paid; the ledger exposed `Cost of goods sold — movement 14`; and the printed title overflowed onto the business name, reading *"Kabul Traders Ltd ods Sold"* — found by reading the rendered sheet, since the title string itself was correct. **No locked stage was modified and §33 was never invoked during Stage 09.** Known limitations carried into the lock: no period/year close, COGS posted on report read rather than inside the sale, no credit terms in ageing, English stored descriptions and seeded account names, single-currency statements, and no cash-flow or comparative columns. PR #4 still not merged; Stage 10 not started. |
 | 2026-09-17 | 5.3 | **Stage 09 — report polish: ageing totals, ledger naming, ledger header (still NOT locked, NOT merged).** Three owner-requested fixes. **(1) Ageing totals row** — Receivables and Payables now show a bold Current / 1–30 / 31–60 / 61–90 / 90+ / Balance row on screen and on the printed sheet, under the columns it totals; the row is kept OUT of `rows`, the Stage 08 lesson that folding totals into a table reported a two-item valuation as "4 item(s)". Statements whose totals are not per-column are unchanged. **(2) General Ledger descriptions name the document** — `Cost of goods sold — movement 14` exposed an internal `inventory_movements` id; lines now read `COGS — SALE-000009`, `COGS Reversal — SRET-000001`, `COGS Correction — SALE-000009`, `COGS Void — SALE-000009`, and **migration 0012 (schema v12)** rewrites entries already posted, data-only, re-runnable, leaving an operator-edited description alone. **(3) The printed ledger names its account** — `General Ledger — 5000 Cost of Goods Sold`. **A fourth defect was found while checking the printed sheet for (3):** the unbounded, non-wrapping title overflowed left and printed OVER the business name — the header read *"Kabul Traders Ltd ods Sold"*, hiding both the identity and the account the fix had just added. The Stage 09 sheet PINS the title width (a capped word-wrapping QLabel still reports a narrow size hint and stayed squeezed into five lines) and keeps the identity lines together; the printed ageing total, which appeared twice, is no longer repeated in the totals block. All Stage 09 code — the sheet is a **subclass** of the LOCKED Stage 08 document, which is untouched and renders as before. +17 tests; **697 pass**. See §14D.5c. |
 | 2026-09-17 | 5.2 | **Stage 09 — second verification round on the six reports the owner named (still NOT locked, NOT merged).** General Ledger, Cash & Bank, Receivables ageing, Payables ageing, COGS reversal after a Sales Return, and COGS after a Sale Correction / Void, each on a real on-disk database built so that **every ageing bucket is genuinely populated** — the earlier scenario put everything in "Current" and so could not test ageing at all. **One defect found and fixed:** ageing applied *every* credit oldest-debt-first, which is right for a receipt or payment (they name no invoice) but wrong for a return, correction or void, which all name the document they belong to. The party balance was right and the ageing was not — a **voided** invoice still sat in the 1–30 bucket (3,480 instead of 2,220) while an untouched April invoice looked part-paid (2,740 instead of 4,000). `party_documents` now returns a `charge_key` per row, resolving `SALES_RETURN` / `PURCHASE_RETURN` to their parent document, and `_age_party` credits the named document while keeping oldest-first strictly for money that identifies nothing; excess spills to the oldest-first pool so **the buckets still add back to the party balance**. Stage 09 code only — **no locked stage touched, §33 not applicable**. COGS proven to reverse at **cost** and never at selling price (returning 4 of 10 at cost 50.00 reverses exactly 200.00, not 360.00), a correction leaves exactly the corrected quantity charged, and a void returns COGS and Inventory to their pre-sale figures to the cent. +5 tests; **675 pass**. Two display gaps recorded as limitations: the ageing reports show no per-bucket totals row, and GL descriptions cite an internal movement id. See §14D.5a / §14D.5b. |

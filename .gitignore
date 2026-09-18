@@ -64,3 +64,8 @@ logs/
 *.swp
 .DS_Store
 Thumbs.db
+
+# Vendor signing keys must NEVER be committed.
+zenith-signing-key*.json
+*.zlic
+*.zreq

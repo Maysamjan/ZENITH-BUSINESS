@@ -1,18 +1,16 @@
-# Zenith Business — Stage 09 Owner Test Build
+# Zenith Business — Stage 10 Owner Test Build
 
 This is a **self-contained Windows test build** of Zenith Business, including the
-locked **Stages 01–08** and the completed **Stage 09 (Accounting Reports &
-Financial Statements)**. It ships with a **fresh test database already loaded
-with sample data** so you can run the full acceptance test without typing any
-setup.
+locked **Stages 01–09** and the completed **Stage 10 (Single-PC Security, Backup
+& Licensing)**. It ships with a **fresh test database already loaded with sample
+data** so you can run the full acceptance test without typing any setup.
 
-> **New in this build:** your books now produce real **financial statements** —
-> Trial Balance, Profit & Loss, Balance Sheet, General Ledger, Cash & Bank, and
-> Receivables / Payables with ageing — all in English and Dari, printable on A4.
-> The **cost of goods sold is now posted to the accounts**, so Inventory in the
-> ledger finally matches the stock you actually hold.
+> **New in this build:** the things that make the program safe to hand to a real
+> customer — a protected owner login with a recovery code, an audit log you can
+> read, a backup you can trust and a restore that cannot lose your data, a
+> database health check, and offline machine-bound licensing with a Demo period.
 >
-> **Start with section 3 — it is the Stage 09 checklist.**
+> **Start with section 3 — it is the Stage 10 checklist.**
 
 Nothing is installed on your PC. Everything lives inside this one folder. You do
 **not** need Python or an internet connection to run it.
@@ -62,60 +60,80 @@ Already-posted documents (so lists and printing work immediately):
 
 ---
 
-## 3. Stage 09 checklist — what to test in this build
+## 3. Stage 10 checklist — what to test in this build
 
-Everything below is new. Find it under **Account Reports → Financial
-Statements**. Pick a **Period** (financial year, this year, this month, or your
-own From/To dates) at the top of the screen.
+Everything below is new. It lives under the **Tools** menu: **Backup & Restore**,
+**Audit Log** and **License**.
 
-**A. The headline test — do the books add up?**
-Post a purchase, a sale and an expense, then open the reports:
+### A. Login protection
 
-| Report | What must be true |
-|---|---|
-| **Trial Balance** | **Total debit = Total credit**, and the footer says *Balanced: Yes* |
-| **Profit & Loss** | Net sales − cost of goods sold = **Gross profit**; − expenses = **Net profit** |
-| **Balance Sheet** | **Total assets = Total liabilities + equity**, footer says *Balanced: Yes* |
+1. Sign in with the correct password — it works, as before.
+2. Sign out, then type the **wrong password five times**. The account locks
+   **temporarily** and says so. This protects your data if the PC is left
+   unattended; it clears itself after a short wait.
+3. **Tools → Account Settings → Change Password.** It asks for your current
+   password first. Change it, sign out, and confirm the **old password no longer
+   works** and the new one does.
 
-Worked example you can reproduce: buy 8 bags @ 125, sell 5 @ 200, pay 100 rent.
-Net sales **1,000**, cost of goods sold **625**, gross profit **375**, expenses
-**100**, **net profit 275**.
+### B. Backup
 
-**B. Cost of goods sold now reaches the accounts.**
-On the **Trial Balance**, account **5000 Cost of Goods Sold** must show the cost
-of what you sold — not zero. And **1200 Inventory** must equal the value on
-*Item Reports → Costing & Valuation → Inventory Valuation*. Those two numbers
-were previously different; they must now be identical.
+**Tools → Backup & Restore → Create Backup.**
+A new timestamped file appears in the list and the status line says it was
+**created and verified**. Use **Check a Backup File** on it — it must report a
+valid backup. Try it on any other file on your PC (a photo, a Word document) —
+it must be **refused**, naming the reason.
 
-**C. General Ledger.**
-Pick an **Account** and a date range. Every line shows date, reference,
-description, debit, credit and a **running balance**. The closing balance must
-equal that account's closing on the Trial Balance.
+**Check Database** confirms the live database is healthy.
 
-**D. Cash & Bank.**
-Opening, money in, money out and closing for each cash/bank fund. The closing
-must match the same account on the Trial Balance.
+### C. Restore — the important one
 
-**E. Receivables and Payables, with ageing.**
-Each customer's outstanding balance split into **Current / 1–30 / 31–60 / 61–90 /
-90+ days**. Two things to check: the buckets add up to the balance, and the total
-matches the customer's own ledger (*Account Reports → Customer Ledger*). Same for
-suppliers.
+**Restore from File…**
 
-**F. Returns and corrections keep the books straight.**
-Return part of a sale, then correct a saved sale. After each, re-open the Trial
-Balance and Balance Sheet — both must still balance, and cost of goods sold must
-still match the costing report.
+1. Pick a **file that is not a backup**. It must be refused *before anything
+   happens*, and your data must be untouched.
+2. Pick a **real backup**. It warns you that all current data will be replaced,
+   then asks for your **owner password**. Cancel once — nothing should change.
+3. Do it again and confirm. Afterwards:
+   * the data is what was in the backup;
+   * a **safety copy of your previous data** was written into the backup list
+     (named `zenith-before-restore-…`) — you can restore that to undo;
+   * restart the application when it tells you to.
 
-**G. Print, in both languages.**
-Each report has **Print** (A4). Check a Trial Balance, a Profit & Loss and a
-Balance Sheet in **English and دری** — the sheet must carry your own business
-name and be in the same language as the screen.
+> Your current data is copied to safety **before** anything is replaced, and the
+> replacement happens in one step. If it fails part way through — the disk fills
+> up, the PC loses power — you keep the database you had.
 
-> **Not in this build, by design:** there is no **period close or year close**
-> yet. Because of that, the profit for the period is shown inside Equity on the
-> balance sheet as "Result for the period" rather than moved into retained
-> earnings. Seeded account names are still English.
+### D. Audit log
+
+**Tools → Audit Log.** It must show what you just did: the successful login, the
+**failed** logins from step A, the password change, the backup, the restore, and
+the licence actions from step E — each with date/time, action, entity, reference
+and details. It is **read-only**: there is no way to edit or delete an entry.
+
+### E. Licensing
+
+**Tools → License.** It shows the product, licence type, activation status, this
+computer's **Machine ID**, and the licence details once activated.
+
+1. On a fresh install it reads **Demo**, with the days remaining.
+2. **Generate Activation Request** — saves a `.zreq` file. Send it to Zenith
+   Soft.
+3. You send back a `.zlic`. **Import License** asks for your owner password,
+   then activates. The screen shows **Activated**, the licence id and the issue
+   date, and the status bar bottom-right changes to *Licensed*.
+4. Things that must be **refused**, each leaving your existing licence and your
+   data untouched:
+   * a `.zlic` edited in Notepad (any change at all);
+   * a `.zlic` issued for a different computer;
+   * copying this whole folder to a second PC — it must **not** be activated
+     there.
+
+> If licensing ever fails, **your business data is never touched**. The worst
+> that happens is the program asks you to activate.
+
+> **This build has no vendor key yet**, so the License screen reads *Unlicensed
+> build* and the program runs in Demo. Everything in sections A–D is fully
+> testable now. Section E becomes testable once the signing key exists.
 
 ---
 
