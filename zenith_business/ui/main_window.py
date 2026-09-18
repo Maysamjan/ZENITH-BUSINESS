@@ -505,6 +505,42 @@ class MainWindow(QMainWindow):
         self._stage03_commands.setdefault("menu.account_reports", []).insert(
             0, ("rep.nav_sales", True, "sales_report"))
         self._build_stage09_pages()
+        self._build_stage10_pages()
+
+    def _build_stage10_pages(self) -> None:
+        """Security screens: audit log, backup & restore, licence (Stage 10)."""
+        from zenith_business.ui.documents.security_pages import (
+            AuditLogPage, BackupPage, LicensePage,
+        )
+        ctx, t = self._context, self._translator
+        database_path = getattr(self._database, "path", None)
+        if database_path == ":memory:":
+            database_path = None          # nothing to restore into in tests
+        self._audit_log_page = AuditLogPage(ctx, t, on_close=self.show_home)
+        self._backup_page = BackupPage(
+            ctx, t, database_path=database_path, on_close=self.show_home,
+            on_restored=self._refresh_status)
+        self._license_page = LicensePage(
+            ctx, t, on_close=self.show_home, on_changed=self._refresh_status)
+        for page in (self._audit_log_page, self._backup_page, self._license_page):
+            self.content.addWidget(page)
+        self._stage03_actions["audit_log"] = lambda: self._show_security(
+            self._audit_log_page)
+        self._stage03_actions["backup_restore"] = lambda: self._show_security(
+            self._backup_page)
+        self._stage03_actions["license"] = lambda: self._show_security(
+            self._license_page)
+        self._stage03_commands.setdefault("menu.tools", list(
+            self._stage03_commands.get("menu.tools", []))).extend([
+                ("sec.nav_backup", True, "backup_restore"),
+                ("sec.nav_audit", True, "audit_log"),
+                ("sec.nav_license", True, "license"),
+            ])
+
+    def _show_security(self, page) -> None:
+        if hasattr(page, "reload"):
+            page.reload()
+        self.content.setCurrentWidget(page)
 
     def _build_stage09_pages(self) -> None:
         """Financial statements — the ledger read as Trial Balance, P&L and the rest."""
@@ -795,8 +831,16 @@ class MainWindow(QMainWindow):
             self._status_db.setText(t.gettext("status.db_ok"))
         else:
             self._status_db.setText(t.gettext("status.db_unavailable"))
-        state = self._license.current_state()
-        self._status_license.setText(state.summary or t.gettext("status.unlicensed"))
+        # The REAL licence service owns this line once a context exists. Stage 01's
+        # development provider is only the fallback for the shell on its own —
+        # otherwise an activated installation would still read "Development build
+        # (unlicensed)" in the status bar, which is exactly the opposite of true.
+        licensing = getattr(self._context, "licensing", None)
+        if licensing is not None:
+            self._status_license.setText(licensing.summary())
+        else:
+            state = self._license.current_state()
+            self._status_license.setText(state.summary or t.gettext("status.unlicensed"))
 
     def _apply_identity(self) -> None:
         """Reflect the signed-in user in the header + status bar (Stage 02)."""

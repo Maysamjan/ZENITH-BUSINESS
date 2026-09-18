@@ -98,7 +98,10 @@ from zenith_business.services.costing_reports import CostingReportService
 from zenith_business.repositories.accounting_s9 import AccountingReadRepository
 from zenith_business.services.accounting_reports import AccountingReportService
 from zenith_business.services.cogs_posting import CogsPostingService
+from zenith_business.services.licensing_service import LicenseService
+from zenith_business.services.safe_restore import SafeRestoreService
 from zenith_business.services.search_providers import ItemSearchProvider, PartySearchProvider
+from zenith_business.services.security_service import SecurityService
 from zenith_business.services.session import SessionContext
 from zenith_business.services.setup import InitialSetupService
 from zenith_business.services.users import UserService
@@ -110,7 +113,8 @@ class ApplicationContext:
     """Composition root holding all repositories and services for one database."""
 
     def __init__(self, db: Database, *, backups_dir: Path | None = None,
-                 logo_dir: Path | None = None) -> None:
+                 logo_dir: Path | None = None,
+                 license_dir: Path | None = None) -> None:
         self.db = db
         self.session = SessionContext()
 
@@ -262,6 +266,19 @@ class ApplicationContext:
             self.accounting_repo, self.cogs_posting, self.sales_reports,
             self.party_ledger, self.authz)
 
+        # ---- Stage 10: single-PC security, backup safety and licensing ----
+        # Each of these EXTENDS what Stage 02 built rather than replacing it:
+        # authentication, hashing, the audit trail and the backup writer are
+        # untouched, and no locked service changed to accommodate them.
+        self.security = SecurityService(
+            db, self.users_repo, self.settings_repo, self.audit_repo, self.session)
+        self.safe_restore = SafeRestoreService(
+            db, backups_dir or Path("."), audit=self.audit_repo,
+            session=self.session, authz=self.authz)
+        self.licensing = LicenseService(
+            license_dir=license_dir or (Path(backups_dir or ".") / "license"),
+            settings_repo=self.settings_repo, audit=self.audit_repo, db=db)
+
         # ---- reusable search providers (§12, §16) ----
         self.item_search = ItemSearchProvider(self.items_repo)
         self.customer_search = PartySearchProvider(self.parties_repo, role="customer")
@@ -279,7 +296,8 @@ class ApplicationContext:
 
 
 def open_application_context(
-    db: Database, *, backups_dir: Path | None = None, logo_dir: Path | None = None
+    db: Database, *, backups_dir: Path | None = None, logo_dir: Path | None = None,
+    license_dir: Path | None = None,
 ) -> ApplicationContext:
     """Run pending migrations, then build the application context.
 
@@ -290,4 +308,5 @@ def open_application_context(
     applied = MigrationRunner(db).migrate()
     if applied:
         _logger.info("Database migrated to schema (applied %s).", applied)
-    return ApplicationContext(db, backups_dir=backups_dir, logo_dir=logo_dir)
+    return ApplicationContext(db, backups_dir=backups_dir, logo_dir=logo_dir,
+                              license_dir=license_dir)

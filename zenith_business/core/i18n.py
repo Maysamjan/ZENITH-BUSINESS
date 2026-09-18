@@ -1180,6 +1180,131 @@ _CATALOG: dict[str, dict[str, str]] = {
     "inv.rep_low_stock": {LANG_ENGLISH: "Low Stock", LANG_DARI: "موجودی کم"},
     "inv.total": {LANG_ENGLISH: "Total", LANG_DARI: "مجموع"},
     "inv.items_count": {LANG_ENGLISH: "{n} item(s)", LANG_DARI: "{n} قلم"},
+    # ---- Stage 10: single-PC security, backup safety and licensing ----
+    "sec.nav_audit": {LANG_ENGLISH: "Audit Log", LANG_DARI: "سوابق فعالیت"},
+    "sec.nav_backup": {LANG_ENGLISH: "Backup & Restore", LANG_DARI: "پشتیبان و بازیابی"},
+    "sec.nav_license": {LANG_ENGLISH: "License", LANG_DARI: "جواز"},
+    "sec.audit_title": {LANG_ENGLISH: "Audit Log", LANG_DARI: "سوابق فعالیت"},
+    "sec.audit_hint": {
+        LANG_ENGLISH: "Every important action is recorded here with the date, the "
+                      "user and the document it affected. This log is read-only.",
+        LANG_DARI: "هر فعالیت مهم با تاریخ، کاربر و سند مربوطه در اینجا ثبت می‌شود. "
+                   "این سوابق فقط خواندنی است."},
+    "sec.audit_count": {LANG_ENGLISH: "{n} recorded action(s)",
+                        LANG_DARI: "{n} فعالیت ثبت‌شده"},
+    "sec.refresh": {LANG_ENGLISH: "Refresh", LANG_DARI: "تازه‌سازی"},
+    "sec.col_when": {LANG_ENGLISH: "Date / Time", LANG_DARI: "تاریخ / وقت"},
+    "sec.col_action": {LANG_ENGLISH: "Action", LANG_DARI: "فعالیت"},
+    "sec.col_entity": {LANG_ENGLISH: "Entity", LANG_DARI: "مورد"},
+    "sec.col_reference": {LANG_ENGLISH: "Reference", LANG_DARI: "مرجع"},
+    "sec.col_details": {LANG_ENGLISH: "Details", LANG_DARI: "جزئیات"},
+    "sec.col_file": {LANG_ENGLISH: "File", LANG_DARI: "فایل"},
+    "sec.col_size": {LANG_ENGLISH: "Size", LANG_DARI: "اندازه"},
+    # backup / restore
+    "sec.backup_title": {LANG_ENGLISH: "Backup & Restore", LANG_DARI: "پشتیبان و بازیابی"},
+    "sec.backup_now": {LANG_ENGLISH: "Backup", LANG_DARI: "پشتیبان‌گیری"},
+    "sec.backup_hint": {
+        LANG_ENGLISH: "A backup is a complete, timestamped copy of your business "
+                      "data. Keep copies on a separate disk.",
+        LANG_DARI: "پشتیبان یک نسخه کامل و تاریخ‌دار از معلومات کاری شما است. "
+                   "نسخه‌ها را در دیسک جداگانه نگه دارید."},
+    "sec.create_backup": {LANG_ENGLISH: "Create Backup", LANG_DARI: "ایجاد پشتیبان"},
+    "sec.check_backup": {LANG_ENGLISH: "Check a Backup File", LANG_DARI: "بررسی فایل پشتیبان"},
+    "sec.check_database": {LANG_ENGLISH: "Check Database", LANG_DARI: "بررسی دیتابیس"},
+    "sec.backup_count": {LANG_ENGLISH: "{n} backup file(s)", LANG_DARI: "{n} فایل پشتیبان"},
+    "sec.backup_ok": {LANG_ENGLISH: "Backup created and verified: {file}",
+                      LANG_DARI: "پشتیبان ساخته و تأیید شد: {file}"},
+    "sec.backup_unverified": {
+        LANG_ENGLISH: "Backup written but it did NOT verify: {file}",
+        LANG_DARI: "پشتیبان نوشته شد اما تأیید نشد: {file}"},
+    "sec.check_ok": {LANG_ENGLISH: "{file} is a valid backup (schema v{v}).",
+                     LANG_DARI: "{file} پشتیبان معتبر است (نسخه {v})."},
+    "sec.check_bad": {LANG_ENGLISH: "{file} was refused: {reason}",
+                      LANG_DARI: "{file} رد شد: {reason}"},
+    "sec.db_ok": {LANG_ENGLISH: "Database is healthy (schema v{v}, journal {mode}).",
+                  LANG_DARI: "دیتابیس سالم است (نسخه {v}، ژورنال {mode})."},
+    "sec.db_bad": {LANG_ENGLISH: "Database problem: {detail}",
+                   LANG_DARI: "مشکل دیتابیس: {detail}"},
+    "sec.restore": {LANG_ENGLISH: "Restore", LANG_DARI: "بازیابی"},
+    "sec.restore_hint": {
+        LANG_ENGLISH: "Restoring replaces ALL current data with the backup. The "
+                      "file is checked first, and a safety copy of your current "
+                      "data is made before anything is replaced.",
+        LANG_DARI: "بازیابی تمام معلومات فعلی را با پشتیبان تعویض می‌کند. فایل اول "
+                   "بررسی می‌شود و پیش از تعویض، یک نسخه محافظتی از معلومات فعلی "
+                   "شما ساخته می‌شود."},
+    "sec.restore_from_file": {LANG_ENGLISH: "Restore from File…",
+                              LANG_DARI: "بازیابی از فایل…"},
+    "sec.restore_confirm": {
+        LANG_ENGLISH: "This will replace ALL current data with {file} (schema v{v}).\n\n"
+                      "A safety copy of your current data will be made first.\n"
+                      "Enter the owner password to continue.",
+        LANG_DARI: "این کار تمام معلومات فعلی را با {file} (نسخه {v}) تعویض می‌کند.\n\n"
+                   "اول یک نسخه محافظتی از معلومات فعلی ساخته می‌شود.\n"
+                   "برای ادامه رمز مالک را وارد کنید."},
+    "sec.restore_confirm_button": {LANG_ENGLISH: "Restore Now", LANG_DARI: "اکنون بازیابی کن"},
+    "sec.restore_refused": {
+        LANG_ENGLISH: "{file} cannot be restored ({reason}). Your data has not been "
+                      "changed.",
+        LANG_DARI: "{file} قابل بازیابی نیست ({reason}). معلومات شما تغییر نکرده است."},
+    "sec.restore_done": {
+        LANG_ENGLISH: "Restore completed. Safety copy: {safety}. Please restart "
+                      "the application.",
+        LANG_DARI: "بازیابی مکمل شد. نسخه محافظتی: {safety}. لطفاً برنامه را دوباره "
+                   "اجرا کنید."},
+    "sec.restore_cancelled": {LANG_ENGLISH: "Cancelled — nothing was changed.",
+                              LANG_DARI: "لغو شد — چیزی تغییر نکرد."},
+    "sec.restore_no_target": {LANG_ENGLISH: "No database file to restore into.",
+                              LANG_DARI: "فایل دیتابیسی برای بازیابی موجود نیست."},
+    "sec.backup_filter": {LANG_ENGLISH: "Zenith backup (*.db);;All files (*)",
+                          LANG_DARI: "پشتیبان زینیت (*.db);;همه فایل‌ها (*)"},
+    # sensitive-action gate
+    "sec.confirm_password": {LANG_ENGLISH: "Owner password", LANG_DARI: "رمز مالک"},
+    "sec.cancel": {LANG_ENGLISH: "Cancel", LANG_DARI: "لغو"},
+    "sec.wrong_password_title": {LANG_ENGLISH: "Incorrect password",
+                                 LANG_DARI: "رمز نادرست"},
+    "sec.wrong_password": {LANG_ENGLISH: "That password is not correct.",
+                           LANG_DARI: "این رمز درست نیست."},
+    "sec.blocked_title": {LANG_ENGLISH: "Temporarily blocked", LANG_DARI: "موقتاً مسدود"},
+    # licence
+    "sec.license_title": {LANG_ENGLISH: "License", LANG_DARI: "جواز"},
+    "sec.lic_product": {LANG_ENGLISH: "Product", LANG_DARI: "محصول"},
+    "sec.lic_type": {LANG_ENGLISH: "License type", LANG_DARI: "نوع جواز"},
+    "sec.lic_status": {LANG_ENGLISH: "Activation status", LANG_DARI: "وضعیت فعال‌سازی"},
+    "sec.lic_machine": {LANG_ENGLISH: "Machine ID", LANG_DARI: "شناسه کمپیوتر"},
+    "sec.lic_id": {LANG_ENGLISH: "License ID", LANG_DARI: "شماره جواز"},
+    "sec.lic_issued_to": {LANG_ENGLISH: "Issued to", LANG_DARI: "صادر شده برای"},
+    "sec.lic_issued": {LANG_ENGLISH: "Issue date", LANG_DARI: "تاریخ صدور"},
+    "sec.lic_expires": {LANG_ENGLISH: "Expires", LANG_DARI: "تاریخ انقضا"},
+    "sec.lic_none": {LANG_ENGLISH: "None", LANG_DARI: "ندارد"},
+    "sec.lic_never": {LANG_ENGLISH: "Never", LANG_DARI: "هیچ‌وقت"},
+    "sec.lic_make_request": {LANG_ENGLISH: "Generate Activation Request",
+                             LANG_DARI: "ایجاد درخواست فعال‌سازی"},
+    "sec.lic_import": {LANG_ENGLISH: "Import License", LANG_DARI: "وارد کردن جواز"},
+    "sec.lic_import_button": {LANG_ENGLISH: "Import Now", LANG_DARI: "اکنون وارد کن"},
+    "sec.lic_import_confirm": {
+        LANG_ENGLISH: "Import {file} as this computer's license?\n\n"
+                      "Enter the owner password to continue.",
+        LANG_DARI: "آیا {file} به‌عنوان جواز این کمپیوتر وارد شود؟\n\n"
+                   "برای ادامه رمز مالک را وارد کنید."},
+    "sec.lic_import_ok": {LANG_ENGLISH: "License {id} activated on this computer.",
+                          LANG_DARI: "جواز {id} روی این کمپیوتر فعال شد."},
+    "sec.lic_request_saved": {LANG_ENGLISH: "Activation request saved: {file}",
+                              LANG_DARI: "درخواست فعال‌سازی ذخیره شد: {file}"},
+    "sec.lic_request_next": {
+        LANG_ENGLISH: "Activation request saved to:\n{file}\n\nSend this file to "
+                      "Zenith Soft. You will receive a license file to import here.",
+        LANG_DARI: "درخواست فعال‌سازی ذخیره شد در:\n{file}\n\nاین فایل را به زینیت "
+                   "سافت بفرستید. یک فایل جواز دریافت می‌کنید تا اینجا وارد کنید."},
+    "sec.lic_filter": {LANG_ENGLISH: "Zenith license (*.zlic);;All files (*)",
+                       LANG_DARI: "جواز زینیت (*.zlic);;همه فایل‌ها (*)"},
+    "sec.lic_req_filter": {LANG_ENGLISH: "Activation request (*.zreq)",
+                           LANG_DARI: "درخواست فعال‌سازی (*.zreq)"},
+    "sec.st_full": {LANG_ENGLISH: "Activated", LANG_DARI: "فعال شده"},
+    "sec.st_demo": {LANG_ENGLISH: "Demo", LANG_DARI: "آزمایشی"},
+    "sec.st_demo_expired": {LANG_ENGLISH: "Demo expired", LANG_DARI: "دوره آزمایشی تمام شد"},
+    "sec.st_invalid": {LANG_ENGLISH: "Not valid", LANG_DARI: "نامعتبر"},
+    "sec.st_no_vendor_key": {LANG_ENGLISH: "Unlicensed build", LANG_DARI: "نسخه بدون جواز"},
 }
 
 

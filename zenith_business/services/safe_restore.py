@@ -60,6 +60,56 @@ class BackupCheck:
 
 
 @dataclass(frozen=True)
+class IntegrityReport:
+    """A health check of the LIVE database (Stage 10 §6).
+
+    Stage 01's ``check_health`` is a locked contract covering foreign keys and a
+    round trip; it deliberately does not run ``integrity_check``, which walks the
+    whole file. This is the deeper check, offered on demand rather than at every
+    startup, and it does not modify the locked one.
+    """
+
+    ok: bool
+    integrity: str
+    foreign_keys_ok: bool
+    orphan_count: int
+    journal_mode: str
+    schema_version: int | None
+    detail: str = ""
+
+
+def check_database_integrity(db) -> IntegrityReport:
+    """Run SQLite's own integrity and foreign-key checks against the live file."""
+    conn = db.connection()
+    try:
+        row = conn.execute("PRAGMA integrity_check").fetchone()
+        integrity = str(row[0]) if row else "unknown"
+    except sqlite3.DatabaseError as exc:
+        return IntegrityReport(False, "error", False, 0, "", None, str(exc))
+    try:
+        orphans = conn.execute("PRAGMA foreign_key_check").fetchall()
+    except sqlite3.DatabaseError:
+        orphans = []
+    try:
+        journal = str(conn.execute("PRAGMA journal_mode").fetchone()[0])
+    except sqlite3.DatabaseError:
+        journal = ""
+    try:
+        version_row = conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()
+        version = int(version_row[0]) if version_row and version_row[0] is not None else None
+    except sqlite3.DatabaseError:
+        version = None
+
+    fk_ok = not orphans
+    ok = integrity == "ok" and fk_ok
+    detail = ("Database is healthy." if ok
+              else f"integrity={integrity}; orphaned rows={len(orphans)}")
+    return IntegrityReport(ok=ok, integrity=integrity, foreign_keys_ok=fk_ok,
+                           orphan_count=len(orphans), journal_mode=journal,
+                           schema_version=version, detail=detail)
+
+
+@dataclass(frozen=True)
 class RestoreResult:
     """What a restore actually did, including the safety copy it left behind."""
 
