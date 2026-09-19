@@ -19,6 +19,7 @@ Production startup order (Stage 02):
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from zenith_business.core.config import AppConfig, load_config
 from zenith_business.core.error_handler import install_global_exception_handler
@@ -65,15 +66,20 @@ class Bootstrap:
         # 4. global exception handling
         install_global_exception_handler()
 
-        # 5. license verification — extension point (dev provider only)
-        logger.info("License state: %s", self.license_provider.current_state().summary)
-
-        # 6. open the production database, run migrations, health-check
+        # 5. open the production database, run migrations, health-check
         self.database = Database(paths.database_file)
         self.context = open_application_context(
             self.database, backups_dir=paths.backups_dir,
             logo_dir=paths.data_dir / "company",
+            # Licence state lives beside the config, NOT with the business data,
+            # so a restored database never carries another machine's licence.
+            license_dir=paths.license_dir,
         )
+
+        # 6. licence verification — the REAL service, read from the context, so
+        #    this log, the login screen, the status bar and the License page all
+        #    report one source of truth.
+        logger.info("License state: %s", self.context.licensing.summary())
         health = check_health(self.database)
         if health.ok:
             logger.info("Database ready (SQLite %s), schema migrated.", health.sqlite_version)
@@ -95,8 +101,82 @@ class Bootstrap:
         logger.info("%s shut down cleanly", IDENTITY.product)
 
 
+def selftest(argv: list[str] | None = None) -> int:
+    """Report what this build actually is, then exit (Stage 10 hardening §7).
+
+    A packaged build can be scanned for things that must NOT be in it, but a
+    scan cannot prove the licence path is present and working: PyInstaller
+    zlib-compresses the Python archive, so our own module strings are not
+    visible to a byte scan at all. Asking the binary is the honest check, and
+    CI runs exactly this against the frozen executable.
+
+    The report is written to a FILE as well as stdout. The shipped executable is
+    built windowed (``console=False``), where ``sys.stdout`` is ``None`` and a
+    bare ``print`` raises — so a console-only report would be invisible in the
+    one build that matters, which is exactly what happened the first time.
+    Pass ``--selftest-out=PATH`` to choose where it lands.
+
+    It only reports. It verifies nothing, unlocks nothing and changes nothing —
+    there is no state it can put the application into.
+    """
+    from zenith_business.core.identity import IDENTITY
+    from zenith_business.security import backup_crypto, signatures, vendor_key
+
+    args = list(argv or [])
+    destination: Path | None = None
+    for arg in args:
+        if arg.startswith("--selftest-out="):
+            destination = Path(arg.split("=", 1)[1])
+
+    boot = Bootstrap()
+    boot.initialize()
+    context = boot.context
+    assert context is not None
+    try:
+        state = context.licensing.evaluate()
+        healthy = signatures.backend_available() and backup_crypto.available()
+        lines = [
+            f"product              : {IDENTITY.product} {IDENTITY.version}",
+            f"crypto backend       : {signatures.backend_name()}",
+            f"signature verify     : {signatures.backend_available()}",
+            f"backup encryption    : {backup_crypto.available()}",
+            f"vendor key configured: {vendor_key.is_configured()}",
+            f"licence status       : {state.status}",
+            f"licence reason       : {state.reason}",
+            f"machine id           : {state.machine_short}",
+            f"audit chain          : {context.audit_chain.verify().detail}",
+            # A build that cannot verify signatures or encrypt a backup is
+            # broken, whether or not a vendor key has been issued yet.
+            f"SELFTEST             : {'OK' if healthy else 'FAILED'}",
+        ]
+        report = "\n".join(lines) + "\n"
+
+        if destination is None:
+            from zenith_business.core.paths import resolve_paths
+
+            destination = resolve_paths().logs_dir / "selftest.txt"
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(report, encoding="utf-8")
+        except OSError:
+            pass
+        # stdout is absent in a windowed build; never let that be the failure.
+        try:
+            if sys.stdout is not None:
+                sys.stdout.write(report)
+                sys.stdout.flush()
+        except Exception:
+            pass
+        return 0 if healthy else 1
+    finally:
+        boot.shutdown()
+
+
 def run(argv: list[str] | None = None) -> int:
     """Create the Qt application, gate on authentication, then show the shell."""
+    args = list(sys.argv[1:] if argv is None else argv)
+    if "--selftest" in args:
+        return selftest(args)
     from PyQt6.QtWidgets import QApplication, QDialog
 
     from zenith_business.ui.auth.auth_window import AuthWindow

@@ -18,6 +18,7 @@ class CompanyInfo:
     phone: str
     email: str
     tax_id: str
+    logo_path: str = ""  # optional stored logo image; empty → letter-mark fallback
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,15 @@ class InvoiceData:
     additional: float = 0.0
     tax: float = 0.0
     paid: float = 0.0
+    # Optional i18n KEY for a line printed above the standard terms, stating a
+    # document-level fact the item table cannot show on its own — such as an
+    # invoice whose goods were all returned (its table is legitimately empty).
+    # A key, not text, so the sheet follows the preview's EN/Dari toggle.
+    note_key: str = ""
+    # Who the other party is on this document. A sale is billed TO a customer; a
+    # purchase is billed BY a supplier, so the same engine must name the party
+    # correctly. Defaults to "customer", preserving the LOCKED wording.
+    party_kind: str = "customer"
 
     @property
     def subtotal(self) -> float:

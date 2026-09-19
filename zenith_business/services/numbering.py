@@ -26,3 +26,11 @@ class DocumentNumberService:
     def peek(self, doc_type: str) -> str | None:
         """Preview the next number WITHOUT consuming it (for draft display)."""
         return self._sequences.peek(doc_type)
+
+    def sequence(self, doc_type: str) -> dict | None:
+        """The numbering scheme (prefix, padding, next number) for ``doc_type``.
+
+        Lets a lookup resolve what a typed reference means using the SAME scheme
+        that issued the number, so it stays correct if numbering is reconfigured.
+        """
+        return self._sequences.get(doc_type)

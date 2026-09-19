@@ -36,8 +36,11 @@ class LoginPage(QWidget):
         # Scope the transparent background to THIS widget only (a bare
         # "background: transparent" would cascade onto the primary button and
         # strip its fill). The card behind provides the surface.
+        # Transparency is applied via the APP-level stylesheet (theme.py), not a
+        # widget-level stylesheet: a widget-scoped sheet here would suppress the
+        # app QSS background on child controls (e.g. blank the primary Sign In
+        # button). The object name lets the global rule target this widget only.
         self.setObjectName("LoginPageRoot")
-        self.setStyleSheet("QWidget#LoginPageRoot { background: transparent; }")
 
         col = QVBoxLayout(self)
         col.setContentsMargins(0, 0, 0, 0)
