@@ -451,6 +451,26 @@ def test_the_selftest_reports_a_working_security_state(tmp_path, monkeypatch, ca
     assert "SELFTEST             : OK" in printed
 
 
+def test_the_selftest_still_reports_when_there_is_no_stdout(tmp_path, monkeypatch):
+    """The shipped exe is WINDOWED: sys.stdout is None and print() raises.
+
+    A console-only report was invisible in the one build that matters, and the
+    self-test looked like a failure when it had actually run fine.
+    """
+    import sys as system
+
+    from zenith_business.app import selftest
+
+    monkeypatch.setenv("ZENITH_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    report = tmp_path / "report.txt"
+    monkeypatch.setattr(system, "stdout", None)
+    assert selftest([f"--selftest-out={report}"]) == 0
+    text = report.read_text(encoding="utf-8")
+    assert "SELFTEST             : OK" in text
+    assert "signature verify     : True" in text
+
+
 def test_the_selftest_fails_when_the_crypto_backend_is_missing(
         tmp_path, monkeypatch, capsys):
     """A build that cannot verify must not report itself healthy."""

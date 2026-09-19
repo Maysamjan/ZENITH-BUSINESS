@@ -19,6 +19,7 @@ Production startup order (Stage 02):
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from zenith_business.core.config import AppConfig, load_config
 from zenith_business.core.error_handler import install_global_exception_handler
@@ -109,11 +110,23 @@ def selftest(argv: list[str] | None = None) -> int:
     visible to a byte scan at all. Asking the binary is the honest check, and
     CI runs exactly this against the frozen executable.
 
-    It only prints. It verifies nothing, unlocks nothing and changes nothing —
+    The report is written to a FILE as well as stdout. The shipped executable is
+    built windowed (``console=False``), where ``sys.stdout`` is ``None`` and a
+    bare ``print`` raises — so a console-only report would be invisible in the
+    one build that matters, which is exactly what happened the first time.
+    Pass ``--selftest-out=PATH`` to choose where it lands.
+
+    It only reports. It verifies nothing, unlocks nothing and changes nothing —
     there is no state it can put the application into.
     """
     from zenith_business.core.identity import IDENTITY
     from zenith_business.security import backup_crypto, signatures, vendor_key
+
+    args = list(argv or [])
+    destination: Path | None = None
+    for arg in args:
+        if arg.startswith("--selftest-out="):
+            destination = Path(arg.split("=", 1)[1])
 
     boot = Bootstrap()
     boot.initialize()
@@ -121,19 +134,39 @@ def selftest(argv: list[str] | None = None) -> int:
     assert context is not None
     try:
         state = context.licensing.evaluate()
-        print(f"product              : {IDENTITY.product} {IDENTITY.version}")
-        print(f"crypto backend       : {signatures.backend_name()}")
-        print(f"signature verify     : {signatures.backend_available()}")
-        print(f"backup encryption    : {backup_crypto.available()}")
-        print(f"vendor key configured: {vendor_key.is_configured()}")
-        print(f"licence status       : {state.status}")
-        print(f"licence reason       : {state.reason}")
-        print(f"machine id           : {state.machine_short}")
-        print(f"audit chain          : {context.audit_chain.verify().detail}")
-        # A build that cannot verify signatures or encrypt a backup is broken,
-        # whether or not a vendor key has been issued yet.
         healthy = signatures.backend_available() and backup_crypto.available()
-        print(f"SELFTEST             : {'OK' if healthy else 'FAILED'}")
+        lines = [
+            f"product              : {IDENTITY.product} {IDENTITY.version}",
+            f"crypto backend       : {signatures.backend_name()}",
+            f"signature verify     : {signatures.backend_available()}",
+            f"backup encryption    : {backup_crypto.available()}",
+            f"vendor key configured: {vendor_key.is_configured()}",
+            f"licence status       : {state.status}",
+            f"licence reason       : {state.reason}",
+            f"machine id           : {state.machine_short}",
+            f"audit chain          : {context.audit_chain.verify().detail}",
+            # A build that cannot verify signatures or encrypt a backup is
+            # broken, whether or not a vendor key has been issued yet.
+            f"SELFTEST             : {'OK' if healthy else 'FAILED'}",
+        ]
+        report = "\n".join(lines) + "\n"
+
+        if destination is None:
+            from zenith_business.core.paths import resolve_paths
+
+            destination = resolve_paths().logs_dir / "selftest.txt"
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(report, encoding="utf-8")
+        except OSError:
+            pass
+        # stdout is absent in a windowed build; never let that be the failure.
+        try:
+            if sys.stdout is not None:
+                sys.stdout.write(report)
+                sys.stdout.flush()
+        except Exception:
+            pass
         return 0 if healthy else 1
     finally:
         boot.shutdown()

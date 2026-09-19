@@ -101,10 +101,17 @@ jobs:
           QT_QPA_PLATFORM: offscreen
           ZENITH_DATA_HOME: dist/selftest-home
         run: |
-          $out = & "dist/ZenithBusiness/ZenithBusiness.exe" --selftest 2>&1
-          $out | ForEach-Object { Write-Host $_ }
-          if ($LASTEXITCODE -ne 0) { throw "frozen build failed its self-test" }
-          $text = $out -join "`n"
+          # The shipped exe is WINDOWED, so it has no stdout to read. It writes
+          # its report to a file; that is the only thing CI can rely on.
+          $report = "dist/selftest-report.txt"
+          $proc = Start-Process -FilePath "dist/ZenithBusiness/ZenithBusiness.exe" `
+            -ArgumentList "--selftest","--selftest-out=$report" -PassThru -Wait
+          if (-not (Test-Path $report)) {
+            throw "frozen build wrote no self-test report (exit $($proc.ExitCode))"
+          }
+          $text = Get-Content $report -Raw
+          Write-Host $text
+          if ($proc.ExitCode -ne 0) { throw "frozen build failed its self-test" }
           foreach ($needed in @("signature verify     : True",
                                 "backup encryption    : True",
                                 "SELFTEST             : OK")) {
