@@ -377,35 +377,60 @@ def test_a_licence_file_carries_only_hashed_machine_data(shop):
 
 # ---- §7 packaging --------------------------------------------------------
 
-def test_the_release_auditor_rejects_a_package_containing_a_private_key(tmp_path):
-    """The auditor must actually catch things, not just print PASS."""
+def _auditor():
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(
         "release_audit", Path(__file__).resolve().parents[1] / "packaging"
         / "audit_release_package.py")
-    auditor = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(auditor)
-
-    package = tmp_path / "package"
-    package.mkdir()
-    (package / "app.py").write_text("EMBEDDED_PUBLIC_KEY_B64 = ''\nEd25519PublicKey\n")
-    assert auditor.audit(package) == 0
-
-    (package / "oops.json").write_text('{"kind": "zenith-signing-key"}')
-    assert auditor.audit(package) == 1
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def test_the_release_auditor_requires_a_verification_path(tmp_path):
-    import importlib.util
+def _package(tmp_path):
+    """A realistic package: our exe plus the vendored crypto and Qt binaries.
 
-    spec = importlib.util.spec_from_file_location(
-        "release_audit", Path(__file__).resolve().parents[1] / "packaging"
-        / "audit_release_package.py")
-    auditor = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(auditor)
+    The vendored files carry the exact strings that made the first real build
+    fail — a general-purpose crypto library naming its own signing classes, and
+    Qt's PEM parser holding the header literal it searches for.
+    """
+    root = tmp_path / "package"
+    (root / "app").mkdir(parents=True)
+    (root / "app" / "ZenithBusiness.exe").write_bytes(
+        b"Ed25519PublicKey EMBEDDED_PUBLIC_KEY_B64 Ed25519PrivateKey private_bytes")
+    (root / "app" / "cryptography_rust.pyd").write_bytes(
+        b"Ed25519PrivateKey private_bytes")
+    (root / "app" / "Qt6Network.dll").write_bytes(b"-----BEGIN RSA PRIVATE KEY-----")
+    return root
 
-    package = tmp_path / "empty"
-    package.mkdir()
-    (package / "readme.txt").write_text("nothing here")
-    assert auditor.audit(package) == 1
+
+def test_a_clean_package_passes_despite_vendored_signing_capability(tmp_path):
+    """The false alarm that failed the first hardened build must not come back."""
+    assert _auditor().audit(_package(tmp_path)) == 0
+
+
+@pytest.mark.parametrize("name, filename, content", [
+    ("a real PEM private key", "leak.pem",
+     "-----BEGIN PRIVATE KEY-----\n" + "A" * 64),
+    ("the vendor signing key", "key.json", '{"kind": "zenith-signing-key"}'),
+    ("the vendor tool by filename", "zenith_license_tool.py", "print()"),
+    ("test signing tooling", "t.py", "from tests.tooling import license_signing"),
+    ("a licence generator", "g.py", "def make_license(seed):\n    pass"),
+    ("a packaged licence", "c.zlic", '{"format": "zenith-license-1"}'),
+    ("a licence bypass", "b.py", "if os.environ.get('ZENITH_SKIP_LICENSE'): pass"),
+    ("a backdoor", "d.py", "MASTER_PASSWORD = 'letmein'"),
+    ("a default password", "e.py", "admin_password = 'Admin@123'"),
+    ("our own code able to sign", "ours.py", "from x import Ed25519PrivateKey"),
+])
+def test_the_auditor_fails_the_build_on(tmp_path, name, filename, content):
+    root = _package(tmp_path)
+    (root / filename).write_text(content)
+    assert _auditor().audit(root) == 1, f"the auditor did not catch {name}"
+
+
+def test_the_auditor_requires_a_verification_path(tmp_path):
+    root = tmp_path / "empty"
+    root.mkdir()
+    (root / "readme.txt").write_text("nothing here")
+    assert _auditor().audit(root) == 1
