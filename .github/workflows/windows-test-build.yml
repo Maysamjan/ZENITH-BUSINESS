@@ -92,17 +92,27 @@ jobs:
       - name: Security audit of the release package
         run: python packaging/audit_release_package.py dist/package
 
-      # Prove the frozen build can actually verify a signature. The crypto
-      # backend is imported lazily, so its absence would not show up until a
-      # customer tried to activate.
-      - name: Verify the frozen build carries a working crypto backend
+      # Ask the FROZEN BINARY what it is. A byte scan cannot prove the licence
+      # path works — PyInstaller zlib-compresses the Python archive, so our own
+      # module strings are invisible to it. Running the exe is the honest check.
+      - name: Ask the frozen build to report its security state
         shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          ZENITH_DATA_HOME: dist/selftest-home
         run: |
-          $dll = Get-ChildItem -Recurse dist/ZenithBusiness -Filter "*rust*" -ErrorAction SilentlyContinue
-          $bindings = Get-ChildItem -Recurse dist/ZenithBusiness -Filter "*cryptography*" -ErrorAction SilentlyContinue
-          if (-not $bindings) { throw "cryptography was not bundled into the frozen build" }
-          Write-Host "Bundled crypto files:"
-          $bindings | ForEach-Object { Write-Host ("  " + $_.Name) }
+          $out = & "dist/ZenithBusiness/ZenithBusiness.exe" --selftest 2>&1
+          $out | ForEach-Object { Write-Host $_ }
+          if ($LASTEXITCODE -ne 0) { throw "frozen build failed its self-test" }
+          $text = $out -join "`n"
+          foreach ($needed in @("signature verify     : True",
+                                "backup encryption    : True",
+                                "SELFTEST             : OK")) {
+            if ($text -notmatch [regex]::Escape($needed)) {
+              throw "frozen build did not report: $needed"
+            }
+          }
+          Write-Host "Frozen build verified its own crypto and licence path."
 
       - name: Smoke-check the frozen build starts (offscreen)
         shell: pwsh

@@ -434,3 +434,42 @@ def test_the_auditor_requires_a_verification_path(tmp_path):
     root.mkdir()
     (root / "readme.txt").write_text("nothing here")
     assert _auditor().audit(root) == 1
+
+
+# ---- the build's own self-report -----------------------------------------
+
+def test_the_selftest_reports_a_working_security_state(tmp_path, monkeypatch, capsys):
+    """CI runs this against the FROZEN exe; here it is checked as a function."""
+    from zenith_business.app import selftest
+
+    monkeypatch.setenv("ZENITH_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    assert selftest([]) == 0
+    printed = capsys.readouterr().out
+    assert "signature verify     : True" in printed
+    assert "backup encryption    : True" in printed
+    assert "SELFTEST             : OK" in printed
+
+
+def test_the_selftest_fails_when_the_crypto_backend_is_missing(
+        tmp_path, monkeypatch, capsys):
+    """A build that cannot verify must not report itself healthy."""
+    from zenith_business.app import selftest
+    from zenith_business.security import signatures
+
+    monkeypatch.setenv("ZENITH_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setattr(signatures, "backend_available", lambda: False)
+    assert selftest([]) == 1
+    assert "SELFTEST             : FAILED" in capsys.readouterr().out
+
+
+def test_the_selftest_cannot_change_any_state(tmp_path, monkeypatch):
+    """It prints. It must not activate, unlock or alter anything."""
+    import inspect
+
+    from zenith_business import app
+
+    source = inspect.getsource(app.selftest)
+    for forbidden in ("import_license", "update", "INSERT", "DELETE", "set("):
+        assert forbidden not in source, f"selftest must not {forbidden}"

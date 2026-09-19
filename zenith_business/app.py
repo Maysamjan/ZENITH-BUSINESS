@@ -100,8 +100,50 @@ class Bootstrap:
         logger.info("%s shut down cleanly", IDENTITY.product)
 
 
+def selftest(argv: list[str] | None = None) -> int:
+    """Report what this build actually is, then exit (Stage 10 hardening §7).
+
+    A packaged build can be scanned for things that must NOT be in it, but a
+    scan cannot prove the licence path is present and working: PyInstaller
+    zlib-compresses the Python archive, so our own module strings are not
+    visible to a byte scan at all. Asking the binary is the honest check, and
+    CI runs exactly this against the frozen executable.
+
+    It only prints. It verifies nothing, unlocks nothing and changes nothing —
+    there is no state it can put the application into.
+    """
+    from zenith_business.core.identity import IDENTITY
+    from zenith_business.security import backup_crypto, signatures, vendor_key
+
+    boot = Bootstrap()
+    boot.initialize()
+    context = boot.context
+    assert context is not None
+    try:
+        state = context.licensing.evaluate()
+        print(f"product              : {IDENTITY.product} {IDENTITY.version}")
+        print(f"crypto backend       : {signatures.backend_name()}")
+        print(f"signature verify     : {signatures.backend_available()}")
+        print(f"backup encryption    : {backup_crypto.available()}")
+        print(f"vendor key configured: {vendor_key.is_configured()}")
+        print(f"licence status       : {state.status}")
+        print(f"licence reason       : {state.reason}")
+        print(f"machine id           : {state.machine_short}")
+        print(f"audit chain          : {context.audit_chain.verify().detail}")
+        # A build that cannot verify signatures or encrypt a backup is broken,
+        # whether or not a vendor key has been issued yet.
+        healthy = signatures.backend_available() and backup_crypto.available()
+        print(f"SELFTEST             : {'OK' if healthy else 'FAILED'}")
+        return 0 if healthy else 1
+    finally:
+        boot.shutdown()
+
+
 def run(argv: list[str] | None = None) -> int:
     """Create the Qt application, gate on authentication, then show the shell."""
+    args = list(sys.argv[1:] if argv is None else argv)
+    if "--selftest" in args:
+        return selftest(args)
     from PyQt6.QtWidgets import QApplication, QDialog
 
     from zenith_business.ui.auth.auth_window import AuthWindow

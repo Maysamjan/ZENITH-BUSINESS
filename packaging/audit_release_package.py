@@ -30,8 +30,10 @@ information**, and the real guarantee — that no module under `zenith_business/
 references a private-key type — is enforced at source level by
 `tests/test_stage10_licensing.py::test_no_module_in_the_application_package_can_sign`.
 
-It also confirms the things that MUST be there: the public-key module, and a
-verification path.
+What this CANNOT do is prove the licence path is present and working. PyInstaller
+zlib-compresses the Python archive, so our own module strings are not visible to
+a byte scan — an absence here means nothing. That half is proved by running the
+frozen executable with ``--selftest``, which is a separate CI step.
 """
 
 from __future__ import annotations
@@ -161,8 +163,7 @@ def audit(root: Path) -> int:
     print("PASS — no private key, no licence file, no signing tool, no generator,")
     print("       no bypass, no backdoor and no default password in the package.")
     print()
-    print(f"  public-key module present : {saw_public_key_module}")
-    print(f"  verification path present : {saw_verification}")
+    print(f"  crypto backend bundled    : {saw_verification}")
     if capability:
         print()
         print("  Signing capability inside VENDORED libraries (expected, not a finding):")
@@ -171,10 +172,13 @@ def audit(root: Path) -> int:
         print("   These are general-purpose libraries that support signing for all")
         print("   their users. That OUR code never uses it is enforced at source")
         print("   level by test_no_module_in_the_application_package_can_sign.")
-    if not (saw_public_key_module and saw_verification):
+    if not saw_verification:
         print()
-        print("FAIL — the package is missing the licence verification path.")
+        print("FAIL — no Ed25519 verification backend was bundled.")
         return 1
+    print()
+    print("  (That the licence path WORKS is proved separately, by running the")
+    print("   frozen executable with --selftest.)")
     return 0
 
 
