@@ -212,10 +212,21 @@ class AuthWindow(QDialog):
         return panel
 
     def _version_text(self) -> str:
+        """The footer, reading the REAL licence state — one source of truth.
+
+        This used to print the development-build text unconditionally, so an
+        activated installation still told the customer it was unlicensed every
+        time they signed in.
+        """
         v = self._t.gettext("login.version")
         lic = self._t.gettext("login.licence")
-        dev = self._t.gettext("login.licence_dev")
-        return f"{IDENTITY.company} · {v} {IDENTITY.version} · {lic}: {dev}"
+        licensing = getattr(self._ctx, "licensing", None)
+        try:
+            state = (licensing.summary() if licensing is not None
+                     else self._t.gettext("login.licence_dev"))
+        except Exception:
+            state = self._t.gettext("login.licence_dev")
+        return f"{IDENTITY.company} · {v} {IDENTITY.version} · {lic}: {state}"
 
     def _lang_button(self, code: str, key: str) -> QPushButton:
         btn = QPushButton(self._t.gettext(key))

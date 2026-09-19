@@ -98,6 +98,7 @@ from zenith_business.services.costing_reports import CostingReportService
 from zenith_business.repositories.accounting_s9 import AccountingReadRepository
 from zenith_business.services.accounting_reports import AccountingReportService
 from zenith_business.services.cogs_posting import CogsPostingService
+from zenith_business.services.audit_chain import AuditChainService
 from zenith_business.services.licensing_service import LicenseService
 from zenith_business.services.safe_restore import SafeRestoreService
 from zenith_business.services.search_providers import ItemSearchProvider, PartySearchProvider
@@ -270,6 +271,7 @@ class ApplicationContext:
         # Each of these EXTENDS what Stage 02 built rather than replacing it:
         # authentication, hashing, the audit trail and the backup writer are
         # untouched, and no locked service changed to accommodate them.
+        self.audit_chain = AuditChainService(db)
         self.security = SecurityService(
             db, self.users_repo, self.settings_repo, self.audit_repo, self.session)
         self.safe_restore = SafeRestoreService(
@@ -308,5 +310,16 @@ def open_application_context(
     applied = MigrationRunner(db).migrate()
     if applied:
         _logger.info("Database migrated to schema (applied %s).", applied)
-    return ApplicationContext(db, backups_dir=backups_dir, logo_dir=logo_dir,
-                              license_dir=license_dir)
+    context = ApplicationContext(db, backups_dir=backups_dir, logo_dir=logo_dir,
+                                 license_dir=license_dir)
+    # Extend the audit hash chain over anything written since the last run. It
+    # must never be what stops the application opening, so a failure is logged
+    # and the application continues with the chain simply not yet caught up.
+    try:
+        sealed = context.audit_chain.seal()
+        if sealed:
+            _logger.info("Sealed %d audit entr%s into the hash chain.",
+                         sealed, "y" if sealed == 1 else "ies")
+    except Exception:
+        _logger.warning("Could not extend the audit hash chain.", exc_info=True)
+    return context

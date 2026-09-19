@@ -1180,6 +1180,27 @@ _CATALOG: dict[str, dict[str, str]] = {
     "inv.rep_low_stock": {LANG_ENGLISH: "Low Stock", LANG_DARI: "موجودی کم"},
     "inv.total": {LANG_ENGLISH: "Total", LANG_DARI: "مجموع"},
     "inv.items_count": {LANG_ENGLISH: "{n} item(s)", LANG_DARI: "{n} قلم"},
+    # ---- Stage 10 hardening: encrypted backups + audit chain ----
+    "sec.audit_verify": {LANG_ENGLISH: "Check Integrity", LANG_DARI: "بررسی صحت"},
+    "sec.audit_chain_ok": {
+        LANG_ENGLISH: "Integrity verified — {n} entries, none altered.",
+        LANG_DARI: "صحت تأیید شد — {n} ثبت، هیچ‌کدام تغییر نکرده."},
+    "sec.audit_chain_bad": {
+        LANG_ENGLISH: "TAMPERING DETECTED at entry {id}. {detail}",
+        LANG_DARI: "دستکاری شناسایی شد در ثبت {id}. {detail}"},
+    "sec.backup_pass_prompt": {
+        LANG_ENGLISH: "Enter the owner password. The backup is encrypted with it, "
+                      "and you will need this password to restore the backup.",
+        LANG_DARI: "رمز مالک را وارد کنید. پشتیبان با آن رمزگذاری می‌شود و برای "
+                   "بازیابی به همین رمز ضرورت دارید."},
+    "sec.backup_open_prompt": {
+        LANG_ENGLISH: "This backup is encrypted. Enter the owner password that was "
+                      "in use when it was created.",
+        LANG_DARI: "این پشتیبان رمزگذاری شده است. رمز مالکی را که هنگام ساختن آن "
+                   "استفاده می‌شد وارد کنید."},
+    "sec.backup_hint_owner_password": {
+        LANG_ENGLISH: "Owner password at the time of backup",
+        LANG_DARI: "رمز مالک در زمان پشتیبان‌گیری"},
     # ---- Stage 10: single-PC security, backup safety and licensing ----
     "sec.nav_audit": {LANG_ENGLISH: "Audit Log", LANG_DARI: "سوابق فعالیت"},
     "sec.nav_backup": {LANG_ENGLISH: "Backup & Restore", LANG_DARI: "پشتیبان و بازیابی"},

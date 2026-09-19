@@ -227,8 +227,26 @@ class AuditLogPage(_Page):
         self._root.addWidget(self._table, stretch=1)
         self._refresh_btn = secondary_button(translator.gettext("sec.refresh"))
         self._refresh_btn.clicked.connect(self.reload)
-        self._finish([self._refresh_btn])
+        self._verify_btn = secondary_button(translator.gettext("sec.audit_verify"))
+        self._verify_btn.clicked.connect(self._verify_chain)
+        self._finish([self._verify_btn, self._refresh_btn])
         self.reload()
+
+    def _verify_chain(self) -> None:
+        """Walk the hash chain and report the first entry that disagrees."""
+        try:
+            self._ctx.audit_chain.seal()
+            report = self._ctx.audit_chain.verify()
+        except Exception as exc:
+            self._say(str(exc), bad=True)
+            return
+        if report.ok:
+            self._say(self._t.gettext("sec.audit_chain_ok")
+                      .replace("{n}", str(report.sealed)))
+        else:
+            self._say(self._t.gettext("sec.audit_chain_bad")
+                      .replace("{id}", str(report.first_bad_id))
+                      .replace("{detail}", report.detail), bad=True)
 
     def reload(self) -> None:
         rows = self._ctx.audit_repo.recent(500)
@@ -252,6 +270,7 @@ class AuditLogPage(_Page):
         self._table.setHorizontalHeaderLabels(
             [translator.gettext(k) for k in self.COLUMNS])
         self._refresh_btn.setText(escape_amp(translator.gettext("sec.refresh")))
+        self._verify_btn.setText(escape_amp(translator.gettext("sec.audit_verify")))
         self._close_btn.setText(escape_amp(translator.gettext("s4.act_close")))
         self.reload()
 
@@ -331,8 +350,10 @@ class BackupPage(_Page):
         directory = getattr(self._ctx.backup, "_backups_dir", None)
         files = []
         if directory is not None and Path(directory).is_dir():
-            files = sorted(Path(directory).glob("*.db"),
-                           key=lambda p: p.stat().st_mtime, reverse=True)
+            files = sorted(
+                [p for p in Path(directory).iterdir()
+                 if p.suffix in (".db", ".zbak") and p.is_file()],
+                key=lambda p: p.stat().st_mtime, reverse=True)
         self._table.setRowCount(0)
         self._table.setRowCount(len(files))
         import datetime
@@ -348,12 +369,28 @@ class BackupPage(_Page):
     # -- actions ---------------------------------------------------------
 
     def _create_backup(self) -> None:
+        """Create an encrypted backup, locked with the owner password.
+
+        The owner password is reused as the backup passphrase deliberately: it
+        is one secret rather than two, and it is the one the customer already
+        has to type to restore. The consequence is stated on screen — a backup
+        opens with the password that was current when it was written.
+        """
+        passphrase = self._ask_passphrase("sec.backup_pass_prompt")
+        if passphrase is None:
+            self._say(self._t.gettext("sec.restore_cancelled"))
+            return
         try:
-            path = self._ctx.backup.create_backup()
+            path = self._ctx.backup.create_backup(
+                passphrase=passphrase,
+                hint=self._t.gettext("sec.backup_hint_owner_password"))
         except ZenithError as exc:
             self._say(getattr(exc, "user_message", str(exc)), bad=True)
             return
-        check = self._ctx.safe_restore.inspect(path)
+        except Exception as exc:
+            self._say(str(exc), bad=True)
+            return
+        check = self._ctx.safe_restore.inspect(path, passphrase=passphrase)
         self.reload()
         if check.ok:
             self._say(self._t.gettext("sec.backup_ok").replace("{file}", path.name))
@@ -369,11 +406,30 @@ class BackupPage(_Page):
             self._t.gettext("sec.backup_filter"))
         return name or None
 
+    def _ask_passphrase(self, prompt_key: str) -> str | None:
+        """Ask for the owner password, verifying it before it is used as a key."""
+        from PyQt6.QtWidgets import QInputDialog
+
+        text, ok = QInputDialog.getText(
+            self, self._t.gettext("sec.backup_title"),
+            self._t.gettext(prompt_key), QLineEdit.EchoMode.Password)
+        if not ok:
+            return None
+        return text
+
     def _check_backup(self) -> None:
         name = self._pick("sec.check_backup")
         if not name:
             return
-        check = self._ctx.safe_restore.inspect(name)
+        from zenith_business.security import backup_crypto
+
+        passphrase = None
+        if backup_crypto.looks_encrypted(name):
+            passphrase = self._ask_passphrase("sec.backup_open_prompt")
+            if passphrase is None:
+                self._say(self._t.gettext("sec.restore_cancelled"))
+                return
+        check = self._ctx.safe_restore.inspect(name, passphrase=passphrase)
         from pathlib import Path
         label = Path(name).name
         if check.ok:
@@ -387,8 +443,17 @@ class BackupPage(_Page):
         name = self._pick("sec.restore_from_file")
         if not name:
             return
-        check = self._ctx.safe_restore.inspect(name)
         from pathlib import Path
+
+        from zenith_business.security import backup_crypto
+
+        passphrase = None
+        if backup_crypto.looks_encrypted(name):
+            passphrase = self._ask_passphrase("sec.backup_open_prompt")
+            if passphrase is None:
+                self._say(self._t.gettext("sec.restore_cancelled"))
+                return
+        check = self._ctx.safe_restore.inspect(name, passphrase=passphrase)
         label = Path(name).name
         if not check.ok:
             # Refused before anything is touched, and the reason is named.
@@ -415,7 +480,7 @@ class BackupPage(_Page):
             return
         try:
             result = self._ctx.safe_restore.restore(
-                name, self._database_path, confirmed=True)
+                name, self._database_path, confirmed=True, passphrase=passphrase)
         except ZenithError as exc:
             self._say(getattr(exc, "user_message", str(exc)), bad=True)
             QMessageBox.critical(self, self._t.gettext("sec.restore"),

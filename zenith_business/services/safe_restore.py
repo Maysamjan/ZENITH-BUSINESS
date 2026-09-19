@@ -32,10 +32,12 @@ from __future__ import annotations
 
 import shutil
 import sqlite3
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 from zenith_business.core.clock import now_utc
+from zenith_business.security import backup_crypto
 from zenith_business.core.logging_setup import get_logger
 from zenith_business.services.exceptions import ValidationError
 
@@ -119,11 +121,15 @@ class RestoreResult:
     integrity_ok: bool
 
 
-def inspect_backup(path: str | Path) -> BackupCheck:
+def inspect_backup(path: str | Path, *, passphrase: str | None = None) -> BackupCheck:
     """Examine a candidate backup file without opening the live database.
 
     Every failure is reported as a reason rather than an exception, so the UI can
     tell the customer *why* a file was refused instead of "restore failed".
+
+    An encrypted ``.zbak`` is described from its authenticated header without a
+    passphrase — enough to list and identify it. With a passphrase it is fully
+    decrypted and the database inside is checked, which is what a restore needs.
     """
     p = Path(path)
     if not p.exists():
@@ -133,6 +139,9 @@ def inspect_backup(path: str | Path) -> BackupCheck:
     size = p.stat().st_size
     if size == 0:
         return BackupCheck(False, "empty", "The file is empty.", size_bytes=0)
+
+    if backup_crypto.looks_encrypted(p):
+        return _inspect_encrypted(p, size, passphrase)
 
     try:
         conn = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
@@ -166,6 +175,34 @@ def inspect_backup(path: str | Path) -> BackupCheck:
         conn.close()
 
 
+def _inspect_encrypted(path: Path, size: int, passphrase: str | None) -> BackupCheck:
+    """Describe (and, given a passphrase, fully verify) a ``.zbak`` container."""
+    header = backup_crypto.read_header(path)
+    if header is None:
+        return BackupCheck(False, "corrupt", "The backup header is damaged.",
+                           size_bytes=size)
+    if passphrase is None:
+        # Identified, not yet proven. A restore always supplies the passphrase,
+        # so nothing is ever restored on the strength of a header alone.
+        return BackupCheck(True, "encrypted",
+                           "Encrypted Zenith backup (passphrase required).",
+                           schema_version=header.schema_version, size_bytes=size)
+    with tempfile.TemporaryDirectory() as tmp:
+        plain = Path(tmp) / "candidate.db"
+        try:
+            backup_crypto.decrypt_file(path, plain, passphrase)
+        except backup_crypto.WrongPassphrase:
+            return BackupCheck(False, "bad_passphrase",
+                               "Wrong passphrase, or the backup has been altered.",
+                               size_bytes=size)
+        except backup_crypto.BackupCryptoError as exc:
+            return BackupCheck(False, "corrupt", str(exc), size_bytes=size)
+        inner = inspect_backup(plain)
+        # Report the container's size, not the decrypted copy's.
+        return BackupCheck(inner.ok, inner.reason, inner.detail,
+                           schema_version=inner.schema_version, size_bytes=size)
+
+
 class SafeRestoreService:
     """Restores a backup without ever leaving the customer without a database."""
 
@@ -180,8 +217,8 @@ class SafeRestoreService:
     # ---- reads -----------------------------------------------------------
 
     @staticmethod
-    def inspect(path: str | Path) -> BackupCheck:
-        return inspect_backup(path)
+    def inspect(path: str | Path, *, passphrase: str | None = None) -> BackupCheck:
+        return inspect_backup(path, passphrase=passphrase)
 
     def safety_backup_path(self) -> Path:
         stamp = now_utc().strftime("%Y%m%d-%H%M%S")
@@ -190,7 +227,7 @@ class SafeRestoreService:
     # ---- the restore -----------------------------------------------------
 
     def restore(self, source: str | Path, target_db_path: str | Path, *,
-                confirmed: bool = False) -> RestoreResult:
+                confirmed: bool = False, passphrase: str | None = None) -> RestoreResult:
         """Replace the live database with ``source``.
 
         ``confirmed`` must be True. It is not decoration: a restore discards the
@@ -206,9 +243,18 @@ class SafeRestoreService:
 
         source = Path(source)
         target = Path(target_db_path)
-        check = inspect_backup(source)
+        check = inspect_backup(source, passphrase=passphrase)
         self._record("backup.restore_started",
                      f"file={source.name} valid={check.ok} reason={check.reason}")
+        if check.ok and check.reason == "encrypted":
+            # Identified but not authenticated: a restore must never proceed on
+            # a header alone.
+            self._record("backup.restore_failed",
+                         f"file={source.name} reason=passphrase_required")
+            raise ValidationError(
+                "Encrypted backup needs its passphrase.",
+                user_message="This backup is encrypted. Enter its passphrase to "
+                             "restore it.")
         if not check.ok:
             self._record("backup.restore_failed",
                          f"file={source.name} reason={check.reason}")
@@ -234,10 +280,15 @@ class SafeRestoreService:
 
         self._db.close()      # release the live connection before the swap
 
-        # 2. Copy beside the target, then swap atomically.
+        # 2. Put the plain database beside the target, then swap atomically.
+        #    An encrypted container is decrypted into the staging file, so the
+        #    swap itself is identical for both kinds of backup.
         staged = target.with_name(target.name + ".restoring")
         try:
-            shutil.copy2(source, staged)
+            if backup_crypto.looks_encrypted(source):
+                backup_crypto.decrypt_file(source, staged, passphrase or "")
+            else:
+                shutil.copy2(source, staged)
             import os
             os.replace(staged, target)
         except Exception as exc:
@@ -333,4 +384,5 @@ _REFUSAL = {
     "not_a_database": "That file is not a database.",
     "corrupt": "That backup is damaged and cannot be restored.",
     "not_zenith": "That is not a Zenith Business backup.",
+    "bad_passphrase": "Wrong passphrase, or the backup has been altered.",
 }

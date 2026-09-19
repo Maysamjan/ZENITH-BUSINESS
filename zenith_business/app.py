@@ -65,15 +65,20 @@ class Bootstrap:
         # 4. global exception handling
         install_global_exception_handler()
 
-        # 5. license verification — extension point (dev provider only)
-        logger.info("License state: %s", self.license_provider.current_state().summary)
-
-        # 6. open the production database, run migrations, health-check
+        # 5. open the production database, run migrations, health-check
         self.database = Database(paths.database_file)
         self.context = open_application_context(
             self.database, backups_dir=paths.backups_dir,
             logo_dir=paths.data_dir / "company",
+            # Licence state lives beside the config, NOT with the business data,
+            # so a restored database never carries another machine's licence.
+            license_dir=paths.license_dir,
         )
+
+        # 6. licence verification — the REAL service, read from the context, so
+        #    this log, the login screen, the status bar and the License page all
+        #    report one source of truth.
+        logger.info("License state: %s", self.context.licensing.summary())
         health = check_health(self.database)
         if health.ok:
             logger.info("Database ready (SQLite %s), schema migrated.", health.sqlite_version)

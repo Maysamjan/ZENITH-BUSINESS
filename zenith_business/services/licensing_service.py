@@ -40,7 +40,7 @@ from zenith_business.core.identity import APP_VERSION
 from zenith_business.core.logging_setup import get_logger
 from zenith_business.security import machine_id as machine
 from zenith_business.security import vendor_key
-from zenith_business.security.ed25519_verify import verify
+from zenith_business.security.signatures import backend_available, verify
 from zenith_business.security.license_format import (
     LICENSE_SUFFIX,
     PRODUCT_ID,
@@ -85,6 +85,7 @@ class LicenseReason(str):
     UNKNOWN_TYPE = "unknown_type"
     DEMO_PERIOD_OVER = "demo_period_over"
     NO_VENDOR_KEY = "no_vendor_key"
+    NO_BACKEND = "no_crypto_backend"
 
 
 @dataclass(frozen=True)
@@ -195,6 +196,14 @@ class LicenseService:
         """Re-read and re-check the licence. The only place this is decided."""
         me = self.machine
         base = {"machine_id": me.fingerprint, "machine_short": me.short}
+
+        if not backend_available():
+            # No verification backend in this build: refuse rather than assume.
+            return LicenseEvaluation(
+                status=LicenseStatus.NO_VENDOR_KEY,
+                reason=LicenseReason.NO_BACKEND,
+                detail="This build cannot verify licences (no crypto backend).",
+                **base)
 
         key = self._public_key()
         if key is None:

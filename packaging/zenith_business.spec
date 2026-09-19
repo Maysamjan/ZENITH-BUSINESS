@@ -30,6 +30,18 @@ _ROOT = os.path.dirname(_SPEC_DIR)  # repository root (packaging/..)
 
 hiddenimports = collect_submodules("zenith_business")
 
+# Licence verification and backup encryption import `cryptography` lazily, inside
+# function bodies, so that a build without it fails CLOSED rather than crashing
+# at import time. Lazy imports are exactly what static analysis is weakest at, so
+# the backend is named explicitly here instead of being left to discovery.
+hiddenimports += [
+    "cryptography",
+    "cryptography.hazmat.primitives.asymmetric.ed25519",
+    "cryptography.hazmat.primitives.ciphers.aead",
+    "cryptography.hazmat.primitives.kdf.scrypt",
+    "cryptography.exceptions",
+]
+
 # Only the RESOURCE files (Vazirmatn fonts, logo, licence) are collected as data,
 # placed at their package-relative path so core/fonts.py (which resolves the font
 # directory from ``__file__``) finds them inside the frozen build. The Python code

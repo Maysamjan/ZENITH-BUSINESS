@@ -62,6 +62,14 @@ jobs:
           pip install pytest
           python -m pytest tests/test_stage08_report_fixes.py -v -k "font or dari or bundled"
 
+      # Licensing and backup encryption are the two places where a silent
+      # failure is worst, so they are exercised on the platform that ships.
+      - name: Verify licensing and backup encryption (Windows)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m pytest tests/test_stage10_hardening.py tests/test_stage10_licensing.py -q
+
       - name: Freeze ZenithBusiness.exe
         run: pyinstaller packaging/zenith_business.spec --noconfirm --clean
 
@@ -77,6 +85,24 @@ jobs:
           Write-Host "Seeding fresh sample database..."
           python packaging/seed_test_db.py "$pkg/appdata"
           Copy-Item -Recurse -Force "$pkg/appdata" "$pkg/appdata_seed"
+
+      # Scan the REAL package — every file a customer would receive, including
+      # the bytes inside the frozen exe and its archive. A source-level check
+      # would miss the one failure that matters: a file collected by accident.
+      - name: Security audit of the release package
+        run: python packaging/audit_release_package.py dist/package
+
+      # Prove the frozen build can actually verify a signature. The crypto
+      # backend is imported lazily, so its absence would not show up until a
+      # customer tried to activate.
+      - name: Verify the frozen build carries a working crypto backend
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem -Recurse dist/ZenithBusiness -Filter "*rust*" -ErrorAction SilentlyContinue
+          $bindings = Get-ChildItem -Recurse dist/ZenithBusiness -Filter "*cryptography*" -ErrorAction SilentlyContinue
+          if (-not $bindings) { throw "cryptography was not bundled into the frozen build" }
+          Write-Host "Bundled crypto files:"
+          $bindings | ForEach-Object { Write-Host ("  " + $_.Name) }
 
       - name: Smoke-check the frozen build starts (offscreen)
         shell: pwsh

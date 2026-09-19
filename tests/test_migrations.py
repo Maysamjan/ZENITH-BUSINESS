@@ -38,8 +38,8 @@ def test_migrate_applies_all_pending() -> None:
     applied = runner.migrate()
     # baseline + 03/04/05 + owner-fix + round2 + stage06 inventory
     # + stage07 purchases parity + stage08 costing + stage09 accounting
-    # + stage09 COGS document references
-    assert applied == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    # + stage09 COGS document references + stage10 audit hash chain
+    assert applied == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
     assert runner.current_version() == runner.latest_version()
     tables = _tables(db)
     for expected in ("users", "roles", "permissions", "sales", "purchases",
