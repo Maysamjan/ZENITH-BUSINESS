@@ -64,11 +64,14 @@ jobs:
 
       # Licensing and backup encryption are the two places where a silent
       # failure is worst, so they are exercised on the platform that ships.
-      - name: Verify licensing and backup encryption (Windows)
+      # The lockout joins them: locking the owner out of their own books is the
+      # one security failure that hurts the customer rather than an attacker,
+      # and half of it is Qt behaviour that only the shipping platform proves.
+      - name: Verify licensing, backup encryption and the lockout (Windows)
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
-          python -m pytest tests/test_stage10_hardening.py tests/test_stage10_licensing.py -q
+          python -m pytest tests/test_stage10_hardening.py tests/test_stage10_licensing.py tests/test_stage10_lockout.py -q
 
       - name: Freeze ZenithBusiness.exe
         run: pyinstaller packaging/zenith_business.spec --noconfirm --clean
