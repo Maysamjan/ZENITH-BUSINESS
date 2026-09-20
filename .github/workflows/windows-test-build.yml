@@ -165,6 +165,26 @@ jobs:
           set -euo pipefail
           TAG="stage${STAGE}-test-build"
           ZIP="ZenithBusiness-Stage${STAGE}-TestBuild-win64.zip"
+
+          # PROVE we can publish BEFORE destroying what the owner is currently
+          # downloading. This step used to delete the existing release first and
+          # swallow the result with `|| true`; when the token later lost release
+          # permission, the delete went through, the create returned HTTP 403,
+          # and the owner was left with no download link at all. A throwaway
+          # draft nobody ever sees is the cheapest way to ask "may I?" — and if
+          # the answer is no, the existing release stays exactly where it is.
+          PROBE="ci-release-permission-probe-${GITHUB_RUN_ID}"
+          if ! gh release create "$PROBE" --draft --notes "permission probe" >/dev/null 2>&1; then
+            echo "::error::This workflow's token cannot create releases, so the"
+            echo "::error::package was NOT published and the previous download"
+            echo "::error::link has been left untouched. The build itself is fine"
+            echo "::error::- the ZIP is attached to this run as an artifact."
+            echo "::error::Fix: repository Settings -> Actions -> General ->"
+            echo "::error::Workflow permissions -> Read and write permissions."
+            exit 1
+          fi
+          gh release delete "$PROBE" --cleanup-tag --yes >/dev/null 2>&1 || true
+
           # Replace any previous copy so the download link is always the latest build.
           gh release delete "$TAG" --cleanup-tag --yes || true
           gh release create "$TAG" "$ZIP" \
