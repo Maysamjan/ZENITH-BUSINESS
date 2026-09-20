@@ -34,6 +34,7 @@ from __future__ import annotations
 import secrets
 from dataclasses import dataclass
 from datetime import timedelta
+from math import ceil
 
 from zenith_business.core.clock import now_iso, now_utc, parse_iso
 from zenith_business.core.logging_setup import get_logger
@@ -72,7 +73,10 @@ class LoginGuardState:
     failed_attempts: int
     attempts_remaining: int
     locked_until: str | None
+    #: Whole minutes left, rounded up — for a coarse "try again in N minutes".
     minutes_remaining: int
+    #: Seconds left, rounded up — what the login screen counts down.
+    seconds_remaining: int
     last_login_at: str | None
 
 
@@ -151,13 +155,17 @@ class SecurityService:
                else (self._users.get_by_id(self._session.user_id)
                      if self._session.user_id is not None else None))
         if row is None:
-            return LoginGuardState(False, 0, MAX_FAILED_ATTEMPTS, None, 0, None)
-        attempts = int(row["failed_login_attempts"] or 0)
+            return LoginGuardState(False, 0, MAX_FAILED_ATTEMPTS, None, 0, 0, None)
+        # Ask about the lock FIRST: an expired one is cleared here, which also
+        # resets the attempt count, and the caller must be told the new count —
+        # not the stale one that was in the row a moment ago.
         locked = self._lock_is_active(row)
-        minutes = 0
+        attempts = int(row["failed_login_attempts"] or 0)
+        minutes = seconds = 0
         if locked:
             until = parse_iso(row.get("locked_until"))
             if until is not None:
+                seconds = max(0, ceil((until - now_utc()).total_seconds()))
                 minutes = max(0, int((until - now_utc()).total_seconds() // 60) + 1)
         return LoginGuardState(
             is_locked=locked,
@@ -165,6 +173,7 @@ class SecurityService:
             attempts_remaining=max(0, MAX_FAILED_ATTEMPTS - attempts),
             locked_until=row.get("locked_until"),
             minutes_remaining=minutes,
+            seconds_remaining=seconds,
             last_login_at=row.get("last_login_at"))
 
     def _lock_is_active(self, row: dict) -> bool:
@@ -172,8 +181,18 @@ class SecurityService:
             return False
         until = parse_iso(row.get("locked_until"))
         if until is not None and now_utc() >= until:
+            # Same rule as the login screen: an expired lock is cleared in full,
+            # attempt count included, so the owner gets a fresh allowance.
             with self._db.transaction():
-                self._users.set_locked(row["id"], False, None)
+                self._users.clear_lockout(row["id"])
+                self._audit.record(
+                    action="auth.lockout_expired", user_id=row["id"],
+                    username=row["username"],
+                    details=f"Lock expired after {LOCKOUT_MINUTES} minutes; "
+                            "attempt count reset.")
+            row["is_locked"] = 0
+            row["locked_until"] = None
+            row["failed_login_attempts"] = 0
             return False
         return True
 
@@ -231,8 +250,9 @@ class SecurityService:
         validate_password(new_password, username=row["username"])
         with self._db.transaction():
             self._users.update_password(row["id"], hash_password(new_password))
-            # Recovery also clears the lockout: the owner has proved themselves.
-            self._users.set_locked(row["id"], False, None)
+            # Recovery also clears the lockout — flags and attempt count alike:
+            # the owner has proved themselves and starts from a clean slate.
+            self._users.clear_lockout(row["id"])
             self._settings.set(RECOVERY_HASH_KEY, None)
             self._settings.set(RECOVERY_ISSUED_KEY, None)
             self._audit.record(action="security.recovery_used", user_id=row["id"],

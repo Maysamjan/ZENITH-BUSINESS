@@ -294,7 +294,9 @@ class AuthWindow(QDialog):
                 AccountInactiveError,
                 AccountLockedError,
             )
-            if isinstance(exc, (AccountLockedError, AccountInactiveError)):
+            if isinstance(exc, AccountLockedError):
+                self._show_lockout(username, exc.user_message)
+            elif isinstance(exc, AccountInactiveError):
                 self._login_page.set_error(exc.user_message)
             else:
                 self._login_page.set_error(self._t.gettext("login.error_invalid"))
@@ -308,6 +310,24 @@ class AuthWindow(QDialog):
         self._config.ui.language = self._t.language
         _logger.info("Authentication gate passed for %r.", user.username)
         self.accept()
+
+    def _show_lockout(self, username: str, fallback: str) -> None:
+        """Tell the owner how long the lock still has to run, to the second.
+
+        The service knows the exact expiry; ``fallback`` is used only if that
+        read is unavailable, so a locked account is never met with silence.
+        """
+        seconds = 0
+        try:
+            security = getattr(self._ctx, "security", None)
+            if security is not None:
+                seconds = int(security.guard_state(username).seconds_remaining or 0)
+        except Exception:  # pragma: no cover - a read failure must not block the screen
+            _logger.warning("Could not read the lockout countdown.", exc_info=True)
+        if seconds > 0:
+            self._login_page.show_lockout(seconds)
+        else:
+            self._login_page.set_error(fallback)
 
     # ---- language / direction -------------------------------------------
 

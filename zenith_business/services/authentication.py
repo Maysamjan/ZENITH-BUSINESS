@@ -95,10 +95,19 @@ class AuthenticationService:
             return
         until = parse_iso(row.get("locked_until"))
         if until is not None and now_utc() >= until:
-            # Lock window elapsed — clear it and let the attempt proceed.
+            # Lock window elapsed — clear it and let the attempt proceed. The
+            # failed-attempt count goes with it: the owner has served the wait,
+            # so they get the full five tries again, not one.
             with self._db.transaction():
-                self._users.set_locked(row["id"], False, None)
+                self._users.clear_lockout(row["id"])
+                self._audit.record(
+                    action="auth.lockout_expired", user_id=row["id"],
+                    username=row["username"],
+                    details=f"Lock expired after {LOCKOUT_MINUTES} minutes; "
+                            "attempt count reset.")
             row["is_locked"] = 0
+            row["locked_until"] = None
+            row["failed_login_attempts"] = 0
             return
         self._audit_failure(row["id"], row["username"], "locked")
         raise AccountLockedError(f"Account {row['username']!r} is locked.")

@@ -417,6 +417,20 @@ _CATALOG: dict[str, dict[str, str]] = {
         LANG_ENGLISH: "Please enter your username and password.",
         LANG_DARI: "لطفاً نام کاربری و رمز عبور را وارد کنید.",
     },
+    # Lockout: the countdown is the whole point — "locked" with no end time is
+    # what makes an owner think the program has broken.
+    "login.error_locked_countdown": {
+        LANG_ENGLISH: "Account locked. Try again in {m}m {s}s.",
+        LANG_DARI: "حساب قفل شده است. پس از {m} دقیقه و {s} ثانیه دوباره تلاش کنید.",
+    },
+    "login.error_locked": {
+        LANG_ENGLISH: "This account is locked. Please try again later.",
+        LANG_DARI: "این حساب قفل شده است. لطفاً بعداً دوباره تلاش کنید.",
+    },
+    "login.lock_over": {
+        LANG_ENGLISH: "The lock has ended. You can sign in again.",
+        LANG_DARI: "قفل حساب پایان یافت. اکنون می‌توانید دوباره وارد شوید.",
+    },
     "login.footer": {
         LANG_ENGLISH: "Zenith Soft · Secure offline access",
         LANG_DARI: "زینت سافت · دسترسی امن آفلاین",

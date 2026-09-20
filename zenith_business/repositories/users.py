@@ -108,6 +108,23 @@ class UserRepository(BaseRepository):
             (1 if locked else 0, locked_until, now_iso(), user_id),
         )
 
+    def clear_lockout(self, user_id: int) -> None:
+        """Lift a lockout AND give the account a fresh allowance of attempts.
+
+        :meth:`set_locked` only moves the lock flags, which left
+        ``failed_login_attempts`` sitting at the threshold: the next single
+        wrong password re-locked the account immediately instead of granting
+        the five tries the owner expects. Clearing a lockout means clearing the
+        count that caused it, so the two are done together, here.
+        """
+        ts = now_iso()
+        self._exec(
+            "UPDATE users SET is_locked = 0, locked_until = NULL,"
+            " failed_login_attempts = 0, last_failed_login_at = NULL,"
+            " updated_at = ? WHERE id = ?",
+            (ts, user_id),
+        )
+
     def update_password(self, user_id: int, password_hash: str) -> None:
         ts = now_iso()
         self._exec(

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QLineEdit, QVBoxLayout, QWidget
 
 from zenith_business.core.i18n import Translator
@@ -81,6 +82,13 @@ class LoginPage(QWidget):
         self.username.returnPressed.connect(self._submit)
         self.password.edit.returnPressed.connect(self._submit)
 
+        # Lockout countdown. Seconds remaining, ticked once a second so the
+        # owner watches the wait shrink instead of guessing at it.
+        self._lock_seconds = 0
+        self._lock_timer = QTimer(self)
+        self._lock_timer.setInterval(1000)
+        self._lock_timer.timeout.connect(self._tick_lockout)
+
     # ---- behavior --------------------------------------------------------
 
     def _submit(self) -> None:
@@ -88,6 +96,9 @@ class LoginPage(QWidget):
         self._on_submit(self.username.text().strip(), self.password.text())
 
     def set_error(self, message: str) -> None:
+        # Any other outcome replaces the countdown — it is no longer the truth.
+        self.stop_lockout()
+        self._set_message_role("error")
         self._error.setText(message)
         self._error.setVisible(True)
         self.username.setProperty("state", "error")
@@ -96,11 +107,74 @@ class LoginPage(QWidget):
         self._repolish(self.password.edit)
 
     def clear_error(self) -> None:
-        self._error.setVisible(False)
         self.username.setProperty("state", "")
         self.password.edit.setProperty("state", "")
         self._repolish(self.username)
         self._repolish(self.password.edit)
+        if self._lock_seconds > 0:
+            # A running countdown outlives an ordinary error clear: the wait is
+            # still real, and hiding it because the owner pressed Sign In again
+            # would be the confusing half-second of nothing we set out to fix.
+            self._render_lockout()
+            return
+        self._error.setVisible(False)
+
+    # ---- lockout countdown ------------------------------------------------
+
+    def show_lockout(self, seconds_remaining: int) -> None:
+        """Display 'Try again in 12m 34s.' and count it down to zero."""
+        self._lock_seconds = max(0, int(seconds_remaining or 0))
+        if self._lock_seconds <= 0:
+            self.stop_lockout()
+            self.set_error(self._t.gettext("login.error_locked"))
+            return
+        self._render_lockout()
+        self._lock_timer.start()
+
+    def stop_lockout(self) -> None:
+        self._lock_seconds = 0
+        self._lock_timer.stop()
+
+    @property
+    def lockout_seconds(self) -> int:
+        """Seconds still on the countdown (0 when no lock is being shown)."""
+        return self._lock_seconds
+
+    def lockout_text(self) -> str:
+        """The message currently being counted down, in the active language."""
+        minutes, seconds = divmod(self._lock_seconds, 60)
+        return self._t.gettext("login.error_locked_countdown").format(
+            m=minutes, s=f"{seconds:02d}")
+
+    def _render_lockout(self) -> None:
+        self._set_message_role("error")
+        self._error.setText(self.lockout_text())
+        self._error.setVisible(True)
+        self.username.setProperty("state", "error")
+        self.password.edit.setProperty("state", "error")
+        self._repolish(self.username)
+        self._repolish(self.password.edit)
+
+    def _tick_lockout(self) -> None:
+        self._lock_seconds -= 1
+        if self._lock_seconds <= 0:
+            self.stop_lockout()
+            # Say so rather than going blank — the owner is watching this line.
+            # In the neutral colour: the wait ending is good news, not an error.
+            self._set_message_role("secondary")
+            self._error.setText(self._t.gettext("login.lock_over"))
+            self._error.setVisible(True)
+            self.username.setProperty("state", "")
+            self.password.edit.setProperty("state", "")
+            self._repolish(self.username)
+            self._repolish(self.password.edit)
+            return
+        self._render_lockout()
+
+    def _set_message_role(self, role: str) -> None:
+        if self._error.property("role") != role:
+            self._error.setProperty("role", role)
+            self._repolish(self._error)
 
     def set_busy(self, busy: bool) -> None:
         self.submit.setEnabled(not busy)
@@ -124,3 +198,6 @@ class LoginPage(QWidget):
         self.username.setPlaceholderText(translator.gettext("login.username_ph"))
         self.password.retranslate(translator)
         self.submit.setText(translator.gettext("login.signin"))
+        if self._lock_seconds > 0:
+            # Switching language mid-lock must not leave English on a Dari page.
+            self._render_lockout()
