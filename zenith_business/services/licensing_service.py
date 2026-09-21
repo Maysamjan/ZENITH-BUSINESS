@@ -33,7 +33,7 @@ from __future__ import annotations
 import os
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 from zenith_business.core.identity import APP_VERSION
@@ -41,13 +41,13 @@ from zenith_business.core.logging_setup import get_logger
 from zenith_business.security import machine_id as machine
 from zenith_business.security import vendor_key
 from zenith_business.security.signatures import backend_available, verify
+from zenith_business.security.trusted_clock import TrustedClock
 from zenith_business.security.license_format import (
     LICENSE_SUFFIX,
     PRODUCT_ID,
     REQUEST_SUFFIX,
     TYPE_DEMO,
     TYPE_FULL,
-    LicenseFile,
     LicenseFormatError,
     build_request,
     parse_license,
@@ -58,7 +58,10 @@ _logger = get_logger("services.licensing")
 #: Canonical licence file name inside the licence directory.
 LICENSE_FILENAME = f"license{LICENSE_SUFFIX}"
 
-#: Settings key holding the day demo mode began on this installation.
+#: Settings key that USED to hold the day an unlicensed installation started its
+#: demo. A demo is now a signed licence with its own expiry, so nothing reads
+#: this any more; the name is kept so an existing row is recognisable rather
+#: than mysterious, and so the audited-settings list keeps working.
 DEMO_START_KEY = "license.demo_started_at"
 
 
@@ -69,6 +72,9 @@ class LicenseStatus(str):
     DEMO = "DEMO"
     DEMO_EXPIRED = "DEMO_EXPIRED"
     INVALID = "INVALID"
+    #: No licence file at all. Distinct from INVALID because the customer has
+    #: done nothing wrong — they simply have not activated yet.
+    UNLICENSED = "UNLICENSED"
     NO_VENDOR_KEY = "NO_VENDOR_KEY"
 
 
@@ -77,6 +83,7 @@ class LicenseReason(str):
 
     OK = "ok"
     NO_LICENSE_FILE = "no_license_file"
+    CLOCK_ROLLBACK = "clock_rollback"
     MALFORMED = "malformed"
     BAD_SIGNATURE = "bad_signature"
     WRONG_PRODUCT = "wrong_product"
@@ -96,6 +103,10 @@ class DemoPolicy:
     trims history or rewrites the database. An expired demo shows an activation
     requirement and keeps backup and licence import available, so the customer
     can always take their data with them.
+
+    ``days`` is no longer what *decides* a demo — a DEMO licence carries its own
+    signed expiry, so the length is the vendor's to set per customer. It remains
+    here as the suggested default for the vendor tool and for wording.
     """
 
     days: int = 30
@@ -125,6 +136,8 @@ class LicenseEvaluation:
     demo_expires_on: str | None = None
     demo_days_left: int | None = None
     detail: str = ""
+    #: True when the system clock was found behind a time already seen.
+    clock_rolled_back: bool = False
 
     @property
     def is_full(self) -> bool:
@@ -135,13 +148,20 @@ class LicenseEvaluation:
         return self.status == LicenseStatus.DEMO
 
     @property
-    def allows_workspace(self) -> bool:
-        """Whether the business screens may be opened at all.
+    def allows_login(self) -> bool:
+        """Whether the application may go past the activation screen at all.
 
-        An invalid or expired licence still leaves backup and activation
-        reachable — see the module docstring.
+        This is the pre-login gate's single question. Everything that is not a
+        live FULL or DEMO licence lands on the activation screen — including a
+        fresh install that has never been activated, which is not an error and
+        is worded as such.
         """
         return self.status in (LicenseStatus.FULL, LicenseStatus.DEMO)
+
+    @property
+    def allows_workspace(self) -> bool:
+        """Whether the business screens may be opened. Same question as login."""
+        return self.allows_login
 
 
 class LicenseError(Exception):
@@ -167,6 +187,18 @@ class LicenseService:
         self._policy = demo_policy
         self._machine_overrides = machine_overrides
         self._machine: machine.MachineIdentity | None = None
+        self._clock: TrustedClock | None = None
+
+    # ---- time ------------------------------------------------------------
+
+    @property
+    def clock(self) -> TrustedClock:
+        """The clock every expiry is judged against — never ``datetime.now``."""
+        if self._clock is None:
+            self._clock = TrustedClock(
+                license_dir=self._dir, settings_repo=self._settings, db=self._db,
+                machine_fingerprint=self.machine.fingerprint)
+        return self._clock
 
     # ---- machine ---------------------------------------------------------
 
@@ -215,7 +247,13 @@ class LicenseService:
 
         path = self.license_path
         if not path.is_file():
-            return self._demo_evaluation(LicenseReason.NO_LICENSE_FILE, base)
+            # NOT demo. A demo is something the vendor issues and signs, like any
+            # other licence; the absence of a file is simply an installation that
+            # has not been activated, and it stops at the activation screen.
+            return LicenseEvaluation(
+                status=LicenseStatus.UNLICENSED,
+                reason=LicenseReason.NO_LICENSE_FILE,
+                detail="This installation has not been activated yet.", **base)
 
         try:
             text = path.read_text(encoding="utf-8")
@@ -255,73 +293,85 @@ class LicenseService:
                 license_id=lic.license_id, license_type=lic.license_type,
                 detail="This license was issued for a different computer.", **base)
 
-        if lic.expires_at and self._past(lic.expires_at):
+        # From here the licence is genuine, so its issue date is a value the
+        # vendor signed: it becomes the floor below which no clock is believed.
+        clock = self.clock
+        clock.set_floor(lic.issued_at)
+        reading = clock.read()
+        clock.observe(reading.system_now)
+        common = dict(
+            license_id=lic.license_id, license_type=lic.license_type,
+            issued_at=lic.issued_at, issued_to=lic.issued_to,
+            expires_at=lic.expires_at, clock_rolled_back=reading.rolled_back, **base)
+
+        expired = bool(lic.expires_at) and self._past(lic.expires_at, reading.now)
+        if expired:
+            if lic.license_type == TYPE_DEMO:
+                # A finished demo is its own state: the customer is not at fault
+                # and the screen says "activate", not "invalid".
+                return LicenseEvaluation(
+                    status=LicenseStatus.DEMO_EXPIRED,
+                    reason=LicenseReason.DEMO_PERIOD_OVER,
+                    demo_expires_on=lic.expires_at, demo_days_left=0,
+                    detail="The demo period has ended. Activate to continue.",
+                    **common)
             return LicenseEvaluation(
                 status=LicenseStatus.INVALID, reason=LicenseReason.EXPIRED,
-                license_id=lic.license_id, license_type=lic.license_type,
-                issued_at=lic.issued_at, issued_to=lic.issued_to,
-                expires_at=lic.expires_at,
-                detail="This license has expired.", **base)
+                detail="This license has expired.", **common)
 
         if lic.license_type == TYPE_DEMO:
-            return self._demo_evaluation(LicenseReason.OK, base, lic=lic)
+            left = self._days_left(lic.expires_at, reading.now)
+            return LicenseEvaluation(
+                status=LicenseStatus.DEMO, reason=LicenseReason.OK,
+                demo_expires_on=lic.expires_at, demo_days_left=left,
+                detail=(f"Demo — {left} day(s) remaining." if left is not None
+                        else "Demo license."),
+                **common)
 
-        return LicenseEvaluation(
-            status=LicenseStatus.FULL, reason=LicenseReason.OK,
-            license_id=lic.license_id, license_type=TYPE_FULL,
-            issued_at=lic.issued_at, issued_to=lic.issued_to,
-            expires_at=lic.expires_at, **base)
+        return LicenseEvaluation(status=LicenseStatus.FULL,
+                                 reason=LicenseReason.OK, **common)
 
-    # ---- demo ------------------------------------------------------------
-
-    def _demo_started_on(self) -> date:
-        """The day this installation first ran without a full licence."""
-        today = date.today()
-        if self._settings is None:
-            return today
-        stored = self._settings.get(DEMO_START_KEY)
-        if stored:
-            try:
-                return date.fromisoformat(stored[:10])
-            except ValueError:
-                pass
-        # First sighting: remember it, so the demo period cannot be reset by
-        # restarting the application.
-        try:
-            if self._db is not None:
-                with self._db.transaction():
-                    self._settings.set(DEMO_START_KEY, today.isoformat())
-            else:
-                self._settings.set(DEMO_START_KEY, today.isoformat())
-        except Exception:                       # never block startup over this
-            _logger.warning("Could not record the demo start date.")
-        return today
-
-    def _demo_evaluation(self, reason: str, base: dict,
-                         lic: LicenseFile | None = None) -> LicenseEvaluation:
-        started = self._demo_started_on()
-        expires = self._policy.expiry_date(started)
-        days_left = (expires - date.today()).days
-        expired = days_left < 0
-        return LicenseEvaluation(
-            status=LicenseStatus.DEMO_EXPIRED if expired else LicenseStatus.DEMO,
-            reason=LicenseReason.DEMO_PERIOD_OVER if expired else reason,
-            license_id=lic.license_id if lic else "",
-            license_type=TYPE_DEMO,
-            issued_at=lic.issued_at if lic else "",
-            issued_to=lic.issued_to if lic else "",
-            demo_expires_on=expires.isoformat(),
-            demo_days_left=max(days_left, 0),
-            detail=("The demo period has ended. Activate to continue."
-                    if expired else f"Demo — {max(days_left, 0)} day(s) remaining."),
-            **base)
+    # ---- time ------------------------------------------------------------
 
     @staticmethod
-    def _past(iso_date: str) -> bool:
+    def _expiry_moment(value: str) -> datetime | None:
+        """Read an expiry that may be a date or a full timestamp.
+
+        A bare date means the **end** of that day: a licence that says it expires
+        on the 30th is good all through the 30th, which is what a customer reads
+        it to mean.
+        """
+        raw = (value or "").strip()
+        if not raw:
+            return None
+        # A bare date is handled FIRST. ``datetime.fromisoformat`` happily parses
+        # "2026-09-20" as midnight, which would expire the licence at the START
+        # of its last day — the opposite of what the date says.
+        if len(raw) == 10 and "T" not in raw and " " not in raw:
+            try:
+                day = date.fromisoformat(raw)
+            except ValueError:
+                return None
+            return datetime.combine(day, time(23, 59, 59), tzinfo=timezone.utc)
         try:
-            return date.fromisoformat(iso_date[:10]) < date.today()
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+    @classmethod
+    def _past(cls, value: str, now: datetime) -> bool:
+        moment = cls._expiry_moment(value)
+        if moment is None:
             return True        # an unreadable expiry is treated as expired
+        return now > moment
+
+    @classmethod
+    def _days_left(cls, value: str | None, now: datetime) -> int | None:
+        moment = cls._expiry_moment(value or "")
+        if moment is None:
+            return None
+        return max(0, int((moment - now).total_seconds() // 86400))
 
     # ---- convenience reads (each one re-evaluates) -----------------------
 
@@ -348,19 +398,59 @@ class LicenseService:
         if e.status == LicenseStatus.FULL:
             return f"Licensed · {e.license_id}" if e.license_id else "Licensed"
         if e.status == LicenseStatus.DEMO:
-            return f"{self._policy.label} · {e.demo_days_left} day(s) left"
+            left = e.demo_days_left
+            return (f"{self._policy.label} · {left} day(s) left" if left is not None
+                    else self._policy.label)
         if e.status == LicenseStatus.DEMO_EXPIRED:
             return "Demo expired — activation required"
+        if e.status == LicenseStatus.UNLICENSED:
+            return "Not activated — activation required"
         if e.status == LicenseStatus.NO_VENDOR_KEY:
             return "Unlicensed build"
         return "License invalid — activation required"
 
     # ---- activation ------------------------------------------------------
 
+    def business_name(self) -> str:
+        """The customer's OWN business name, or an empty string.
+
+        Resolved in one place so the activation screen and the License page can
+        never disagree. There is deliberately **no** fallback: printing falls
+        back to the product name when a report has no letterhead, which is
+        reasonable on paper and wrong here — an activation request that says
+        "Zenith Business", or carries a name from the sample data, tells the
+        vendor something untrue about who is asking. Unset stays unset.
+        """
+        for reader in (self._company_row_name, self._company_setting_name):
+            try:
+                value = (reader() or "").strip()
+            except Exception:
+                value = ""
+            if value:
+                return value
+        return ""
+
+    def _company_row_name(self) -> str:
+        if self._db is None:
+            return ""
+        row = self._db.connection().execute(
+            "SELECT display_name, legal_name FROM companies ORDER BY id LIMIT 1"
+        ).fetchone()
+        if row is None:
+            return ""
+        return str(row["display_name"] or row["legal_name"] or "")
+
+    def _company_setting_name(self) -> str:
+        if self._settings is None:
+            return ""
+        return str(self._settings.get("company.name") or "")
+
     def create_activation_request(self, target: Path | str, *,
                                   business_name: str | None = None) -> Path:
         """Write a ``.zreq`` for the vendor. Contains no secrets and no business data."""
         me = self.machine
+        if business_name is None:
+            business_name = self.business_name()
         path = Path(target)
         # A directory — existing or not — means "put the request in here under its
         # own name". Without the suffix test, a caller passing a folder that does
@@ -425,6 +515,11 @@ class LicenseService:
                 public_key=self._explicit_key, demo_policy=self._policy,
                 machine_overrides=self._machine_overrides)
             probe._machine = self._machine
+            # The candidate is judged against the REAL clock, not a fresh one in
+            # the temporary folder. Otherwise an expired licence could be walked
+            # in past a rolled-back system clock simply because the probe could
+            # not see the high-water mark.
+            probe._clock = self.clock
             (Path(tmp) / LICENSE_FILENAME).write_text(text, encoding="utf-8")
             return probe.evaluate()
 

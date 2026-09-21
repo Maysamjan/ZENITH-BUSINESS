@@ -163,6 +163,20 @@ def ghost_button(text: str) -> QPushButton:
     return btn
 
 
+def link_button(text: str) -> QPushButton:
+    """A quiet, text-only action — for a secondary route like "Forgot password".
+
+    Flat and borderless so it never competes with the primary button beside it,
+    but a real button rather than a clickable label, so it keeps keyboard focus
+    and accessibility for free.
+    """
+    btn = QPushButton(escape_amp(text))
+    btn.setProperty("variant", "link")
+    btn.setFlat(True)
+    btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    return btn
+
+
 def horizontal_divider() -> QFrame:
     line = QFrame()
     line.setProperty("role", "divider")
@@ -438,3 +452,28 @@ class RowActions(QWidget):
         action = self._menu.addAction(label)
         action.triggered.connect(lambda _c=False, h=handler: h())
         return action
+
+
+def license_summary(translator, state) -> str:
+    """One line describing licence state, in the active language.
+
+    The single source of truth is the evaluated ``status`` — this does not
+    re-derive anything, it only chooses the sentence. Translating the service's
+    English output would have been the other option and a worse one: it would
+    make the wording load-bearing, so a reworded status string would silently
+    stop matching.
+    """
+    status = getattr(state, "status", "")
+    if status == "FULL":
+        key = "lic.sum_full_id" if state.license_id else "lic.sum_full"
+        return translator.gettext(key).replace("{id}", state.license_id or "")
+    if status == "DEMO":
+        left = state.demo_days_left
+        if left is None:
+            return translator.gettext("lic.sum_demo_plain")
+        return translator.gettext("lic.sum_demo").replace("{n}", str(left))
+    return translator.gettext({
+        "DEMO_EXPIRED": "lic.sum_demo_expired",
+        "UNLICENSED": "lic.sum_unlicensed",
+        "NO_VENDOR_KEY": "lic.sum_no_vendor_key",
+    }.get(status, "lic.sum_invalid"))

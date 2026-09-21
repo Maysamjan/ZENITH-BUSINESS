@@ -3629,6 +3629,118 @@ clock forward. On a single-PC install where the owner is also the administrator
 there is no external time source to check against, so this is recorded rather
 than claimed away.
 
+### 14E.9 Final real-Windows fixes (owner-requested, 2026-09-21)
+
+Ten issues found by the owner testing the actual packaged build. The largest was
+architectural, and it is worth stating plainly: **the licence gate was in the
+wrong place.**
+
+#### The gate moved in front of login
+
+Stage 10 shipped licensing as a screen under Tools. An unlicensed installation
+reached the login form, signed in and used the whole workspace, and licensing
+was something you went and looked at afterwards. A licence checked after the
+door is open is not a gate.
+
+Activation is now a **page in the same window as login**, in front of it
+(`ui/auth/activation_page.py`). It is not a dialog that could be dismissed and
+not a separate window that could be skipped: `AuthWindow._show_initial_page`
+asks `licensing.evaluate()` first and there is no route from activation to the
+login form except a licence that comes back FULL or DEMO. `_handle_login` asks
+again on the way through, because a licence can be deleted or expire while the
+screen sits open.
+
+The gate is rebuilt on every pass of the main loop, so the licence is
+re-verified at every startup *and* every time the workspace is left.
+
+#### A missing licence is no longer a free demo
+
+`NO_LICENSE_FILE` used to evaluate to DEMO with a 30-day clock kept in a
+settings row, which made the gate pointless — deleting the licence granted
+access. There is a new **`UNLICENSED`** status: not an error, not an
+entitlement, and not a way past the screen. A demo is something the vendor
+issues and signs, exactly like a full licence, machine-bound the same way, with
+its own expiry in the payload.
+
+The wording is per-reason rather than a single "invalid": not activated yet,
+issued for a different computer, altered, expired, wrong product, no vendor key.
+Telling a customer the wrong one of those costs a support call.
+
+#### A clock a demo cannot be cheated out of
+
+`security/trusted_clock.py` keeps the latest moment the installation has ever
+seen and never believes an earlier one: `trusted_now = max(system, high-water)`.
+Moving Windows **forward** advances the mark and cannot be undone; moving it
+**back** changes nothing. The mark lives in three places, the highest winning,
+so deleting any one resets nothing: a DPAPI-sealed file beside the licence
+(HMAC-keyed elsewhere), a mirror row in the database, and the licence's own
+**signed `issued_at`** as a floor.
+
+A demo that runs out while the program is open no longer waits for a restart —
+`MainWindow` re-evaluates every 60 seconds and hands control back to the
+activation screen.
+
+**Honest limit:** this raises the cost of a rollback, it does not prevent one. A
+local Administrator can delete both stores, and where DPAPI is unavailable the
+fallback key is derived from the same machine. What survives all of that is the
+signed floor. Anti-rollback on an offline PC whose owner is Administrator is a
+cost problem, never a proof.
+
+#### The Persian-keyboard backup inconsistency, explained
+
+The owner found that **Check Backup** accepted the physical keys of the English
+password under a Persian layout while **Restore** did not. Probing the real
+paths on a real database found the cause, and it was not a keyboard conversion
+anywhere in the code — there is none, and the characters Qt reports are the
+characters scrypt sees, proven both ways including for Persian text.
+
+The defect was that **creating** a backup never checked the typed text against
+the account, although the helper's own docstring claimed it did. With a Persian
+layout active the backup got locked with a string the owner never chose. Check
+then passed (it *was* the passphrase) and Restore failed (it also
+re-authenticates against the real account password). Same keys, two answers.
+
+Creating a backup now verifies the password against the account first and
+refuses otherwise: a backup nobody can open is worse than no backup, because it
+looks like protection.
+
+#### The rest
+
+* **The pre-restore safety copy** was a plain readable `.db` of the live books.
+  It is now a `.zbak` locked with the owner password the restore screen has just
+  verified, and rollback decrypts it from the passphrase held in memory rather
+  than asking again at the worst possible moment.
+* **`bad_passphrase` reached the screen.** One GCM failure has three possible
+  causes and the customer cannot be told which, so the message now names all
+  three, in EN and Dari.
+* **Backups state which password they need** — the one active when the backup
+  was made.
+* **"Expires: Never" with no licence** became "—". Never is a promise about a
+  licence that exists.
+* **One source of truth, translated.** Every screen reads the same evaluated
+  status; `components.license_summary` chooses the *sentence* from the
+  catalogue, so a Dari workspace no longer reports its licence in English.
+* **Activation requests** take the customer's own business name from the
+  companies row or the setting, and nothing at all when neither is set — never a
+  sample name and never the product's.
+* **Recovery exists in the UI.** The service was built in Stage 10 behind no
+  button. There is now "Forgot your password?" on the login screen and a
+  Recovery Code card in My Account that issues one after re-authentication,
+  shown once and never again.
+
+#### Verification
+
++53 tests; **907 pass**, schema v13 (no migration — none of this changes the
+database shape). The full vendor round trip was re-run end to end against the
+new gate: UNLICENSED → `.zreq` → vendor tool signs a DEMO → 30 days remaining →
+FULL import → *Licensed*, in English and Dari.
+
+**Not yet verifiable on the real Windows build:** acceptance items B, C, D and
+E–H all sit behind the gate, and the build embeds no vendor key. Item A (fresh
+install stops at activation; login unreachable) is testable today. The owner
+holds the signing key by their own choice of custody and will supply the public
+half.
+
 ### 14E.6 Known limitations (carried into review)
 
 * **No vendor key is embedded yet.** The build reports *Unlicensed build* and
@@ -3663,6 +3775,7 @@ than claimed away.
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-09-21 | 6.4 | **Stage 10 — final real-Windows fixes (still NOT locked, NOT merged).** Ten issues from the owner testing the packaged build, one of them architectural: **the licence gate was in the wrong place.** Licensing was a screen under Tools, so an unlicensed installation reached login and the whole workspace and looked at its licence afterwards — a gate behind an open door. Activation is now a page in the same window as login, in front of it, with no route to the login form except a licence that evaluates FULL or DEMO, re-asked on the way through because a licence can lapse while the screen sits open. **A missing licence is no longer a free demo:** `NO_LICENSE_FILE` used to grant 30 days from a settings row, so deleting the licence granted access; there is now an `UNLICENSED` status, and a demo is a vendor-signed, machine-bound licence with its own expiry like any other. **A clock a demo cannot be cheated out of:** the installation remembers the latest moment it has ever seen and never believes an earlier one, kept in a DPAPI-sealed file, a database mirror and the licence's own signed `issued_at` as a floor, highest of the three winning — and an expiry that falls while the program is open returns it to activation within a minute instead of waiting for a restart. **The Persian-keyboard inconsistency was real and was not a keyboard conversion:** creating a backup never verified the typed text against the account despite its docstring claiming so, so a backup made under a Persian layout was locked with a string the owner never chose — which Check accepted (it *was* the passphrase) and Restore refused (it also re-authenticates). Creating a backup now verifies first and refuses otherwise. Also: the pre-restore safety copy is no longer a plain readable `.db` of the live books; `bad_passphrase` no longer reaches the screen, replaced by a message naming all three causes in EN and Dari; "Expires: Never" with no licence became "—"; every screen reads one evaluated status and now words it from the catalogue, so Dari stops reporting its licence in English; activation requests carry the customer's real business name or none at all; and recovery, built in Stage 10 behind no button, is now on the login screen and in My Account. **Honest limit recorded:** anti-rollback raises the cost of a clock change, it does not prevent one — a local Administrator can delete both stores, and only the signed floor survives that. +53 tests; **907 pass**, schema v13 (no migration). Acceptance items B–H sit behind the gate and need the owner's vendor key before they can be run on the real build. See §14E.9. |
 | 2026-09-20 | 6.3 | **Stage 10 — lockout polish (still NOT locked, NOT merged).** The owner asked what the lockout actually does before asking for anything to change, and reading it out on a real on-disk database found a defect the code review had missed: **waiting out the fifteen minutes did not give the five attempts back.** Clearing a lock moved `is_locked` and `locked_until` but left `failed_login_attempts` at the threshold, so the next single wrong password re-locked the account for another full quarter of an hour — the owner served the wait and got one try, not five, and each further typo cost another fifteen minutes, which is indistinguishable from an account that has stopped working. Every path that lifts a lock (expiry at the login screen, expiry during sensitive-action re-authentication, and a recovery code) now goes through one `UserRepository.clear_lockout` that clears the flags **and** the count, and writes an `auth.lockout_expired` audit entry so a lock disappearing is recorded rather than silent. The login screen now counts the wait down to the second — *"Account locked. Try again in 12m 34s."* — in EN and Dari, re-rendered on a mid-lock language switch, surviving a repeated Sign In press, and ending in the neutral colour with "the lock has ended" instead of going blank. Everything else is deliberately unchanged and pinned by tests: fifth wrong password, fifteen minutes, attempts during the lock do not extend it, the correct password is still refused while it runs, it survives app and PC restart, a successful login or recovery clears it, and an unknown username locks nothing. **Expiry is judged against the PC's own clock** — someone at the machine can end a lock early by moving the Windows clock forward, recorded as a limitation rather than claimed away. +30 tests; **853 pass**, schema v13 (no migration). See §14E.8. |
 | 2026-09-19 | 6.2 | **Stage 10 — security hardening pass (still NOT locked, NOT merged).** Seven owner-requested items. **Licence state** had two liars: the login screen printed the development-build text *unconditionally*, so an activated install said it was unlicensed at every sign-in, and the boot log reported Stage 01's dev provider; all four readers now call one source. **Backups** were plain SQLite — readable by anyone holding the USB stick and restorable after an edit — and are now AES-256-GCM `.zbak` containers with a scrypt-derived key, an authenticated-but-readable header so backups can still be listed without the passphrase, and **legacy plain backups still restore**. **The home-grown Ed25519 is deleted**: verification delegates to `cryptography` and fails closed, while the vendor tool keeps a stdlib implementation for offline use, proven byte-identical to the reference. **Migration 0013** adds an audit hash chain that locates any edited, deleted or back-inserted entry — and a **gap in it was found and closed during the pass**: verification skipped unsealed rows, so a forgery inserted between sealed entries chained around it and passed. **A package auditor** scans the assembled Windows build — including inside the frozen exe — for private keys, signing tools, generators, bypasses, backdoors and default passwords, and fails the build on any hit. Machine traits confirmed to expose no raw hardware identifier. **The auditor's own first run failed the build** on three false positives — a vendored crypto library naming its own signing classes and Qt's PEM parser holding a header literal — which is exactly why it scans the real package; it now separates key material (fails, and matches the path as well as the content) from vendored capability (reported), with eleven trials pinning both halves. Its **second** run then failed on the opposite problem — it could not find our own public-key module, because PyInstaller zlib-compresses the Python archive, so a byte scan can prove what is ABSENT from a package but never that the licence path is present and working. That half is now proved by asking the binary: `ZenithBusiness.exe --selftest` reports its crypto backend, licence state and audit-chain status, and CI fails the build unless the frozen exe reports a working state. Its **third** run failed too: the shipped exe is built windowed, where `sys.stdout` is `None` and `print` raises, so the report went nowhere and a passing self-test looked like a failure; it now writes to a file, which is the only thing CI can read from a windowed binary. +25 tests; **823 pass**, schema v13. See §14E.7. |
 | 2026-09-18 | 6.1 | **Stage 10 — Single-PC Security, Backup & Customer-Side Licensing implemented (READY FOR OWNER REVIEW; NOT locked, NOT merged).** Scoped against the code first: a probe found **35 required capabilities already present** and 22 missing, so Stage 10 **extends** Stage 02's hashing, lockout, audit and backup rather than rebuilding them, and **no locked stage was modified**. **Licensing** is Ed25519 from RFC 8032 in pure stdlib — a native crypto dependency was rejected because the project ships PyQt6 and nothing else and a licence check is the wrong place to add a bundled binary wheel. The application **can verify and cannot sign**: no private key in application code, no shipped module that accepts one, enforced by a repository-wide scan test. **The verifier was cross-checked against a reference and that immediately paid — the first implementation rejected EVERY genuine signature** (a dropped `(u·v⁷)` factor), and every negative test still passed, because a verifier that rejects everything rejects forgeries too. **Machine binding** scores five weighted traits: weak traits total 3 so the threshold of 5 is unreachable without a strong one, which is what stops a look-alike PC while still surviving a disk swap, a NIC change, a rename or an OS reinstall. **Restore** now takes a safety backup, swaps atomically with `os.replace`, verifies the restored file and rolls back if it fails — proven by simulating a disk-full failure mid-swap, after which the live database is still present, healthy and complete. **Demo** restricts access and never data; it is enforced at the shell because gating individual postings would require touching locked services or the frozen `AuthorizationService.require` contract. Adds re-authentication behind every sensitive action (rate-limited like the login screen), a single-use recovery code for the only owner account, audited settings, an audit viewer, and a live-database integrity check alongside — not inside — Stage 01's locked `check_health`. Three screens in EN/Dari with RTL. **One defect found by reading the rendered screen:** an activated install still showed *"Development build (unlicensed)"* in the status bar. Full vendor round trip verified end to end, with the tool's pure-Python signatures byte-identical to the reference. +101 tests; **798 pass**. See §14E. |

@@ -17,6 +17,7 @@ from zenith_business.ui.auth.widgets import PasswordField
 from zenith_business.ui.components import (
     error_label,
     field_label,
+    link_button,
     page_title,
     page_subtitle,
     primary_button,
@@ -30,10 +31,12 @@ class LoginPage(QWidget):
         translator: Translator,
         on_submit: Callable[[str, str], None],
         parent: QWidget | None = None,
+        on_forgot: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self._t = translator
         self._on_submit = on_submit
+        self._on_forgot = on_forgot
         # Scope the transparent background to THIS widget only (a bare
         # "background: transparent" would cascade onto the primary button and
         # strip its fill). The card behind provides the surface.
@@ -76,6 +79,16 @@ class LoginPage(QWidget):
         self.submit.setMinimumHeight(36)
         self.submit.clicked.connect(self._submit)
         col.addWidget(self.submit)
+
+        # The way back in when the password is gone. On a single-owner
+        # installation there is nobody to ask, so this cannot live only in a
+        # screen you have to be signed in to reach.
+        self.forgot = link_button(self._t.gettext("login.forgot"))
+        if self._on_forgot is not None:
+            self.forgot.clicked.connect(lambda: self._on_forgot())
+        else:
+            self.forgot.setVisible(False)
+        col.addWidget(self.forgot)
         col.addStretch(1)  # pack fields to the top; absorb extra card height
 
         # Enter submits from either field.
@@ -198,6 +211,7 @@ class LoginPage(QWidget):
         self.username.setPlaceholderText(translator.gettext("login.username_ph"))
         self.password.retranslate(translator)
         self.submit.setText(translator.gettext("login.signin"))
+        self.forgot.setText(translator.gettext("login.forgot"))
         if self._lock_seconds > 0:
             # Switching language mid-lock must not leave English on a Dari page.
             self._render_lockout()

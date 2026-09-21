@@ -306,7 +306,24 @@ def _activate(shop, license_id="ZB-FULL-000001"):
     return shop.licensing.import_license(path)
 
 
+def _activate_demo(shop, days=14):
+    """A genuine signed DEMO licence — a demo is issued, never assumed."""
+    from datetime import date, timedelta
+
+    me = shop.licensing.machine
+    path = shop.license_dir / "demo.zlic"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(make_license(
+        shop.signing_key, machine_fingerprint=me.fingerprint,
+        machine_traits=me.traits, license_id="ZB-DEMO-000001",
+        license_type="DEMO",
+        expires_at=(date.today() + timedelta(days=days)).isoformat()))
+    return shop.licensing.import_license(path)
+
+
 def test_a_full_licence_removes_every_demo_indicator(shop):
+    # Start from a real demo, not from "unlicensed", which is now its own state.
+    _activate_demo(shop)
     assert "DEMO" in shop.licensing.summary()
     _activate(shop)
     summary = shop.licensing.summary()

@@ -120,6 +120,7 @@ class MainWindow(QMainWindow):
         license_provider: LicenseProvider | None = None,
         current_user=None,
         on_logout: Callable[[], None] | None = None,
+        on_license_lapsed: Callable[[], None] | None = None,
         context=None,
     ) -> None:
         super().__init__()
@@ -132,6 +133,8 @@ class MainWindow(QMainWindow):
         # its Stage 01 guest behavior unchanged.
         self._current_user = current_user
         self._on_logout = on_logout
+        self._on_license_lapsed = on_license_lapsed
+        self._license_watch = None
         # Optional Stage 03 application context enabling real master-data screens.
         self._context = context
         self._stage03_pages: dict[str, QWidget] = {}
@@ -147,6 +150,48 @@ class MainWindow(QMainWindow):
         self.show_home()
         self._refresh_status()
         self._apply_identity()
+        self._start_license_watch()
+
+    # ---- licence watch ---------------------------------------------------
+
+    #: How often the open workspace re-asks whether it is still licensed.
+    LICENSE_CHECK_SECONDS = 60
+
+    def _start_license_watch(self) -> None:
+        """Re-check the licence while the workspace is open (final §2).
+
+        An expiry that only takes effect at the next restart is no expiry at all
+        for a shop that leaves the program running for weeks. The check is the
+        same :meth:`evaluate` the gate uses — one source of truth — and the only
+        thing it can do is hand control back to the activation screen.
+        """
+        if self._on_license_lapsed is None or self._context is None:
+            return
+        if getattr(self._context, "licensing", None) is None:
+            return
+        from PyQt6.QtCore import QTimer
+
+        self._license_watch = QTimer(self)
+        self._license_watch.setInterval(self.LICENSE_CHECK_SECONDS * 1000)
+        self._license_watch.timeout.connect(self._check_license_still_valid)
+        self._license_watch.start()
+
+    def _check_license_still_valid(self) -> None:
+        try:
+            state = self._context.licensing.evaluate()
+        except Exception:                      # a read failure must not close the app
+            _logger.warning("Could not re-check the licence.", exc_info=True)
+            return
+        self._refresh_status()
+        if state.allows_login:
+            return
+        if self._license_watch is not None:
+            self._license_watch.stop()
+        from PyQt6.QtWidgets import QMessageBox
+
+        QMessageBox.warning(self, self._translator.gettext("sec.license_title"),
+                            self._translator.gettext("act.expired_while_open"))
+        self._on_license_lapsed()
 
     # ---- shell assembly --------------------------------------------------
 
@@ -837,7 +882,12 @@ class MainWindow(QMainWindow):
         # (unlicensed)" in the status bar, which is exactly the opposite of true.
         licensing = getattr(self._context, "licensing", None)
         if licensing is not None:
-            self._status_license.setText(licensing.summary())
+            from zenith_business.ui.components import license_summary
+
+            # Same evaluated status the gate uses; the WORDING comes from the
+            # catalogue, so a Dari workspace does not report its licence in
+            # English at the bottom of the screen.
+            self._status_license.setText(license_summary(t, licensing.evaluate()))
         else:
             state = self._license.current_state()
             self._status_license.setText(state.summary or t.gettext("status.unlicensed"))

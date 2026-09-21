@@ -24,6 +24,7 @@ from datetime import timedelta
 
 import pytest
 
+from tests.conftest import activate_for_tests
 from zenith_business.core.clock import now_utc, parse_iso
 from zenith_business.core.config import LANG_DARI, LANG_ENGLISH
 from zenith_business.core.i18n import Translator
@@ -53,6 +54,9 @@ def shop(tmp_path):
     ctx.setup.create_administrator(username="owner", password=PASSWORD,
                                    full_name="Owner", company_name="Kabul Traders")
     ctx.auth.login("owner", PASSWORD)
+    # Licensing gates login from Stage 10 final onwards, so a lockout test that
+    # drives the real window needs a real licence to get as far as the password.
+    activate_for_tests(ctx)
     ctx.database_file = database_file
     yield ctx
     db.close()

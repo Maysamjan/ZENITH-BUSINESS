@@ -435,6 +435,145 @@ _CATALOG: dict[str, dict[str, str]] = {
         LANG_ENGLISH: "Zenith Soft · Secure offline access",
         LANG_DARI: "زینت سافت · دسترسی امن آفلاین",
     },
+    # ---- account recovery, reachable from the LOGIN screen (final §4) -----
+    "login.forgot": {LANG_ENGLISH: "Forgot your password?",
+                     LANG_DARI: "رمز عبور خود را فراموش کرده‌اید؟"},
+    "rec.title": {LANG_ENGLISH: "Reset Password with a Recovery Code",
+                  LANG_DARI: "تغییر رمز با کد بازیابی"},
+    "rec.subtitle": {
+        LANG_ENGLISH: "Enter the recovery code you saved when it was issued. It can "
+                      "be used once, and it will also unlock a locked account.",
+        LANG_DARI: "کد بازیابی‌ای را که هنگام صدور ذخیره کرده‌اید وارد کنید. این کد "
+                   "یک‌بار قابل استفاده است و قفل حساب را نیز باز می‌کند.",
+    },
+    "rec.code": {LANG_ENGLISH: "Recovery code", LANG_DARI: "کد بازیابی"},
+    "rec.code_ph": {LANG_ENGLISH: "ABCDE-FGHJK-LMNPQ-RSTUV",
+                    LANG_DARI: "ABCDE-FGHJK-LMNPQ-RSTUV"},
+    "rec.new_password": {LANG_ENGLISH: "New password", LANG_DARI: "رمز جدید"},
+    "rec.new_password_ph": {LANG_ENGLISH: "Choose a new password",
+                            LANG_DARI: "یک رمز جدید انتخاب کنید"},
+    "rec.confirm": {LANG_ENGLISH: "Confirm password", LANG_DARI: "تکرار رمز"},
+    "rec.confirm_ph": {LANG_ENGLISH: "Type the new password again",
+                       LANG_DARI: "رمز جدید را دوباره وارد کنید"},
+    "rec.reset": {LANG_ENGLISH: "Reset Password", LANG_DARI: "تغییر رمز"},
+    "rec.error_required": {
+        LANG_ENGLISH: "Please fill in your username, the recovery code and a new "
+                      "password.",
+        LANG_DARI: "لطفاً نام کاربری، کد بازیابی و رمز جدید را وارد کنید.",
+    },
+    "rec.done": {
+        LANG_ENGLISH: "Your password has been reset. You can sign in with it now.",
+        LANG_DARI: "رمز شما تغییر کرد. اکنون می‌توانید با آن وارد شوید.",
+    },
+    "acct.recovery_code": {LANG_ENGLISH: "Recovery Code", LANG_DARI: "کد بازیابی"},
+    "acct.recovery_hint": {
+        LANG_ENGLISH: "A recovery code lets you sign in again if you forget your "
+                      "password. It is shown once, here, and only its hash is "
+                      "kept — so it can be replaced but never shown again. Write "
+                      "it down and keep it somewhere safe.",
+        LANG_DARI: "کد بازیابی به شما اجازه می‌دهد در صورت فراموشی رمز دوباره وارد "
+                   "شوید. این کد تنها یک‌بار همین‌جا نشان داده می‌شود و فقط اثر "
+                   "رمزی آن نگهداری می‌گردد — پس می‌توان آن را تعویض کرد اما دوباره "
+                   "نشان داده نمی‌شود. آن را یادداشت و در جای امن نگهداری کنید.",
+    },
+    "acct.issue_recovery": {LANG_ENGLISH: "Generate New Code",
+                            LANG_DARI: "ایجاد کد جدید"},
+    "acct.recovery_shown_once": {
+        LANG_ENGLISH: "Write this code down now. It will not be shown again.",
+        LANG_DARI: "این کد را همین حالا یادداشت کنید. دوباره نشان داده نمی‌شود.",
+    },
+    # ---- activation gate, shown BEFORE login (Stage 10 final §1) ----------
+    "act.title": {LANG_ENGLISH: "Activate Zenith Business",
+                  LANG_DARI: "فعال‌سازی زینیت بزنس"},
+    "act.subtitle": {
+        LANG_ENGLISH: "This computer needs a license before you can sign in.",
+        LANG_DARI: "پیش از ورود، این کمپیوتر به جواز ضرورت دارد.",
+    },
+    "act.f_product": {LANG_ENGLISH: "Product", LANG_DARI: "محصول"},
+    "act.f_machine": {LANG_ENGLISH: "Machine ID", LANG_DARI: "شناسه کمپیوتر"},
+    "act.f_status": {LANG_ENGLISH: "Status", LANG_DARI: "وضعیت"},
+    "act.f_type": {LANG_ENGLISH: "License type", LANG_DARI: "نوع جواز"},
+    "act.f_expires": {LANG_ENGLISH: "Expires", LANG_DARI: "تاریخ انقضا"},
+    "act.make_request": {LANG_ENGLISH: "Generate Activation Request",
+                         LANG_DARI: "ایجاد درخواست فعال‌سازی"},
+    "act.import": {LANG_ENGLISH: "Import License", LANG_DARI: "وارد کردن جواز"},
+    "act.recheck": {LANG_ENGLISH: "Check Again", LANG_DARI: "بررسی دوباره"},
+    "act.activated": {
+        LANG_ENGLISH: "License {id} activated. You can sign in now.",
+        LANG_DARI: "جواز {id} فعال شد. اکنون می‌توانید وارد شوید.",
+    },
+    "act.why_unlicensed": {
+        LANG_ENGLISH: "This installation has not been activated yet. Generate an "
+                      "activation request, send it to Zenith Soft, then import "
+                      "the license file you receive.",
+        LANG_DARI: "این نصب هنوز فعال نشده است. درخواست فعال‌سازی بسازید، آن را به "
+                   "زینت سافت بفرستید و سپس فایل جوازی را که دریافت می‌کنید وارد کنید.",
+    },
+    "act.why_demo_over": {
+        LANG_ENGLISH: "The demo period has expired. Please activate Zenith Business.",
+        LANG_DARI: "دوره آزمایشی به پایان رسیده است. لطفاً زینیت بزنس را فعال کنید.",
+    },
+    "act.why_invalid": {
+        LANG_ENGLISH: "This license cannot be accepted on this computer.",
+        LANG_DARI: "این جواز در این کمپیوتر پذیرفته نمی‌شود.",
+    },
+    "act.why_wrong_machine": {
+        LANG_ENGLISH: "This license was issued for a different computer. A license "
+                      "works only on the machine it was issued for.",
+        LANG_DARI: "این جواز برای کمپیوتر دیگری صادر شده است. هر جواز تنها روی همان "
+                   "کمپیوتری کار می‌کند که برایش صادر شده.",
+    },
+    "act.why_expired": {
+        LANG_ENGLISH: "This license has expired. Please contact Zenith Soft to renew it.",
+        LANG_DARI: "مدت این جواز تمام شده است. برای تمدید با زینت سافت تماس بگیرید.",
+    },
+    "act.why_altered": {
+        LANG_ENGLISH: "This license file is damaged or has been modified, so it "
+                      "cannot be trusted. Please import the original file.",
+        LANG_DARI: "این فایل جواز آسیب دیده یا تغییر داده شده و قابل اعتماد نیست. "
+                   "لطفاً فایل اصلی را وارد کنید.",
+    },
+    "act.why_wrong_product": {
+        LANG_ENGLISH: "This license is for a different Zenith product.",
+        LANG_DARI: "این جواز برای محصول دیگری از زینت است.",
+    },
+    "act.why_no_key": {
+        LANG_ENGLISH: "This build has no vendor verification key, so no license can "
+                      "be checked. Please contact Zenith Soft for a signed build.",
+        LANG_DARI: "این نسخه کلید تأیید فروشنده را ندارد، بنابراین هیچ جوازی بررسی "
+                   "شده نمی‌تواند. لطفاً با زینت سافت تماس بگیرید.",
+    },
+    "act.why_no_backend": {
+        LANG_ENGLISH: "This build cannot verify licenses. Please contact Zenith Soft.",
+        LANG_DARI: "این نسخه توان بررسی جواز را ندارد. لطفاً با زینت سافت تماس بگیرید.",
+    },
+    "act.clock_warning": {
+        LANG_ENGLISH: "The computer's date is earlier than a date this installation "
+                      "has already seen, so the later date is being used.",
+        LANG_DARI: "تاریخ کمپیوتر از تاریخی که این نصب قبلاً دیده است عقب‌تر است، "
+                   "بنابراین تاریخ جدیدتر در نظر گرفته می‌شود.",
+    },
+    # One SOURCE of truth is the evaluated status; the WORDING still has to be
+    # translated, or a Dari screen reports its licence state in English.
+    "lic.sum_full": {LANG_ENGLISH: "Licensed", LANG_DARI: "دارای جواز"},
+    "lic.sum_full_id": {LANG_ENGLISH: "Licensed · {id}", LANG_DARI: "دارای جواز · {id}"},
+    "lic.sum_demo": {LANG_ENGLISH: "DEMO · {n} day(s) left",
+                     LANG_DARI: "آزمایشی · {n} روز باقی مانده"},
+    "lic.sum_demo_plain": {LANG_ENGLISH: "DEMO", LANG_DARI: "آزمایشی"},
+    "lic.sum_demo_expired": {LANG_ENGLISH: "Demo expired — activation required",
+                             LANG_DARI: "دوره آزمایشی تمام شد — فعال‌سازی لازم است"},
+    "lic.sum_unlicensed": {LANG_ENGLISH: "Not activated — activation required",
+                           LANG_DARI: "فعال نشده — فعال‌سازی لازم است"},
+    "lic.sum_no_vendor_key": {LANG_ENGLISH: "Unlicensed build",
+                              LANG_DARI: "نسخه بدون جواز"},
+    "lic.sum_invalid": {LANG_ENGLISH: "License invalid — activation required",
+                        LANG_DARI: "جواز نامعتبر — فعال‌سازی لازم است"},
+    "act.expired_while_open": {
+        LANG_ENGLISH: "The license is no longer valid, so Zenith Business has "
+                      "returned to the activation screen. Your data is untouched.",
+        LANG_DARI: "جواز دیگر معتبر نیست، بنابراین زینیت بزنس به صفحه فعال‌سازی "
+                   "برگشت. معلومات شما دست‌نخورده باقی مانده است.",
+    },
     # ---- developer (Zenith Soft) brand panel on the login screen ----------
     "brand.company": {LANG_ENGLISH: "ZENITH SOFT", LANG_DARI: "زینیت سافت"},
     "brand.kind": {
@@ -1339,7 +1478,59 @@ _CATALOG: dict[str, dict[str, str]] = {
     "sec.st_demo": {LANG_ENGLISH: "Demo", LANG_DARI: "آزمایشی"},
     "sec.st_demo_expired": {LANG_ENGLISH: "Demo expired", LANG_DARI: "دوره آزمایشی تمام شد"},
     "sec.st_invalid": {LANG_ENGLISH: "Not valid", LANG_DARI: "نامعتبر"},
+    "sec.st_unlicensed": {LANG_ENGLISH: "Not activated", LANG_DARI: "فعال نشده"},
     "sec.st_no_vendor_key": {LANG_ENGLISH: "Unlicensed build", LANG_DARI: "نسخه بدون جواز"},
+    # "Never" is a promise about a licence that exists. With no licence there is
+    # nothing to expire, and "Never" would read as reassurance.
+    "sec.lic_not_applicable": {LANG_ENGLISH: "—", LANG_DARI: "—"},
+    # ---- backup wording the customer can act on --------------------------
+    "sec.backup_needs_creation_password": {
+        LANG_ENGLISH: "This backup requires the password that was active when the "
+                      "backup was created.",
+        LANG_DARI: "برای باز کردن این پشتیبان، همان رمزی لازم است که هنگام ساختن "
+                   "پشتیبان فعال بوده است.",
+    },
+    "sec.backup_pass_must_match_owner": {
+        LANG_ENGLISH: "Enter your current owner password. The backup is locked with "
+                      "it, so it is the password you will need to restore this file.",
+        LANG_DARI: "رمز فعلی مالک را وارد کنید. پشتیبان با همین رمز قفل می‌شود، پس "
+                   "برای بازیابی همین رمز لازم خواهد بود.",
+    },
+    "sec.backup_pass_rejected": {
+        LANG_ENGLISH: "That is not your current password, so no backup was created. "
+                      "A backup locked with a password you did not mean to use "
+                      "could not be opened again.",
+        LANG_DARI: "این رمز فعلی شما نیست، بنابراین پشتیبانی ساخته نشد. پشتیبانی که "
+                   "با رمز ناخواسته قفل شود، دیگر باز شده نمی‌تواند.",
+    },
+    # One cryptographic failure, three possible causes, and the customer cannot
+    # be told which — saying "wrong password" alone sends them hunting for a
+    # password when the file may simply be damaged.
+    "sec.refuse_bad_passphrase": {
+        LANG_ENGLISH: "Backup authentication failed. The password may be incorrect, "
+                      "or the backup file may be damaged or modified.",
+        LANG_DARI: "تأیید پشتیبان ناکام شد. ممکن است رمز نادرست باشد، یا فایل "
+                   "پشتیبان آسیب دیده یا تغییر داده شده باشد.",
+    },
+    "sec.refuse_missing": {LANG_ENGLISH: "That file could not be found.",
+                           LANG_DARI: "این فایل پیدا نشد."},
+    "sec.refuse_not_a_file": {LANG_ENGLISH: "That is a folder, not a backup file.",
+                              LANG_DARI: "این یک پوشه است، نه فایل پشتیبان."},
+    "sec.refuse_empty": {LANG_ENGLISH: "That file is empty.",
+                         LANG_DARI: "این فایل خالی است."},
+    "sec.refuse_unreadable": {LANG_ENGLISH: "That file could not be opened.",
+                              LANG_DARI: "این فایل باز شده نتوانست."},
+    "sec.refuse_not_a_database": {LANG_ENGLISH: "That file is not a database.",
+                                  LANG_DARI: "این فایل دیتابیس نیست."},
+    "sec.refuse_corrupt": {
+        LANG_ENGLISH: "That backup is damaged and cannot be restored.",
+        LANG_DARI: "این پشتیبان آسیب دیده و بازیابی شده نمی‌تواند."},
+    "sec.refuse_not_zenith": {
+        LANG_ENGLISH: "That is not a Zenith Business backup.",
+        LANG_DARI: "این فایل پشتیبان زینیت بزنس نیست."},
+    "sec.refuse_encrypted": {
+        LANG_ENGLISH: "This backup is encrypted. Enter its password to continue.",
+        LANG_DARI: "این پشتیبان رمزگذاری شده است. برای ادامه رمز آن را وارد کنید."},
 }
 
 

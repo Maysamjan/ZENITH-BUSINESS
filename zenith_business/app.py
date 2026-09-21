@@ -143,6 +143,10 @@ def selftest(argv: list[str] | None = None) -> int:
             f"vendor key configured: {vendor_key.is_configured()}",
             f"licence status       : {state.status}",
             f"licence reason       : {state.reason}",
+            # The gate's own question, reported plainly: can this build get past
+            # the activation screen at all, or not?
+            f"login allowed        : {state.allows_login}",
+            f"clock rolled back    : {state.clock_rolled_back}",
             f"machine id           : {state.machine_short}",
             f"audit chain          : {context.audit_chain.verify().detail}",
             # A build that cannot verify signatures or encrypt a backup is
@@ -200,12 +204,16 @@ def run(argv: list[str] | None = None) -> int:
 
     logger = get_logger("app")
     try:
-        # Authentication gate → main window loop. Signing out returns here so the
-        # login screen appears again without restarting the process.
+        # LICENCE gate → authentication gate → main window loop.
+        #
+        # Both gates live in AuthWindow, which is rebuilt on every pass, so the
+        # licence is re-verified on every startup AND every time the workspace
+        # is left — whether the customer signed out or the licence stopped being
+        # valid while they were working.
         while True:
             gate = AuthWindow(context, config)
             if gate.exec() != QDialog.DialogCode.Accepted or gate.authenticated_user is None:
-                logger.info("Authentication gate dismissed; exiting.")
+                logger.info("Startup gate dismissed; exiting.")
                 return 0
 
             relogin = {"requested": False}
@@ -215,12 +223,29 @@ def run(argv: list[str] | None = None) -> int:
                 relogin["requested"] = True
                 window.close()
 
+            def _licence_lapsed() -> None:
+                """The licence stopped being valid while the workspace was open.
+
+                Leaving the app usable until the next restart would make an
+                expiry meaningless for anyone who simply never closes it. The
+                workspace closes and the loop lands back on the activation
+                screen — and nothing at all happens to the customer's data.
+                """
+                logger.info("Licence no longer valid; returning to activation.")
+                try:
+                    context.auth.logout()
+                except Exception:
+                    pass
+                relogin["requested"] = True
+                window.close()
+
             window = MainWindow(
                 config,
                 database=context.db,
                 license_provider=boot.license_provider,
                 current_user=gate.authenticated_user,
                 on_logout=_logout,
+                on_license_lapsed=_licence_lapsed,
                 context=context,
             )
             if config.ui.start_maximized:

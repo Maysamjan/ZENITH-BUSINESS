@@ -46,6 +46,7 @@ class AccountSettingsPage(QWidget):
         root.addWidget(self._title)
         root.addWidget(self._build_password_card())
         root.addWidget(self._build_username_card())
+        root.addWidget(self._build_recovery_card())
         root.addStretch(1)
         root.addWidget(self._build_action_bar())
 
@@ -107,6 +108,66 @@ class AccountSettingsPage(QWidget):
         card.body.addLayout(bar)
         return card
 
+    def _build_recovery_card(self) -> QWidget:
+        """Issue (or replace) the recovery code — the other half of final §4.
+
+        The login screen can *use* a code; this is where one comes from. It is
+        shown exactly once, here, at the moment it is created. Nothing in the
+        application can show it again, because only its hash is kept — so
+        "replace it" is the only honest answer to "I lost the code", and that is
+        what this card offers.
+        """
+        card = Card(role="section"); card.setProperty("accent", "amber"); apply_shadow(card)
+        card.body.setContentsMargins(Spacing.CARD_PAD_H, Spacing.SM,
+                                     Spacing.CARD_PAD_H, Spacing.SM)
+        card.body.setSpacing(Spacing.XS)
+        self._rc_head = eyebrow(self._t.gettext("acct.recovery_code"))
+        card.body.addWidget(self._rc_head)
+        self._rc_hint = QLabel(self._t.gettext("acct.recovery_hint"))
+        self._rc_hint.setWordWrap(True)
+        card.body.addWidget(self._rc_hint)
+
+        self._rc_current = self._pw_edit()
+        row = QHBoxLayout(); row.setSpacing(Spacing.LG)
+        self._rc_lf = LabeledField(self._t.gettext("acct.current_password"),
+                                   self._rc_current, width=FieldWidth.LG, compact=True)
+        row.addWidget(self._rc_lf)
+        row.addStretch(1)
+        card.body.addLayout(row)
+
+        # The code itself, once. Selectable so it can be copied, not editable.
+        from PyQt6.QtCore import Qt
+
+        self._rc_value = QLabel("")
+        self._rc_value.setProperty("role", "code")
+        self._rc_value.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._rc_value.setVisible(False)
+        card.body.addWidget(self._rc_value)
+
+        bar = QHBoxLayout()
+        self._rc_msg = QLabel(""); self._rc_msg.setProperty("role", "secondary")
+        self._rc_msg.setWordWrap(True)
+        self._rc_btn = primary_button(self._t.gettext("acct.issue_recovery"))
+        self._rc_btn.clicked.connect(self._issue_recovery_code)
+        bar.addWidget(self._rc_msg, 1); bar.addStretch(1); bar.addWidget(self._rc_btn)
+        card.body.addLayout(bar)
+        return card
+
+    def _issue_recovery_code(self) -> None:
+        try:
+            code = self._ctx.security.issue_recovery_code(
+                current_password=self._rc_current.text())
+        except ZenithError as exc:
+            self._rc_value.setVisible(False)
+            self._flash(self._rc_msg, getattr(exc, "user_message", None) or str(exc),
+                        ok=False)
+            return
+        self._rc_current.clear()
+        self._rc_value.setText(code)
+        self._rc_value.setVisible(True)
+        self._flash(self._rc_msg, self._t.gettext("acct.recovery_shown_once"), ok=True)
+
     def _build_action_bar(self) -> QWidget:
         from PyQt6.QtWidgets import QFrame
         bar = QFrame(); bar.setProperty("role", "actionbar"); apply_shadow(bar, blur=18, y=3, alpha=30)
@@ -167,4 +228,8 @@ class AccountSettingsPage(QWidget):
             lf.set_label(translator.gettext(key))
         self._pw_btn.setText(escape_amp(translator.gettext("acct.update_password")))
         self._un_btn.setText(escape_amp(translator.gettext("acct.update_username")))
+        self._rc_head.setText(translator.gettext("acct.recovery_code"))
+        self._rc_hint.setText(translator.gettext("acct.recovery_hint"))
+        self._rc_lf.set_label(translator.gettext("acct.current_password"))
+        self._rc_btn.setText(escape_amp(translator.gettext("acct.issue_recovery")))
         self._btn_close.setText(escape_amp(translator.gettext("s4.act_close")))

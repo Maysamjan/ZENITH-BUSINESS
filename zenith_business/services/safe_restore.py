@@ -220,19 +220,29 @@ class SafeRestoreService:
     def inspect(path: str | Path, *, passphrase: str | None = None) -> BackupCheck:
         return inspect_backup(path, passphrase=passphrase)
 
-    def safety_backup_path(self) -> Path:
+    def safety_backup_path(self, *, encrypted: bool = False) -> Path:
         stamp = now_utc().strftime("%Y%m%d-%H%M%S")
-        return self._backups_dir / f"zenith-before-restore-{stamp}.db"
+        suffix = ".zbak" if encrypted else ".db"
+        return self._backups_dir / f"zenith-before-restore-{stamp}{suffix}"
 
     # ---- the restore -----------------------------------------------------
 
     def restore(self, source: str | Path, target_db_path: str | Path, *,
-                confirmed: bool = False, passphrase: str | None = None) -> RestoreResult:
+                confirmed: bool = False, passphrase: str | None = None,
+                safety_passphrase: str | None = None) -> RestoreResult:
         """Replace the live database with ``source``.
 
         ``confirmed`` must be True. It is not decoration: a restore discards the
         current data, and an API that can do that on a default argument will
         eventually be called by accident.
+
+        ``passphrase`` opens an encrypted *source*. ``safety_passphrase`` locks
+        the copy taken of the database being replaced — which is the customer's
+        live business data and was previously left in the backups folder as a
+        plain, readable ``.db``. The screen supplies the owner password it has
+        just verified. Without one the safety copy stays plain, which is what a
+        programmatic caller with no password available gets, and is said out
+        loud in the log rather than quietly assumed to be fine.
         """
         if self._authz is not None:
             self._authz.require("backup.restore")
@@ -267,9 +277,16 @@ class SafeRestoreService:
         safety: Path | None = None
         if target.exists():
             self._backups_dir.mkdir(parents=True, exist_ok=True)
-            safety = self.safety_backup_path()
+            protected = bool(safety_passphrase) and backup_crypto.available()
+            if safety_passphrase and not protected:      # pragma: no cover - no backend
+                _logger.warning("No encryption backend: the safety copy will be plain.")
+            elif not safety_passphrase:
+                _logger.warning("No safety passphrase supplied: the safety copy of "
+                                "the live database will be a plain .db file.")
+            safety = self.safety_backup_path(encrypted=protected)
             try:
-                self._snapshot_live(safety, target)
+                self._snapshot_live(safety, target, passphrase=safety_passphrase
+                                    if protected else None)
             except Exception as exc:
                 self._record("backup.restore_failed",
                              f"file={source.name} reason=safety_backup_failed")
@@ -293,7 +310,7 @@ class SafeRestoreService:
             os.replace(staged, target)
         except Exception as exc:
             staged.unlink(missing_ok=True)
-            self._rollback(safety, target)
+            self._rollback(safety, target, passphrase=safety_passphrase)
             self._record("backup.restore_failed",
                          f"file={source.name} reason=copy_failed")
             raise ValidationError(
@@ -304,7 +321,7 @@ class SafeRestoreService:
         # 3. The restored file has to prove itself before this is a success.
         verified = inspect_backup(target)
         if not verified.ok:
-            self._rollback(safety, target)
+            self._rollback(safety, target, passphrase=safety_passphrase)
             self._record("backup.restore_failed",
                          f"file={source.name} reason=verify_after_restore")
             raise ValidationError(
@@ -323,11 +340,19 @@ class SafeRestoreService:
 
     # ---- internals -------------------------------------------------------
 
-    def _snapshot_live(self, destination: Path, target: Path) -> None:
-        """Consistent copy of the CURRENT database, via SQLite's backup API."""
+    def _snapshot_live(self, destination: Path, target: Path,
+                       *, passphrase: str | None = None) -> None:
+        """Consistent copy of the CURRENT database, via SQLite's backup API.
+
+        With a passphrase the copy is wrapped in the same authenticated ``.zbak``
+        container a normal backup uses, and the plain intermediate is removed —
+        so the file left in the backups folder is not a readable copy of the
+        customer's books.
+        """
+        plain = destination if passphrase is None else destination.with_suffix(".staging")
         try:
             source_conn = self._db.connection()
-            dest = sqlite3.connect(destination)
+            dest = sqlite3.connect(plain)
             try:
                 source_conn.backup(dest)
             finally:
@@ -335,16 +360,39 @@ class SafeRestoreService:
         except Exception:
             # The live connection may already be unusable — that is exactly when
             # a safety copy matters most, so fall back to copying the file.
-            shutil.copy2(target, destination)
+            shutil.copy2(target, plain)
 
-    def _rollback(self, safety: Path | None, target: Path) -> None:
-        """Put the pre-restore database back. Best effort, and loudly logged."""
+        if passphrase is None:
+            return
+        from zenith_business.core.identity import APP_VERSION, PRODUCT_NAME
+
+        try:
+            header = backup_crypto.BackupHeader(
+                created_at=now_utc().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                schema_version=inspect_backup(plain).schema_version,
+                app_version=APP_VERSION, product=PRODUCT_NAME,
+                hint="Safety copy taken before a restore.")
+            backup_crypto.encrypt_file(plain, destination, passphrase, header=header)
+        finally:
+            plain.unlink(missing_ok=True)
+
+    def _rollback(self, safety: Path | None, target: Path,
+                  *, passphrase: str | None = None) -> None:
+        """Put the pre-restore database back. Best effort, and loudly logged.
+
+        The safety copy may now be an encrypted container, so rolling back may
+        mean decrypting it first — with the passphrase held in memory from the
+        moment it was written, never one asked for again at the worst time.
+        """
         if safety is None or not safety.exists():
             return
         try:
             import os
             staged = target.with_name(target.name + ".rollback")
-            shutil.copy2(safety, staged)
+            if backup_crypto.looks_encrypted(safety):
+                backup_crypto.decrypt_file(safety, staged, passphrase or "")
+            else:
+                shutil.copy2(safety, staged)
             os.replace(staged, target)
             _logger.warning("Restore rolled back; previous database reinstated.")
         except Exception as exc:

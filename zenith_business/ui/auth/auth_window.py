@@ -28,6 +28,7 @@ from zenith_business.core.logging_setup import get_logger
 from zenith_business.services.context import ApplicationContext
 from zenith_business.services.exceptions import AuthenticationError, ValidationError, ZenithError
 from zenith_business.services.session import CurrentUser
+from zenith_business.ui.auth.activation_page import ActivationPage
 from zenith_business.ui.auth.login_page import LoginPage
 from zenith_business.ui.auth.setup_page import InitialAdminSetupPage
 from zenith_business.ui.design.tokens import Spacing
@@ -190,8 +191,16 @@ class AuthWindow(QDialog):
         self._stack = QStackedWidget()
         self._stack.setObjectName("AuthStack")
         self._stack.setStyleSheet("QStackedWidget#AuthStack { background: transparent; }")
+        # Activation is a PAGE IN THIS STACK, not a dialog in front of it. There
+        # is no path from it to the login form except a licence that evaluates
+        # to FULL or DEMO, which is what makes the gate a gate.
+        self._activation_page = ActivationPage(
+            self._t, on_make_request=self._handle_make_request,
+            on_import=self._handle_import_license, on_recheck=self._handle_recheck)
         self._setup_page = InitialAdminSetupPage(self._t, self._handle_setup)
-        self._login_page = LoginPage(self._t, self._handle_login)
+        self._login_page = LoginPage(self._t, self._handle_login,
+                                     on_forgot=self._handle_forgot_password)
+        self._stack.addWidget(self._activation_page)
         self._stack.addWidget(self._setup_page)
         self._stack.addWidget(self._login_page)
         mcol.addWidget(self._stack)
@@ -218,11 +227,14 @@ class AuthWindow(QDialog):
         activated installation still told the customer it was unlicensed every
         time they signed in.
         """
+        from zenith_business.ui.components import license_summary
+
         v = self._t.gettext("login.version")
         lic = self._t.gettext("login.licence")
         licensing = getattr(self._ctx, "licensing", None)
         try:
-            state = (licensing.summary() if licensing is not None
+            state = (license_summary(self._t, licensing.evaluate())
+                     if licensing is not None
                      else self._t.gettext("login.licence_dev"))
         except Exception:
             state = self._t.gettext("login.licence_dev")
@@ -252,12 +264,98 @@ class AuthWindow(QDialog):
         self._stack.setCurrentWidget(page)
         page.adjustSize()
 
+    # ---- the licence gate ------------------------------------------------
+
+    def license_state(self):
+        """Re-read the licence. Never cached: one boolean is one thing to defeat."""
+        licensing = getattr(self._ctx, "licensing", None)
+        if licensing is None:                       # pragma: no cover - legacy contexts
+            return None
+        return licensing.evaluate()
+
+    def _licence_allows_login(self) -> bool:
+        state = self.license_state()
+        return True if state is None else bool(state.allows_login)
+
     def _show_initial_page(self) -> None:
+        """Licence FIRST, then setup or login. This order is the requirement."""
+        state = self.license_state()
+        if state is not None and not state.allows_login:
+            self._activation_page.show_state(state)
+            self._show_page(self._activation_page)
+            _logger.info("Licence gate: %s (%s) — activation required.",
+                         state.status, state.reason)
+            return
         if self._ctx.is_setup_required:
             self._show_page(self._setup_page)
         else:
             self._show_page(self._login_page)
             self._login_page.focus_first()
+
+    def _handle_recheck(self) -> None:
+        state = self.license_state()
+        if state is None or state.allows_login:
+            self._footer.setText(self._version_text())
+            self._show_initial_page()
+            return
+        self._activation_page.show_state(state)
+
+    def _handle_make_request(self) -> None:
+        from pathlib import Path
+
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+
+        licensing = getattr(self._ctx, "licensing", None)
+        if licensing is None:                       # pragma: no cover
+            return
+        suggested = f"zenith-activation-{licensing.machine.fingerprint[:12]}.zreq"
+        name, _ = QFileDialog.getSaveFileName(
+            self, self._t.gettext("act.make_request"),
+            str(Path.home() / suggested), self._t.gettext("sec.lic_req_filter"))
+        if not name:
+            return
+        try:
+            # The business name comes from the service, which returns the
+            # customer's own name or nothing — never a sample or the product.
+            path = licensing.create_activation_request(name)
+        except OSError as exc:
+            self._activation_page.say(str(exc), bad=True)
+            return
+        self._activation_page.say(
+            self._t.gettext("sec.lic_request_saved").replace("{file}", path.name))
+        QMessageBox.information(
+            self, self._t.gettext("act.make_request"),
+            self._t.gettext("sec.lic_request_next").replace("{file}", str(path)))
+
+    def _handle_import_license(self) -> None:
+        from pathlib import Path
+
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+
+        licensing = getattr(self._ctx, "licensing", None)
+        if licensing is None:                       # pragma: no cover
+            return
+        name, _ = QFileDialog.getOpenFileName(
+            self, self._t.gettext("act.import"), str(Path.home()),
+            self._t.gettext("sec.lic_filter"))
+        if not name:
+            return
+        try:
+            state = licensing.import_license(name)
+        except Exception as exc:                    # LicenseError is not a ZenithError
+            message = getattr(exc, "user_message", str(exc))
+            self._activation_page.say(message, bad=True)
+            self._activation_page.show_state(licensing.evaluate())
+            QMessageBox.critical(self, self._t.gettext("act.import"), message)
+            return
+        _logger.info("Licence imported at the gate: %s (%s)",
+                     state.license_id, state.status)
+        QMessageBox.information(
+            self, self._t.gettext("act.import"),
+            self._t.gettext("act.activated").replace("{id}", state.license_id))
+        self._footer.setText(self._version_text())
+        # Straight on to setup or login — activation is not a destination.
+        self._show_initial_page()
 
     def _handle_setup(self, values: dict) -> None:
         if values["password"] != values["confirm_password"]:
@@ -282,6 +380,12 @@ class AuthWindow(QDialog):
         self._login_page.focus_first()
 
     def _handle_login(self, username: str, password: str) -> None:
+        # Checked again here, not only when the page was chosen: a licence can be
+        # deleted, expire or be replaced while this screen sits open, and the
+        # answer must be the current one, not the one from when it was drawn.
+        if not self._licence_allows_login():
+            self._show_initial_page()
+            return
         if not username or not password:
             self._login_page.set_error(self._t.gettext("login.error_required"))
             return
@@ -329,6 +433,25 @@ class AuthWindow(QDialog):
         else:
             self._login_page.set_error(fallback)
 
+    def _handle_forgot_password(self) -> None:
+        """The way back in for an owner with nobody to ask (final §4)."""
+        from PyQt6.QtWidgets import QDialog as _QDialog
+        from PyQt6.QtWidgets import QMessageBox
+
+        from zenith_business.ui.auth.recovery_dialog import RecoveryDialog
+
+        dialog = RecoveryDialog(self._ctx, self._t,
+                                username=self._login_page.username.text().strip(),
+                                parent=self)
+        if dialog.exec() != _QDialog.DialogCode.Accepted:
+            return
+        _logger.info("Owner password reset with a recovery code.")
+        self._login_page.username.setText(dialog.recovered_username or "")
+        self._login_page.set_error(self._t.gettext("rec.done"))
+        self._login_page.focus_first()
+        QMessageBox.information(self, self._t.gettext("rec.title"),
+                                self._t.gettext("rec.done"))
+
     # ---- language / direction -------------------------------------------
 
     def _switch_language(self, code: str) -> None:
@@ -344,6 +467,7 @@ class AuthWindow(QDialog):
         self._footer.setText(self._version_text())
         for widget, key in self._contact_rows:
             widget.setText(self._t.gettext(key))
+        self._activation_page.retranslate(self._t)
         self._setup_page.retranslate(self._t)
         self._login_page.retranslate(self._t)
         self._sync_lang_buttons()

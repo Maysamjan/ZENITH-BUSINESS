@@ -22,12 +22,25 @@ Nothing is installed on your PC. Everything lives inside this one folder. You do
 1. **Unzip** this package anywhere (e.g. your Desktop). Keep all the files
    together in the same folder.
 2. Double-click **`Run-ZenithBusiness.bat`**.
-3. At the login screen, sign in as the owner/administrator:
+3. **The first screen is now ACTIVATION, not login.** Licensing is checked
+   *before* anyone can sign in, so an unlicensed computer never reaches the
+   login form or the program behind it. The screen shows this computer's
+   **Machine ID** and offers **Generate Activation Request** and **Import
+   License**.
+4. Once a valid licence is imported, the same window moves straight on to the
+   login screen. Sign in as the owner/administrator:
 
    | Field    | Value        |
    |----------|--------------|
    | Username | `admin`      |
    | Password | `Admin@123`  |
+
+> **This build has no vendor key embedded yet**, so it stops at the Activation
+> screen and reads *Unlicensed build*. That is section 3A below working as
+> intended, and it is the one part you can test today. To unlock the rest, run
+> `python tools/zenith_license_tool.py generate` on your own PC and send the
+> `PUBLIC KEY:` line to your developer — the next build will accept the licences
+> you sign.
 
 > Windows SmartScreen may show a "Windows protected your PC" notice the first
 > time (the test build is not code-signed). Click **More info → Run anyway**.
@@ -65,17 +78,36 @@ Already-posted documents (so lists and printing work immediately):
 Everything below is new. It lives under the **Tools** menu: **Backup & Restore**,
 **Audit Log** and **License**.
 
-### A. Login protection
+### A. Activation comes before login
+
+1. On a fresh install the first screen is **Activate Zenith Business**. There is
+   no way past it to the login form — that is the point.
+2. It names *why*: not activated yet, licence for another computer, licence
+   altered, demo finished. Each has its own wording.
+3. **Generate Activation Request** writes a `.zreq` carrying this computer's
+   hashed traits, your business name and nothing else — no password, no key, no
+   raw hardware serial.
+4. **Import License** with the `.zlic` you receive. The window moves straight on
+   to login.
+5. Close and reopen the program: it is still activated, and the licence is
+   re-checked every single start.
+
+### B. Login protection
 
 1. Sign in with the correct password — it works, as before.
-2. Sign out, then type the **wrong password five times**. The account locks
-   **temporarily** and says so. This protects your data if the PC is left
-   unattended; it clears itself after a short wait.
-3. **Tools → Account Settings → Change Password.** It asks for your current
+2. Sign out, then type the **wrong password five times**. The account locks for
+   **15 minutes** and counts the time down on screen ("Try again in 12m 34s").
+   Further attempts during the lock do **not** restart the timer.
+3. After the wait, you get a **fresh five attempts** — one further mistake must
+   not lock you straight out again.
+4. **Forgot your password?** on the login screen resets it with a recovery code.
+   Issue one first from **Tools → Account Settings → Recovery Code**; it is
+   shown once and cannot be shown again, only replaced.
+5. **Tools → Account Settings → Change Password.** It asks for your current
    password first. Change it, sign out, and confirm the **old password no longer
    works** and the new one does.
 
-### B. Backup
+### C. Backup
 
 **Tools → Backup & Restore → Create Backup.**
 A new timestamped file appears in the list and the status line says it was
@@ -85,7 +117,20 @@ it must be **refused**, naming the reason.
 
 **Check Database** confirms the live database is healthy.
 
-### C. Restore — the important one
+Two things to check about the password:
+
+* The backup is locked with **your owner password**, and the program now refuses
+  to make one with anything else. If you type something that is not your current
+  password, no file is written at all — a backup nobody can open is worse than
+  no backup.
+* A backup opens with the password that was active **when it was made**. If you
+  change your password afterwards, older backups still need the old one.
+* Try it with a Persian keyboard layout active: the characters you actually type
+  are the characters used, so the English password's *key positions* will not
+  open it. Checking and restoring behave identically — that inconsistency is
+  fixed.
+
+### D. Restore — the important one
 
 **Restore from File…**
 
@@ -96,44 +141,53 @@ it must be **refused**, naming the reason.
 3. Do it again and confirm. Afterwards:
    * the data is what was in the backup;
    * a **safety copy of your previous data** was written into the backup list
-     (named `zenith-before-restore-…`) — you can restore that to undo;
+     (named `zenith-before-restore-….zbak`) — you can restore that to undo. It
+     is **encrypted** with your owner password now, so it is not a readable copy
+     of your books sitting in a folder;
    * restart the application when it tells you to.
 
 > Your current data is copied to safety **before** anything is replaced, and the
 > replacement happens in one step. If it fails part way through — the disk fills
 > up, the PC loses power — you keep the database you had.
 
-### D. Audit log
+### E. Audit log
 
 **Tools → Audit Log.** It must show what you just did: the successful login, the
 **failed** logins from step A, the password change, the backup, the restore, and
 the licence actions from step E — each with date/time, action, entity, reference
 and details. It is **read-only**: there is no way to edit or delete an entry.
 
-### E. Licensing
+### F. Licensing and the demo period
 
-**Tools → License.** It shows the product, licence type, activation status, this
-computer's **Machine ID**, and the licence details once activated.
+**Tools → License** shows the same state the activation screen shows — product,
+licence type, status, Machine ID, licence details, expiry.
 
-1. On a fresh install it reads **Demo**, with the days remaining.
-2. **Generate Activation Request** — saves a `.zreq` file. Send it to Zenith
-   Soft.
-3. You send back a `.zlic`. **Import License** asks for your owner password,
-   then activates. The screen shows **Activated**, the licence id and the issue
-   date, and the status bar bottom-right changes to *Licensed*.
-4. Things that must be **refused**, each leaving your existing licence and your
+**A demo is now a real signed licence**, not something the program grants itself.
+There is no free period for an installation that has never been activated: it
+stops at the activation screen until a `.zlic` arrives.
+
+1. Import a **DEMO** licence: the screen shows *Demo*, the real expiry date and
+   the days remaining. The program works normally.
+2. Import a **FULL** licence: *Activated*, and the word DEMO disappears from
+   every screen — activation screen, login footer, status bar and License page.
+   Restart and confirm it is still FULL.
+3. **When a demo runs out** the program stops at the activation screen on the
+   next start. If it is already open when the time passes, it returns to the
+   activation screen by itself — leaving it running does not extend anything.
+4. **Move the Windows clock backwards.** The demo must not gain time. The
+   program remembers the latest date it has ever seen and will not believe an
+   earlier one; it says so on the activation screen when it notices.
+5. Things that must be **refused**, each leaving your existing licence and your
    data untouched:
    * a `.zlic` edited in Notepad (any change at all);
    * a `.zlic` issued for a different computer;
+   * a `.zlic` whose date has passed;
    * copying this whole folder to a second PC — it must **not** be activated
      there.
 
-> If licensing ever fails, **your business data is never touched**. The worst
-> that happens is the program asks you to activate.
-
-> **This build has no vendor key yet**, so the License screen reads *Unlicensed
-> build* and the program runs in Demo. Everything in sections A–D is fully
-> testable now. Section E becomes testable once the signing key exists.
+> If licensing ever fails, **your business data is never touched**. Nothing is
+> deleted, encrypted or rewritten. The worst that happens is the program asks
+> you to activate, and your database file stays exactly where it is.
 
 ---
 

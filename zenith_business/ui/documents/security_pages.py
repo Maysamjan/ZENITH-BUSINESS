@@ -113,19 +113,36 @@ def confirm_sensitive(parent: QWidget, context, translator: Translator, *,
                       title_key: str, message: str, confirm_key: str,
                       action: str) -> bool:
     """Run the confirm-and-re-authenticate gate. True only if the owner proved it."""
+    return verified_password(parent, context, translator, title_key=title_key,
+                             message=message, confirm_key=confirm_key,
+                             action=action) is not None
+
+
+def verified_password(parent: QWidget, context, translator: Translator, *,
+                      title_key: str, message: str, confirm_key: str,
+                      action: str) -> str | None:
+    """The same gate, returning the password it just proved — or None.
+
+    Handing the verified password back matters for one thing: the safety copy a
+    restore takes of the CURRENT database has to be encrypted, and the only
+    secret the customer has just proved they know, at exactly the right moment,
+    is this one. Asking twice for the same password would be the alternative,
+    and a second prompt is how people end up typing something else.
+    """
     while True:
         dialog = ConfirmSensitiveDialog(
             translator, title=translator.gettext(title_key), message=message,
             confirm_label=translator.gettext(confirm_key), parent=parent)
         if dialog.exec() != QDialog.DialogCode.Accepted:
-            return False
+            return None
+        password = dialog.password
         try:
-            if context.security.verify_current_password(dialog.password, action=action):
-                return True
+            if context.security.verify_current_password(password, action=action):
+                return password
         except ZenithError as exc:
             QMessageBox.warning(parent, translator.gettext("sec.blocked_title"),
                                 getattr(exc, "user_message", str(exc)))
-            return False
+            return None
         QMessageBox.warning(parent, translator.gettext("sec.wrong_password_title"),
                             translator.gettext("sec.wrong_password"))
 
@@ -375,10 +392,32 @@ class BackupPage(_Page):
         is one secret rather than two, and it is the one the customer already
         has to type to restore. The consequence is stated on screen — a backup
         opens with the password that was current when it was written.
+
+        **The typed text is verified against the account before it is used as a
+        key.** It was not, and that was the defect behind the inconsistency
+        found on Windows: with a Persian keyboard layout active, the physical
+        keys of the English password produce Persian characters, so a backup got
+        locked with a string the owner never meant to type. Checking that file
+        afterwards with the same physical keys succeeded — it *was* the
+        passphrase — while restoring it failed, because restoring also
+        re-authenticates against the real account password. Same keys, two
+        different answers, and nothing in between to explain why.
         """
-        passphrase = self._ask_passphrase("sec.backup_pass_prompt")
+        passphrase = self._ask_passphrase("sec.backup_pass_prompt",
+                                          note_key="sec.backup_pass_must_match_owner")
         if passphrase is None:
             self._say(self._t.gettext("sec.restore_cancelled"))
+            return
+        try:
+            proved = self._ctx.security.verify_current_password(
+                passphrase, action="backup.create")
+        except ZenithError as exc:
+            self._say(getattr(exc, "user_message", str(exc)), bad=True)
+            return
+        if not proved:
+            # Refused before a file exists: a backup nobody can open is worse
+            # than no backup, because it looks like protection.
+            self._say(self._t.gettext("sec.backup_pass_rejected"), bad=True)
             return
         try:
             path = self._ctx.backup.create_backup(
@@ -406,16 +445,39 @@ class BackupPage(_Page):
             self._t.gettext("sec.backup_filter"))
         return name or None
 
-    def _ask_passphrase(self, prompt_key: str) -> str | None:
-        """Ask for the owner password, verifying it before it is used as a key."""
+    def _ask_passphrase(self, prompt_key: str, *, note_key: str | None = None
+                        ) -> str | None:
+        """Ask for a backup password. Returns EXACTLY what was typed.
+
+        No normalisation of any kind happens here or anywhere below it: the
+        characters Qt reports are the characters scrypt sees, so a Persian
+        keyboard layout produces a Persian passphrase and an English one
+        produces an English passphrase. There is no physical-key translation to
+        make the two agree, and there must not be — that would mean two
+        different strings opening the same file.
+        """
         from PyQt6.QtWidgets import QInputDialog
 
+        prompt = self._t.gettext(prompt_key)
+        if note_key is not None:
+            prompt = f"{prompt}\n\n{self._t.gettext(note_key)}"
         text, ok = QInputDialog.getText(
             self, self._t.gettext("sec.backup_title"),
-            self._t.gettext(prompt_key), QLineEdit.EchoMode.Password)
+            prompt, QLineEdit.EchoMode.Password)
         if not ok:
             return None
         return text
+
+    def _refusal(self, check) -> str:
+        """Customer-facing wording for a refused file, in the active language.
+
+        The raw reason token used to reach the screen, so a customer whose
+        backup failed its authentication tag was shown ``bad_passphrase`` — which
+        is both jargon and, worse, only one of the three things it can mean.
+        """
+        key = f"sec.refuse_{check.reason}"
+        text = self._t.gettext(key)
+        return check.detail or check.reason if text == key else text
 
     def _check_backup(self) -> None:
         name = self._pick("sec.check_backup")
@@ -425,7 +487,9 @@ class BackupPage(_Page):
 
         passphrase = None
         if backup_crypto.looks_encrypted(name):
-            passphrase = self._ask_passphrase("sec.backup_open_prompt")
+            passphrase = self._ask_passphrase(
+                "sec.backup_open_prompt",
+                note_key="sec.backup_needs_creation_password")
             if passphrase is None:
                 self._say(self._t.gettext("sec.restore_cancelled"))
                 return
@@ -437,7 +501,7 @@ class BackupPage(_Page):
                       .replace("{v}", str(check.schema_version)))
         else:
             self._say(self._t.gettext("sec.check_bad").replace("{file}", label)
-                      .replace("{reason}", check.reason), bad=True)
+                      .replace("{reason}", self._refusal(check)), bad=True)
 
     def _restore(self) -> None:
         name = self._pick("sec.restore_from_file")
@@ -449,7 +513,9 @@ class BackupPage(_Page):
 
         passphrase = None
         if backup_crypto.looks_encrypted(name):
-            passphrase = self._ask_passphrase("sec.backup_open_prompt")
+            passphrase = self._ask_passphrase(
+                "sec.backup_open_prompt",
+                note_key="sec.backup_needs_creation_password")
             if passphrase is None:
                 self._say(self._t.gettext("sec.restore_cancelled"))
                 return
@@ -457,12 +523,13 @@ class BackupPage(_Page):
         label = Path(name).name
         if not check.ok:
             # Refused before anything is touched, and the reason is named.
+            reason = self._refusal(check)
             self._say(self._t.gettext("sec.check_bad").replace("{file}", label)
-                      .replace("{reason}", check.reason), bad=True)
+                      .replace("{reason}", reason), bad=True)
             QMessageBox.critical(self, self._t.gettext("sec.restore"),
                                  self._t.gettext("sec.restore_refused")
                                  .replace("{file}", label)
-                                 .replace("{reason}", check.reason))
+                                 .replace("{reason}", reason))
             return
         if self._database_path is None:
             self._say(self._t.gettext("sec.restore_no_target"), bad=True)
@@ -471,16 +538,19 @@ class BackupPage(_Page):
         message = (self._t.gettext("sec.restore_confirm")
                    .replace("{file}", label)
                    .replace("{v}", str(check.schema_version)))
-        if not confirm_sensitive(self, self._ctx, self._t,
-                                 title_key="sec.restore",
-                                 message=message,
-                                 confirm_key="sec.restore_confirm_button",
-                                 action="backup.restore"):
+        owner_password = verified_password(
+            self, self._ctx, self._t, title_key="sec.restore", message=message,
+            confirm_key="sec.restore_confirm_button", action="backup.restore")
+        if owner_password is None:
             self._say(self._t.gettext("sec.restore_cancelled"))
             return
         try:
             result = self._ctx.safe_restore.restore(
-                name, self._database_path, confirmed=True, passphrase=passphrase)
+                name, self._database_path, confirmed=True, passphrase=passphrase,
+                # The copy taken of the CURRENT database is customer data too,
+                # and it used to be written as a plain readable .db. It is now
+                # locked with the password the owner has just proved.
+                safety_passphrase=owner_password)
         except ZenithError as exc:
             self._say(getattr(exc, "user_message", str(exc)), bad=True)
             QMessageBox.critical(self, self._t.gettext("sec.restore"),
@@ -604,11 +674,17 @@ class LicensePage(_Page):
         self._keys["license_id"].setText(state.license_id or "—")
         self._keys["issued_to"].setText(state.issued_to or "—")
         self._keys["issued_at"].setText(state.issued_at or "—")
+        # "Never" is a statement about a licence that exists and has no end date.
+        # With no licence there is nothing to expire, and "Never" read as a
+        # promise of permanent entitlement the installation does not have.
+        expiry = state.expires_at or state.demo_expires_on
         self._keys["expires"].setText(
-            state.expires_at or state.demo_expires_on or self._t.gettext("sec.lic_never"))
+            expiry if expiry else (self._t.gettext("sec.lic_never") if state.license_id
+                                   else self._t.gettext("sec.lic_not_applicable")))
+        from zenith_business.ui.components import license_summary
+
         self._banner.setText(state.detail or "")
-        self._say(self._ctx.licensing.summary(),
-                  bad=not state.allows_workspace)
+        self._say(license_summary(self._t, state), bad=not state.allows_login)
 
     def _make_request(self) -> None:
         from pathlib import Path
@@ -619,9 +695,9 @@ class LicensePage(_Page):
         if not name:
             return
         try:
-            business = self._ctx.settings_repo.get("company.name") or ""
-            path = self._ctx.licensing.create_activation_request(
-                name, business_name=business)
+            # The service resolves the customer's OWN business name, or leaves
+            # it unset — never a sample name and never the product's.
+            path = self._ctx.licensing.create_activation_request(name)
         except OSError as exc:
             self._say(str(exc), bad=True)
             return

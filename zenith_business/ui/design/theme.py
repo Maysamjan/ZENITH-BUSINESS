@@ -305,6 +305,20 @@ def build_stylesheet() -> str:
     QLineEdit[size="compact"]:focus, QComboBox[size="compact"]:focus {{
         background-color: {c.SURFACE}; color: {c.TEXT_PRIMARY}; border: 1px solid {c.PRIMARY};
     }}
+    QPushButton[variant="link"] {{
+        background: transparent; border: none; padding: 2px 0;
+        color: {c.PRIMARY}; font-size: {t.SIZE_SECONDARY}pt; text-align: left;
+    }}
+    QPushButton[variant="link"]:hover {{ text-decoration: underline; }}
+    /* A secret shown once, meant to be read off the screen and written down. */
+    QLabel[role="code"] {{
+        font-family: "Consolas", "Courier New", monospace;
+        font-size: {t.SIZE_TOTAL}pt; font-weight: {t.WEIGHT_BOLD};
+        letter-spacing: 2px; color: {c.TEXT_PRIMARY};
+        background: {c.SURFACE_ALT}; border: 1px solid {c.BORDER};
+        border-radius: 6px; padding: 8px 12px;
+    }}
+    QLabel[role="success"] {{ color: {c.SUCCESS}; font-size: {t.SIZE_SECONDARY}pt; }}
     QLabel[role="muted"] {{ color: {c.TEXT_MUTED}; }}
     QLabel[role="secondary"] {{ color: {c.TEXT_SECONDARY}; font-size: {t.SIZE_SECONDARY}pt; }}
     QLabel[role="error"] {{ color: {c.DANGER}; font-size: {t.SIZE_SECONDARY}pt; }}

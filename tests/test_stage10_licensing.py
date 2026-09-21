@@ -65,12 +65,31 @@ def _licence(keys, this_machine, **kw) -> str:
                         machine_traits=this_machine.traits, **kw)
 
 
+#: Same thing, named for readability where the machine is deliberately another one.
+_licence_for = _licence
+
+
+@pytest.fixture
+def other_machine():
+    return machine.collect(PRODUCT_ID, overrides=OTHER_PC)
+
+
 # ---- the happy path ------------------------------------------------------
 
-def test_no_licence_file_is_demo_not_an_error(service):
+def test_no_licence_file_is_UNLICENSED_and_stops_at_activation(service):
+    """It used to be a free 30-day demo, which made the gate pointless.
+
+    A demo is something the vendor issues and signs. The absence of any licence
+    is an installation that has not been activated: not an error, not an
+    entitlement, and never a way past the activation screen.
+    """
     state = service.evaluate()
-    assert state.status == LicenseStatus.DEMO
-    assert state.allows_workspace is True
+    assert state.status == LicenseStatus.UNLICENSED
+    assert state.reason == LicenseReason.NO_LICENSE_FILE
+    assert state.allows_login is False
+    assert state.allows_workspace is False
+    # The machine id is still shown, because activating is what happens next.
+    assert state.machine_short
 
 
 def test_a_licence_for_this_machine_activates(service, keys, this_machine, tmp_path):
@@ -289,8 +308,8 @@ def test_no_module_in_the_application_package_can_sign():
 # ---- demo ----------------------------------------------------------------
 
 class _Settings:
-    def __init__(self, started=None):
-        self._v = {"license.demo_started_at": started} if started else {}
+    def __init__(self, **values):
+        self._v = dict(values)
 
     def get(self, key, default=None):
         return self._v.get(key, default)
@@ -299,42 +318,82 @@ class _Settings:
         self._v[key] = value
 
 
-def test_demo_reports_its_remaining_days(tmp_path, keys):
+def _demo(keys, this_machine, *, days: int):
+    """A signed DEMO licence that runs out ``days`` from today."""
     from datetime import date, timedelta
 
-    started = (date.today() - timedelta(days=10)).isoformat()
-    service = LicenseService(license_dir=tmp_path, public_key=keys[1],
-                             settings_repo=_Settings(started),
-                             demo_policy=DemoPolicy(days=30),
-                             machine_overrides=THIS_PC)
-    state = service.evaluate()
+    return _licence(keys, this_machine, license_type=TYPE_DEMO,
+                    license_id="ZB-DEMO-000001",
+                    expires_at=(date.today() + timedelta(days=days)).isoformat())
+
+
+def test_a_signed_demo_licence_activates_and_reports_its_remaining_days(
+        service, keys, this_machine, tmp_path):
+    path = tmp_path / "demo.zlic"
+    path.write_text(_demo(keys, this_machine, days=20))
+    state = service.import_license(path)
     assert state.status == LicenseStatus.DEMO
+    assert state.license_type == TYPE_DEMO
+    assert state.allows_login is True
     assert state.demo_days_left == 20
+    assert state.demo_expires_on
 
 
-def test_an_expired_demo_blocks_the_workspace_but_destroys_nothing(tmp_path, keys):
-    service = LicenseService(license_dir=tmp_path, public_key=keys[1],
-                             settings_repo=_Settings("2000-01-01"),
-                             demo_policy=DemoPolicy(days=30),
-                             machine_overrides=THIS_PC)
+def test_a_demo_is_machine_bound_exactly_like_a_full_licence(
+        service, keys, other_machine, tmp_path):
+    from datetime import date, timedelta
+
+    path = tmp_path / "demo.zlic"
+    path.write_text(_licence_for(keys, other_machine, license_type=TYPE_DEMO,
+                                 expires_at=(date.today()
+                                             + timedelta(days=20)).isoformat()))
+    with pytest.raises(LicenseError):
+        service.import_license(path)
+    assert service._evaluate_text(path.read_text()).reason == LicenseReason.WRONG_MACHINE
+
+
+def test_an_expired_demo_blocks_login_but_destroys_nothing(
+        service, keys, this_machine, tmp_path):
+    service.license_path.parent.mkdir(parents=True, exist_ok=True)
+    service.license_path.write_text(_demo(keys, this_machine, days=-1))
     state = service.evaluate()
     assert state.status == LicenseStatus.DEMO_EXPIRED
-    assert state.allows_workspace is False
-    # the machine id is still shown, so the customer can still activate
+    assert state.reason == LicenseReason.DEMO_PERIOD_OVER
+    assert state.allows_login is False
+    # The licence file itself is untouched — nothing is deleted or rewritten.
+    assert service.license_path.is_file()
+    # and the machine id is still shown, so the customer can still activate
     assert state.machine_short
 
 
-def test_the_demo_clock_cannot_be_reset_by_restarting(tmp_path, keys):
-    settings = _Settings()
-    first = LicenseService(license_dir=tmp_path, public_key=keys[1],
-                           settings_repo=settings, machine_overrides=THIS_PC)
-    first.evaluate()
-    recorded = settings.get("license.demo_started_at")
-    assert recorded
-    second = LicenseService(license_dir=tmp_path, public_key=keys[1],
-                            settings_repo=settings, machine_overrides=THIS_PC)
-    second.evaluate()
-    assert settings.get("license.demo_started_at") == recorded
+def test_an_expired_demo_cannot_be_imported(service, keys, this_machine, tmp_path):
+    path = tmp_path / "old-demo.zlic"
+    path.write_text(_demo(keys, this_machine, days=-3))
+    with pytest.raises(LicenseError):
+        service.import_license(path)
+    assert not service.license_path.exists()
+
+
+def test_a_demo_that_expires_today_is_still_good_all_day(
+        service, keys, this_machine):
+    """A bare date means the END of that day, which is how a customer reads it."""
+    service.license_path.parent.mkdir(parents=True, exist_ok=True)
+    service.license_path.write_text(_demo(keys, this_machine, days=0))
+    state = service.evaluate()
+    assert state.status == LicenseStatus.DEMO
+    assert state.demo_days_left == 0
+
+
+def test_deleting_the_licence_does_not_start_a_fresh_demo(
+        service, keys, this_machine, tmp_path):
+    """The old bug in reverse: removing files must not buy another 30 days."""
+    path = tmp_path / "demo.zlic"
+    path.write_text(_demo(keys, this_machine, days=20))
+    service.import_license(path)
+    service.license_path.unlink()
+    state = service.evaluate()
+    assert state.status == LicenseStatus.UNLICENSED
+    assert state.allows_login is False
 
 
 # ---- activation request --------------------------------------------------
