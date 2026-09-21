@@ -37,10 +37,8 @@ Nothing is installed on your PC. Everything lives inside this one folder. You do
 
 > **This build has no vendor key embedded yet**, so it stops at the Activation
 > screen and reads *Unlicensed build*. That is section 3A below working as
-> intended, and it is the one part you can test today. To unlock the rest, run
-> `python tools/zenith_license_tool.py generate` on your own PC and send the
-> `PUBLIC KEY:` line to your developer — the next build will accept the licences
-> you sign.
+> intended, and it is the one part you can test today. Everything behind the
+> gate needs a signed licence; contact Zenith Soft for one.
 
 > Windows SmartScreen may show a "Windows protected your PC" notice the first
 > time (the test build is not code-signed). Click **More info → Run anyway**.

@@ -816,3 +816,66 @@ def test_every_licence_state_has_a_dari_sentence(shop, qapp):
         text = license_summary(Translator(LANG_DARI), _State(status))
         assert text and not text.startswith("lic."), f"{status} has no Dari wording"
         assert text.isascii() is False, f"{status} fell back to English"
+
+
+# ==========================================================================
+# 12. what the package may contain, checked before the build finds out
+# ==========================================================================
+
+#: Files the packaging step copies into dist/package verbatim, alongside the
+#: frozen application and the seeded database.
+_SHIPPED_EXTRAS = ("packaging/Run-ZenithBusiness.bat",
+                   "packaging/Reset-Test-Data.bat",
+                   "packaging/READ-ME-FIRST.md")
+
+
+def _repo_root() -> Path:
+    import zenith_business
+
+    return Path(zenith_business.__file__).parent.parent
+
+
+def test_nothing_that_ships_names_the_vendor_tool():
+    """A customer package must not document the vendor tool, let alone carry it.
+
+    The release auditor already fails the build on this, and it did — on a note
+    added to READ-ME-FIRST telling the owner how to generate a signing key. The
+    rule was right: that file ships to customers. This catches it in seconds
+    instead of four minutes into a Windows build.
+    """
+    root = _repo_root()
+    targets = [root / name for name in _SHIPPED_EXTRAS]
+    targets += list((root / "zenith_business").rglob("*.py"))
+    for path in targets:
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        assert "zenith_license_tool" not in text, f"{path} names the vendor tool"
+        assert "license_signing" not in text, f"{path} names the test signing tooling"
+
+
+def test_the_verbatim_shipped_files_pass_the_release_auditors_own_rules():
+    """Apply the auditor's hard rules to the files it will actually read as text.
+
+    Scope matters here, and getting it wrong is what this docstring is for. The
+    three files below are copied into the package byte for byte, so the rules
+    apply to them exactly as the auditor will apply them. Our ``.py`` modules
+    are NOT in that category: PyInstaller zlib-compresses them into the archive,
+    so their strings are invisible to a byte scan — which is why
+    ``license_format.py`` may show the licence-file shape in its own docstring
+    without that ever reaching the package as readable text.
+    """
+    import importlib.util
+
+    root = _repo_root()
+    spec = importlib.util.spec_from_file_location(
+        "audit_release_package", root / "packaging" / "audit_release_package.py")
+    auditor = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(auditor)
+
+    for name in _SHIPPED_EXTRAS:
+        path = root / name
+        assert path.is_file(), f"{name} is listed as shipped but does not exist"
+        data = path.read_bytes()
+        for label, pattern, why in auditor.FORBIDDEN:
+            assert not pattern.search(data), f"{path}: {label} — {why}"
