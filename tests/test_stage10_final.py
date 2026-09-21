@@ -1268,3 +1268,82 @@ def test_latin_tokens_inside_dari_text_are_isolated(shop):
         position = dari.index("ZB1-")
         assert dari[position - 1] == "⁦", f"{key}: no isolate before ZB1-"
         assert dari[position + 4] == "⁩", f"{key}: no isolate after ZB1-"
+
+
+def test_no_new_style_may_touch_letter_spacing():
+    """The owner asked twice for the fonts to be left alone. This is the line.
+
+    Font family was the first mistake; the second was subtler and just as
+    visible — bold, a bigger size and 2px of letter-spacing on the code label.
+    Letter-spacing in Arabic script forces gaps between letters that must join,
+    so Dari renders disconnected and reads as a different typeface even with the
+    family untouched.
+
+    Six rules carry letter-spacing and have since Stage 02; they are brand
+    wordmarks and section eyebrows the owner has seen in every build since.
+    They stay. Nothing may be ADDED to that list, and the code label — the one
+    that caused this — must never be on it.
+    """
+    import re
+
+    from zenith_business.ui.design.theme import build_stylesheet
+
+    allowed = {
+        "QLabel#BrandWordmark", 'QLabel[role="eyebrow"]',
+        'QLabel[role="brand-title"]', "QLabel#AuthBrandCompany",
+        "QLabel#AuthContactLabel", "QLabel#AuthProduct",
+    }
+    sheet = re.sub(r"/\*.*?\*/", "", build_stylesheet(), flags=re.S)
+    found = set()
+    for block in re.finditer(r"([^{}]+)\{([^{}]*)\}", sheet):
+        selector, body = block.group(1).strip(), block.group(2)
+        if "letter-spacing" in body:
+            found.add(selector.splitlines()[-1].strip())
+    unexpected = found - allowed
+    assert not unexpected, f"new letter-spacing added: {sorted(unexpected)}"
+    assert not any("code" in s for s in found), "the code label must not space letters"
+
+
+def test_font_sizes_only_come_from_the_token_scale():
+    import re
+
+    from zenith_business.ui.design.theme import build_stylesheet
+    from zenith_business.ui.design.tokens import Typography
+
+    sheet = re.sub(r"/\*.*?\*/", "", build_stylesheet(), flags=re.S)
+    allowed = {float(getattr(Typography, name)) for name in dir(Typography)
+               if name.startswith("SIZE_")}
+    # Two literals predate the token scale, both from Stage 01B's home screen.
+    # They are named rather than removed: the owner has seen them in every build
+    # since, and this test exists to stop NEW sizes appearing, not to restyle
+    # screens that were signed off long ago.
+    legacy = {34.0, 40.0}
+    sizes = {float(s) for s in re.findall(r"font-size:\s*([0-9.]+)pt", sheet)}
+    unexpected = sizes - allowed - legacy
+    assert not unexpected, f"new hard-coded font sizes: {sorted(unexpected)}"
+    # And the legacy list must not quietly grow by someone adding to it.
+    assert sizes - allowed == legacy
+
+
+def test_the_code_label_only_styles_its_box():
+    """A machine id stands out because of the panel, not because of its font.
+
+    Asserted against the stylesheet rule itself rather than a rendered widget.
+    The first version of this test compared the machine id with a nearby hint
+    label — which carries ``role="secondary"`` and is legitimately 9pt — so it
+    passed alone (no stylesheet applied) and failed in the full suite. The rule
+    is the contract: this selector sets colour and a box, and no typography.
+    """
+    import re
+
+    from zenith_business.ui.design.theme import build_stylesheet
+
+    sheet = re.sub(r"/\*.*?\*/", "", build_stylesheet(), flags=re.S)
+    match = re.search(r'QLabel\[role="code"\]\s*\{([^}]*)\}', sheet)
+    assert match, 'the role="code" rule is missing'
+    body = match.group(1)
+    for banned in ("font-family", "font-size", "font-weight", "font-style",
+                   "letter-spacing", "word-spacing", "text-transform"):
+        assert banned not in body, f'role="code" sets {banned}'
+    # It still has to look like a panel, or it is not doing its job.
+    assert "background" in body and "border" in body

@@ -307,19 +307,24 @@ def build_stylesheet() -> str:
     }}
     QPushButton[variant="link"] {{
         background: transparent; border: none; padding: 2px 0;
-        color: {c.PRIMARY}; font-size: {t.SIZE_SECONDARY}pt; text-align: left;
+        color: {c.PRIMARY}; text-align: left;
     }}
     QPushButton[variant="link"]:hover {{ text-decoration: underline; }}
-    /* A secret shown once, meant to be read off the screen and written down.
-       It deliberately does NOT override the typeface: the whole application is
-       pinned to the bundled Vazirmatn, and this rule briefly carried the only
-       exception in the codebase. A monospace stack would also have had no
-       Persian glyphs, so a Dari screen would have fallen back to whatever
-       Windows chose — the silent substitution Stage 08 went to some trouble to
-       stop. Size, weight and letter-spacing carry the emphasis instead. */
+    /* A value meant to be read off the screen and copied — a machine id, a
+       recovery code.
+
+       It changes NO typography at all: not the family, not the size, not the
+       weight, not the spacing. The first version set a monospace family, which
+       had no Persian glyphs. The second removed the family but kept bold, a
+       larger size and 2px of letter-spacing — and letter-spacing is worse than
+       it sounds in Arabic script, because it forces gaps between letters that
+       must join, so Dari text renders disconnected and reads as a different
+       typeface even though the family is identical.
+
+       Emphasis comes from the panel around the value instead. A border is not
+       a font. */
     QLabel[role="code"] {{
-        font-size: {t.SIZE_TOTAL}pt; font-weight: {t.WEIGHT_BOLD};
-        letter-spacing: 2px; color: {c.TEXT_PRIMARY};
+        color: {c.TEXT_PRIMARY};
         background: {c.SURFACE_ALT}; border: 1px solid {c.BORDER};
         border-radius: 6px; padding: 8px 12px;
     }}
