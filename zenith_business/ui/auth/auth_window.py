@@ -195,7 +195,9 @@ class AuthWindow(QDialog):
         # is no path from it to the login form except a licence that evaluates
         # to FULL or DEMO, which is what makes the gate a gate.
         self._activation_page = ActivationPage(
-            self._t, on_make_request=self._handle_make_request,
+            self._t, on_activate=self._handle_activate,
+            on_copy_request=self._handle_copy_request,
+            on_make_request=self._handle_make_request,
             on_import=self._handle_import_license, on_recheck=self._handle_recheck)
         self._setup_page = InitialAdminSetupPage(self._t, self._handle_setup)
         self._login_page = LoginPage(self._t, self._handle_login,
@@ -292,6 +294,66 @@ class AuthWindow(QDialog):
             self._show_page(self._login_page)
             self._login_page.focus_first()
 
+    def _handle_copy_request(self) -> None:
+        """Put the request code on the clipboard — the normal first step."""
+        from PyQt6.QtWidgets import QApplication
+
+        licensing = getattr(self._ctx, "licensing", None)
+        if licensing is None:                       # pragma: no cover
+            return
+        try:
+            code = licensing.request_code()
+        except Exception as exc:                    # pragma: no cover - defensive
+            self._activation_page.say(str(exc), bad=True)
+            return
+        clipboard = QApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(code)
+        _logger.info("Request code copied for machine %s.",
+                     licensing.machine.short)
+        self._activation_page.say(self._t.gettext("act.request_copied"))
+
+    def _handle_activate(self, product_key: str) -> None:
+        """Paste in, licence out. The path almost every customer will use."""
+        licensing = getattr(self._ctx, "licensing", None)
+        if licensing is None:                       # pragma: no cover
+            return
+        try:
+            state = licensing.import_product_key(product_key)
+        except Exception as exc:                    # LicenseError is not a ZenithError
+            self._activation_page.show_state(licensing.evaluate())
+            self._activation_page.set_error(self._licence_message(exc))
+            return
+        _logger.info("Activated by product key at the gate: %s (%s)",
+                     state.license_id, state.status)
+        self._activation_page.clear_key()
+        self._announce_activation(state)
+
+    def _licence_message(self, exc: Exception) -> str:
+        """Say a licensing refusal in the language on screen.
+
+        The service raises an English sentence and, where it can, a catalogue
+        key. The key wins when the catalogue knows it; otherwise the English is
+        still better than nothing, which is what a missing translation would
+        otherwise leave the customer with.
+        """
+        key = getattr(exc, "key", None)
+        if key:
+            translated = self._t.gettext(key)
+            if translated != key:
+                return translated
+        return getattr(exc, "user_message", str(exc))
+
+    def _announce_activation(self, state) -> None:
+        from PyQt6.QtWidgets import QMessageBox
+
+        QMessageBox.information(
+            self, self._t.gettext("act.title"),
+            self._t.gettext("act.activated").replace("{id}", state.license_id))
+        self._footer.setText(self._version_text())
+        # Straight on to setup or login — activation is not a destination.
+        self._show_initial_page()
+
     def _handle_recheck(self) -> None:
         state = self.license_state()
         if state is None or state.allows_login:
@@ -343,19 +405,14 @@ class AuthWindow(QDialog):
         try:
             state = licensing.import_license(name)
         except Exception as exc:                    # LicenseError is not a ZenithError
-            message = getattr(exc, "user_message", str(exc))
+            message = self._licence_message(exc)
             self._activation_page.say(message, bad=True)
             self._activation_page.show_state(licensing.evaluate())
             QMessageBox.critical(self, self._t.gettext("act.import"), message)
             return
         _logger.info("Licence imported at the gate: %s (%s)",
                      state.license_id, state.status)
-        QMessageBox.information(
-            self, self._t.gettext("act.import"),
-            self._t.gettext("act.activated").replace("{id}", state.license_id))
-        self._footer.setText(self._version_text())
-        # Straight on to setup or login — activation is not a destination.
-        self._show_initial_page()
+        self._announce_activation(state)
 
     def _handle_setup(self, values: dict) -> None:
         if values["password"] != values["confirm_password"]:

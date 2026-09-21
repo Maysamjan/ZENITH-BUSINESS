@@ -41,8 +41,13 @@ import hashlib
 import json
 import secrets
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
+
+# The tool imports the customer-side CODEC so both sides pack the same bytes;
+# it never imports anything that could verify or bypass, and the codec holds no
+# keys. Signing stays here, in the file that never ships.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # ---------------------------------------------------------------------------
 # Ed25519 (RFC 8032) — signing side. Standard library only.
@@ -204,9 +209,112 @@ def cmd_sign(args) -> int:
     return 0
 
 
+def cmd_issue(args) -> int:
+    """Turn a customer's Request Code into a Product Key they can paste.
+
+    This is the normal path now, and it needs no files in either direction: the
+    customer sends you a line of text, you send one back. The licence it
+    produces is the same signed, machine-bound licence ``sign`` produces — same
+    Ed25519 signature, same binding, same expiry — only packed for copying.
+
+    DEMO length is decided **here**, by you. The customer application has no
+    say in it and no way to extend it.
+    """
+    from zenith_business.security import product_key
+
+    seed = _load_key(Path(args.key))
+    try:
+        request = product_key.decode_request(args.request)
+    except Exception as exc:
+        raise SystemExit(f"That request code could not be read: {exc}")
+
+    issued_at = args.issued_at or date.today().isoformat()
+    expires = args.expires
+    if not expires and args.type.upper() == "DEMO":
+        if not args.days:
+            raise SystemExit("A DEMO licence needs --days (or --expires).")
+        expires = (date.today() + timedelta(days=int(args.days))).isoformat()
+
+    payload = product_key.build_license_payload(
+        license_type=args.type.upper(), fingerprint=request.fingerprint,
+        traits=request.traits, issued_at=issued_at, expires_at=expires or None,
+        serial=int(args.serial), issued_to=args.issued_to)
+    key = product_key.encode_license(payload, sign(seed, payload))
+
+    print()
+    print("  machine   :", request.machine_short)
+    print("  customer  :", args.issued_to or "(not set)")
+    if args.phone:
+        print("  phone     :", args.phone)
+    if args.city:
+        print("  city      :", args.city)
+    print("  type      :", args.type.upper())
+    print("  issued    :", issued_at)
+    print("  expires   :", expires or "never")
+    print("  licence id: ZB-%s-%06d" % (args.type.upper(), int(args.serial)))
+    print()
+    print("PRODUCT KEY — send this line to the customer:")
+    print()
+    print(key)
+    print()
+    if args.out:
+        Path(args.out).write_text(key + "\n", encoding="utf-8")
+        print("Also written to:", Path(args.out).resolve())
+    if args.history:
+        _append_history(Path(args.history), {
+            "issued_at": issued_at, "machine": request.machine_short,
+            "customer": args.issued_to, "phone": args.phone, "city": args.city,
+            "type": args.type.upper(), "expires": expires or "",
+            "license_id": "ZB-%s-%06d" % (args.type.upper(), int(args.serial)),
+        })
+        print("History updated:", Path(args.history).resolve())
+    return 0
+
+
+def _append_history(path: Path, row: dict) -> None:
+    """Keep a vendor-side record of what was issued to whom.
+
+    Vendor-side only, and never shipped: it holds customer contact details,
+    which are exactly the sort of thing that must not travel in a build.
+    """
+    rows = []
+    if path.is_file():
+        try:
+            rows = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            rows = []
+    rows.append(row)
+    path.write_text(json.dumps(rows, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8")
+
+
 def cmd_show(args) -> int:
     """Print what a request or licence contains, without changing anything."""
-    document = json.loads(Path(args.file).read_text(encoding="utf-8"))
+    text = Path(args.file).read_text(encoding="utf-8") if Path(args.file).is_file() \
+        else args.file
+    stripped = "".join(text.split()).upper()
+    if stripped.startswith("ZBR1-") or stripped.startswith("ZB1-"):
+        from zenith_business.security import product_key
+
+        if stripped.startswith("ZBR1-"):
+            request = product_key.decode_request(text)
+            print("Activation request")
+            print("  machine id :", request.machine_short)
+            print("  fingerprint:", request.fingerprint)
+            print("  traits     :", ", ".join(sorted(request.traits)) or "(none)")
+        else:
+            lic = product_key.decode_license(text)
+            print("Product key")
+            print("  licence id :", lic.license_id)
+            print("  type       :", lic.license_type)
+            print("  issued to  :", lic.issued_to or "(not set)")
+            print("  issued at  :", lic.issued_at)
+            print("  expires    :", lic.expires_at or "never")
+            print("  fingerprint:", lic.machine_fingerprint)
+            print("  NOTE: not verified here — only the customer build checks "
+                  "the signature.")
+        return 0
+    document = json.loads(text)
     print(json.dumps(document, indent=2, ensure_ascii=False))
     return 0
 
@@ -233,8 +341,27 @@ def main(argv=None) -> int:
     s.add_argument("--expires", default="", help="YYYY-MM-DD (omit for no expiry)")
     s.set_defaults(func=cmd_sign)
 
-    v = sub.add_parser("show", help="print a .zreq or .zlic file")
-    v.add_argument("file")
+    i = sub.add_parser("issue", help="Request Code in, Product Key out (normal path)")
+    i.add_argument("--key", required=True, help="your signing key .json")
+    i.add_argument("--request", required=True,
+                   help="the ZBR1-... code the customer sent you")
+    i.add_argument("--serial", required=True, type=int,
+                   help="licence number, e.g. 42 -> ZB-FULL-000042")
+    i.add_argument("--type", default="FULL", choices=["FULL", "DEMO"])
+    i.add_argument("--days", type=int, default=0,
+                   help="DEMO length in days — YOUR choice, not the customer's")
+    i.add_argument("--issued-to", default="", help="customer / business name")
+    i.add_argument("--phone", default="", help="recorded in history only")
+    i.add_argument("--city", default="", help="recorded in history only")
+    i.add_argument("--issued-at", default="", help="YYYY-MM-DD (default: today)")
+    i.add_argument("--expires", default="", help="YYYY-MM-DD (overrides --days)")
+    i.add_argument("--out", default="", help="also write the key to a file")
+    i.add_argument("--history", default="zenith-license-history.json",
+                   help="vendor-side record of what was issued (never shipped)")
+    i.set_defaults(func=cmd_issue)
+
+    v = sub.add_parser("show", help="print a .zreq, .zlic, request code or product key")
+    v.add_argument("file", help="a file path, or the code itself")
     v.set_defaults(func=cmd_show)
 
     args = parser.parse_args(argv)

@@ -24,10 +24,22 @@ Nothing is installed on your PC. Everything lives inside this one folder. You do
 2. Double-click **`Run-ZenithBusiness.bat`**.
 3. **The first screen is now ACTIVATION, not login.** Licensing is checked
    *before* anyone can sign in, so an unlicensed computer never reaches the
-   login form or the program behind it. The screen shows this computer's
-   **Machine ID** and offers **Generate Activation Request** and **Import
-   License**.
-4. Once a valid licence is imported, the same window moves straight on to the
+   login form or the program behind it.
+4. Activation is copy and paste — no files to save or attach:
+
+   | Step | What you do |
+   |------|-------------|
+   | 1 | Press **Copy Request Code** |
+   | 2 | Send that code to Zenith Soft (WhatsApp, SMS, email — anything) |
+   | 3 | They send back a **Product Key** |
+   | 4 | Paste it into the **Product Key** box |
+   | 5 | Press **Activate** |
+
+   The screen also shows your **Machine ID** in large text, so you can read it
+   out over the phone if you need to. If a long code ever gets mangled in a
+   message, **Advanced** still offers the original file route (`.zreq` out,
+   `.zlic` in).
+5. Once a valid licence is accepted, the same window moves straight on to the
    login screen. Sign in as the owner/administrator:
 
    | Field    | Value        |
@@ -81,13 +93,17 @@ Everything below is new. It lives under the **Tools** menu: **Backup & Restore**
 1. On a fresh install the first screen is **Activate Zenith Business**. There is
    no way past it to the login form — that is the point.
 2. It names *why*: not activated yet, licence for another computer, licence
-   altered, demo finished. Each has its own wording.
-3. **Generate Activation Request** writes a `.zreq` carrying this computer's
-   hashed traits, your business name and nothing else — no password, no key, no
-   raw hardware serial.
-4. **Import License** with the `.zlic` you receive. The window moves straight on
-   to login.
-5. Close and reopen the program: it is still activated, and the licence is
+   altered, demo finished. Each has its own wording, and a fresh install is not
+   shown as an error, because nothing is wrong with it.
+3. **Copy Request Code**, then paste it somewhere to look at it. It starts with
+   `ZBR1-` and carries this computer's hashed traits and nothing else — no
+   password, no key, no raw hardware serial, no business data.
+4. Paste the **Product Key** you receive and press **Activate**. The window
+   moves straight on to login.
+5. Things that must be refused, each with its own message: pasting your own
+   request code back, pasting anything that is not a key, a key with a
+   character changed, a half-copied key, a key issued for another computer.
+6. Close and reopen the program: it is still activated, and the licence is
    re-checked every single start.
 
 ### B. Login protection
@@ -164,9 +180,11 @@ licence type, status, Machine ID, licence details, expiry.
 There is no free period for an installation that has never been activated: it
 stops at the activation screen until a `.zlic` arrives.
 
-1. Import a **DEMO** licence: the screen shows *Demo*, the real expiry date and
-   the days remaining. The program works normally.
-2. Import a **FULL** licence: *Activated*, and the word DEMO disappears from
+1. Activate with a **DEMO** product key: the screen shows *Demo*, the real
+   expiry date and the days remaining. The program works normally. The demo
+   length is set by Zenith Soft when the key is issued — the program has no
+   setting for it and no way to extend it.
+2. Activate with a **FULL** product key: *Activated*, and the word DEMO disappears from
    every screen — activation screen, login footer, status bar and License page.
    Restart and confirm it is still FULL.
 3. **When a demo runs out** the program stops at the activation screen on the

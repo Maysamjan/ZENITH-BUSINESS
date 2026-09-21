@@ -3741,6 +3741,82 @@ install stops at activation; login unreachable) is testable today. The owner
 holds the signing key by their own choice of custody and will supply the public
 half.
 
+### 14E.10 Activation by copy and paste (owner-requested, 2026-09-21)
+
+The owner compared the activation flow with their other product and asked for
+its shape: copy a code, send it, paste a key back, activate. They were right.
+The first version made a customer save a `.zreq`, attach it, receive a `.zlic`,
+find it on disk and import it — four file operations for someone who only wants
+to start work.
+
+**Nothing about the security model changed.** A Product Key is the same
+Ed25519-signed, machine-bound licence a `.zlic` holds; only the packaging is
+different. Same signature, same machine binding, same expiry, same
+public-key-only verification, same refusals.
+
+#### Two codes
+
+`ZBR1-…` **Request Code** carries this machine's fingerprint and hashed traits
+— exactly what the `.zreq` carried, in one line. A short Machine ID alone would
+not do: the traits are what let a licence survive a disk swap, and they cannot
+be recovered from a truncated id. It is not secret and not signed, so it carries
+a CRC — a code mangled in a WhatsApp message is caught **before** the vendor
+issues a licence against a machine that does not exist.
+
+`ZB1-…` **Product Key** is the signed licence, about 250 characters. That is
+meant to be pasted, not typed, and the paste box shows three lines so a customer
+can see the whole key arrived rather than learning it was truncated from a
+signature failure.
+
+Why so long: an Ed25519 signature is 64 bytes and cannot be shortened, so the
+floor is ~105 base32 characters before any licence content. The payload is packed
+binary rather than JSON — base64 of the JSON ran past a thousand characters.
+
+#### One judgement, two shapes
+
+`parse_any_license` returns the same interface for both, so `evaluate()`
+verifies and judges them through **one** code path. Two judgement routines for
+two shapes is exactly how a second one ends up missing a check.
+
+The trait comparison now accepts a prefix, because a Product Key packs each
+trait into four bytes to stay short. This is a bounded weakening of a
+*tolerance* check, not of the binding: a 32-bit prefix collides about once in
+four billion, and only ever matters on a machine that has already failed the
+128-bit fingerprint comparison.
+
+#### Vendor side
+
+`tools/zenith_license_tool.py issue` takes a Request Code and prints a Product
+Key — no files in either direction. It records customer, phone and city to a
+vendor-side history file that is never shipped. **DEMO length is the vendor's
+choice** (`--days`), carried in the signed payload; the customer application has
+no setting for it and no way to extend it.
+
+The private key never leaves the vendor side. The codec the application ships
+holds no keys and cannot sign, which a test asserts against its source.
+
+#### Three defects found by reading the rendered screens
+
+* **The Dari UI reported refusals in English.** The service raises English
+  strings, so `LicenseError` now carries a catalogue key and the screen
+  translates it, with the English kept as the fallback for the log and the
+  vendor tool.
+* **`ZB1-` rendered as `-ZB1` in Dari.** The bidi algorithm reorders a trailing
+  hyphen, so the message told the customer their key starts with the wrong
+  thing. Fixed with Unicode directional isolates, pinned by a test.
+* **A fresh install showed its instructions in red**, which reads as a fault
+  when nothing is wrong. Red is now reserved for a licence that was refused.
+
+Two behaviours were also *discovered* rather than designed, and are recorded so
+nobody later reads them as bugs: a paste survives line breaks, lower case and a
+lost separator after the prefix; and changing only the final character of a key
+may leave it valid, because the payload length is not a multiple of five bytes
+so that character carries dead bits — the signature covers the decoded bytes, so
+an attacker gains nothing from a key that decodes to the licence they had.
+
++39 tests. The file route stays under **Advanced**: a long code can be mangled
+by an email client and a file cannot.
+
 ### 14E.6 Known limitations (carried into review)
 
 * **No vendor key is embedded yet.** The build reports *Unlicensed build* and
@@ -3775,6 +3851,7 @@ half.
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-09-21 | 6.5 | **Stage 10 — activation by copy and paste (still NOT locked, NOT merged).** The owner compared the flow with their other product and asked for its shape, and they were right: the first version made a customer save a `.zreq`, attach it, receive a `.zlic`, find it on disk and import it — four file operations for someone who only wants to start work. Activation is now **copy a code, send it, paste a key, activate**, with the file route folded away under Advanced because a long code can be mangled by an email client and a file cannot. **Nothing about the security model changed:** a Product Key is the same Ed25519-signed, machine-bound licence a `.zlic` holds, with the same signature, binding, expiry, refusals and public-key-only verification — only the packaging differs, and `parse_any_license` feeds both shapes through **one** evaluation so a second judgement routine cannot drift from the first. A `ZBR1-` request code carries the fingerprint and hashed traits (a short Machine ID could not: the traits are what let a licence survive a disk swap) plus a CRC, so a code mangled in a message is caught **before** the vendor issues a licence against a machine that does not exist. A `ZB1-` key is ~250 characters, because an Ed25519 signature is 64 bytes and cannot be shortened; the payload is packed binary rather than JSON, which ran past a thousand. Trait comparison now accepts a prefix, since a key packs each trait into four bytes — a bounded weakening of a *tolerance* check that only ever matters on a machine which already failed the 128-bit fingerprint. Vendor side gains `issue`, which takes a request code and prints a key with **the vendor choosing the DEMO length**, and records customer/phone/city to a history file that never ships. **Three defects found by reading the rendered screens:** the Dari UI reported every refusal in English, so `LicenseError` now carries a catalogue key; `ZB1-` rendered as `-ZB1` because bidi reorders a trailing hyphen, fixed with directional isolates; and a fresh install showed its instructions in red, which reads as a fault when nothing is wrong. Two behaviours were discovered rather than designed and are recorded so they are not later mistaken for bugs: a paste survives line breaks, case and a lost separator; and the final character of a key carries dead bits, so changing only those leaves the same licence — the signature covers the decoded bytes. +33 tests. See §14E.10. |
 | 2026-09-21 | 6.4 | **Stage 10 — final real-Windows fixes (still NOT locked, NOT merged).** Ten issues from the owner testing the packaged build, one of them architectural: **the licence gate was in the wrong place.** Licensing was a screen under Tools, so an unlicensed installation reached login and the whole workspace and looked at its licence afterwards — a gate behind an open door. Activation is now a page in the same window as login, in front of it, with no route to the login form except a licence that evaluates FULL or DEMO, re-asked on the way through because a licence can lapse while the screen sits open. **A missing licence is no longer a free demo:** `NO_LICENSE_FILE` used to grant 30 days from a settings row, so deleting the licence granted access; there is now an `UNLICENSED` status, and a demo is a vendor-signed, machine-bound licence with its own expiry like any other. **A clock a demo cannot be cheated out of:** the installation remembers the latest moment it has ever seen and never believes an earlier one, kept in a DPAPI-sealed file, a database mirror and the licence's own signed `issued_at` as a floor, highest of the three winning — and an expiry that falls while the program is open returns it to activation within a minute instead of waiting for a restart. **The Persian-keyboard inconsistency was real and was not a keyboard conversion:** creating a backup never verified the typed text against the account despite its docstring claiming so, so a backup made under a Persian layout was locked with a string the owner never chose — which Check accepted (it *was* the passphrase) and Restore refused (it also re-authenticates). Creating a backup now verifies first and refuses otherwise. Also: the pre-restore safety copy is no longer a plain readable `.db` of the live books; `bad_passphrase` no longer reaches the screen, replaced by a message naming all three causes in EN and Dari; "Expires: Never" with no licence became "—"; every screen reads one evaluated status and now words it from the catalogue, so Dari stops reporting its licence in English; activation requests carry the customer's real business name or none at all; and recovery, built in Stage 10 behind no button, is now on the login screen and in My Account. **Honest limit recorded:** anti-rollback raises the cost of a clock change, it does not prevent one — a local Administrator can delete both stores, and only the signed floor survives that. +53 tests; **907 pass**, schema v13 (no migration). Acceptance items B–H sit behind the gate and need the owner's vendor key before they can be run on the real build. See §14E.9. |
 | 2026-09-20 | 6.3 | **Stage 10 — lockout polish (still NOT locked, NOT merged).** The owner asked what the lockout actually does before asking for anything to change, and reading it out on a real on-disk database found a defect the code review had missed: **waiting out the fifteen minutes did not give the five attempts back.** Clearing a lock moved `is_locked` and `locked_until` but left `failed_login_attempts` at the threshold, so the next single wrong password re-locked the account for another full quarter of an hour — the owner served the wait and got one try, not five, and each further typo cost another fifteen minutes, which is indistinguishable from an account that has stopped working. Every path that lifts a lock (expiry at the login screen, expiry during sensitive-action re-authentication, and a recovery code) now goes through one `UserRepository.clear_lockout` that clears the flags **and** the count, and writes an `auth.lockout_expired` audit entry so a lock disappearing is recorded rather than silent. The login screen now counts the wait down to the second — *"Account locked. Try again in 12m 34s."* — in EN and Dari, re-rendered on a mid-lock language switch, surviving a repeated Sign In press, and ending in the neutral colour with "the lock has ended" instead of going blank. Everything else is deliberately unchanged and pinned by tests: fifth wrong password, fifteen minutes, attempts during the lock do not extend it, the correct password is still refused while it runs, it survives app and PC restart, a successful login or recovery clears it, and an unknown username locks nothing. **Expiry is judged against the PC's own clock** — someone at the machine can end a lock early by moving the Windows clock forward, recorded as a limitation rather than claimed away. +30 tests; **853 pass**, schema v13 (no migration). See §14E.8. |
 | 2026-09-19 | 6.2 | **Stage 10 — security hardening pass (still NOT locked, NOT merged).** Seven owner-requested items. **Licence state** had two liars: the login screen printed the development-build text *unconditionally*, so an activated install said it was unlicensed at every sign-in, and the boot log reported Stage 01's dev provider; all four readers now call one source. **Backups** were plain SQLite — readable by anyone holding the USB stick and restorable after an edit — and are now AES-256-GCM `.zbak` containers with a scrypt-derived key, an authenticated-but-readable header so backups can still be listed without the passphrase, and **legacy plain backups still restore**. **The home-grown Ed25519 is deleted**: verification delegates to `cryptography` and fails closed, while the vendor tool keeps a stdlib implementation for offline use, proven byte-identical to the reference. **Migration 0013** adds an audit hash chain that locates any edited, deleted or back-inserted entry — and a **gap in it was found and closed during the pass**: verification skipped unsealed rows, so a forgery inserted between sealed entries chained around it and passed. **A package auditor** scans the assembled Windows build — including inside the frozen exe — for private keys, signing tools, generators, bypasses, backdoors and default passwords, and fails the build on any hit. Machine traits confirmed to expose no raw hardware identifier. **The auditor's own first run failed the build** on three false positives — a vendored crypto library naming its own signing classes and Qt's PEM parser holding a header literal — which is exactly why it scans the real package; it now separates key material (fails, and matches the path as well as the content) from vendored capability (reported), with eleven trials pinning both halves. Its **second** run then failed on the opposite problem — it could not find our own public-key module, because PyInstaller zlib-compresses the Python archive, so a byte scan can prove what is ABSENT from a package but never that the licence path is present and working. That half is now proved by asking the binary: `ZenithBusiness.exe --selftest` reports its crypto backend, licence state and audit-chain status, and CI fails the build unless the frozen exe reports a working state. Its **third** run failed too: the shipped exe is built windowed, where `sys.stdout` is `None` and `print` raises, so the report went nowhere and a passing self-test looked like a failure; it now writes to a file, which is the only thing CI can read from a windowed binary. +25 tests; **823 pass**, schema v13. See §14E.7. |

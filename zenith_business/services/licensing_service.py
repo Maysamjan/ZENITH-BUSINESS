@@ -55,6 +55,22 @@ from zenith_business.security.license_format import (
 
 _logger = get_logger("services.licensing")
 
+
+def parse_any_license(text: str):
+    """Read a licence in either shape it may arrive in.
+
+    A ``.zlic`` file and a pasted Product Key carry the same facts and the same
+    Ed25519 signature; only the packaging differs. Both are parsed into an
+    object exposing the same fields, so :meth:`LicenseService.evaluate` verifies
+    and judges them through **one** code path. Two judgement routines for two
+    shapes is exactly how a second one ends up missing a check.
+    """
+    from zenith_business.security import product_key
+
+    if product_key.looks_like_product_key(text):
+        return product_key.decode_license(text)
+    return parse_license(text)
+
 #: Canonical licence file name inside the licence directory.
 LICENSE_FILENAME = f"license{LICENSE_SUFFIX}"
 
@@ -165,11 +181,20 @@ class LicenseEvaluation:
 
 
 class LicenseError(Exception):
-    """Raised when an action needs an entitlement the installation does not have."""
+    """Raised when an action needs an entitlement the installation does not have.
 
-    def __init__(self, message: str, *, user_message: str | None = None) -> None:
+    ``key`` names a catalogue entry so the screen can say this in the language
+    the customer is reading. The service deliberately does not translate: it
+    would need a translator injected into a layer that has no business holding
+    one, and the English ``user_message`` remains as the fallback for callers
+    with no catalogue — the log, the self-test and the vendor tool.
+    """
+
+    def __init__(self, message: str, *, user_message: str | None = None,
+                 key: str | None = None) -> None:
         super().__init__(message)
         self.user_message = user_message or message
+        self.key = key
 
 
 class LicenseService:
@@ -263,7 +288,7 @@ class LicenseService:
                                      detail=f"License file unreadable: {exc}", **base)
 
         try:
-            lic = parse_license(text)
+            lic = parse_any_license(text)
         except LicenseFormatError as exc:
             return LicenseEvaluation(status=LicenseStatus.INVALID,
                                      reason=LicenseReason.MALFORMED,
@@ -470,6 +495,78 @@ class LicenseService:
         self._record("license.request_created", f"file={path.name}")
         _logger.info("Activation request written: %s", path)
         return path
+
+    def request_code(self) -> str:
+        """The code the customer copies and sends to the vendor.
+
+        Same content as a ``.zreq`` — this machine's fingerprint and hashed
+        traits, no secrets and no business data — in one pasteable line.
+        """
+        from zenith_business.security import product_key
+
+        me = self.machine
+        return product_key.encode_request(fingerprint=me.fingerprint,
+                                          traits=me.traits)
+
+    def import_product_key(self, text: str) -> LicenseEvaluation:
+        """Activate from a pasted Product Key.
+
+        Held to exactly the same bar as a licence file: decoded, then put
+        through the full evaluation — signature, product, type, machine, expiry
+        — and stored only if it comes back FULL or DEMO. A key that fails leaves
+        the installation on whatever licence it already had.
+        """
+        from zenith_business.security import product_key
+        from zenith_business.security.product_key import ProductKeyError
+
+        candidate = " ".join((text or "").split())
+        if not candidate:
+            raise LicenseError("No product key was entered.",
+                               user_message="Please paste your product key.",
+                               key="act.err_key_empty")
+        # Say what is actually wrong with the paste before treating it as a
+        # licence. Falling through to the file parser produced "License file is
+        # not valid JSON", which tells a customer who pasted their own request
+        # code back nothing they can act on.
+        if not product_key.looks_like_product_key(candidate):
+            squashed = "".join(candidate.split()).upper()
+            if squashed.startswith(product_key.REQUEST_PREFIX + "-"):
+                raise LicenseError(
+                    "A request code was pasted where a product key belongs.",
+                    user_message="That is your request code — the code you send "
+                                 "to Zenith Soft. Paste the product key they "
+                                 "send back, which starts with ZB1-.",
+                    key="act.err_request_pasted")
+            raise LicenseError(
+                "Text pasted is not a product key.",
+                user_message="That does not look like a product key. A product "
+                             "key starts with ZB1- and is one long line.",
+                key="act.err_not_a_key")
+        try:
+            evaluation = self._evaluate_text(candidate)
+        except ProductKeyError as exc:
+            self._record("license.import_failed", "bad product key")
+            raise LicenseError(f"Product key rejected: {exc}",
+                               user_message=str(exc), key="act.err_key_damaged")
+        if evaluation.status not in (LicenseStatus.FULL, LicenseStatus.DEMO):
+            self._record("license.import_failed", f"reason={evaluation.reason}")
+            # The reason already has its own sentence on the activation screen,
+            # so name it rather than duplicating the wording here.
+            raise LicenseError(
+                f"Product key rejected: {evaluation.reason}",
+                user_message=evaluation.detail or "This product key was rejected.",
+                key=f"act.reason_{evaluation.reason}")
+
+        self._dir.mkdir(parents=True, exist_ok=True)
+        temporary = self.license_path.with_suffix(".tmp")
+        temporary.write_text(candidate, encoding="utf-8")
+        os.replace(temporary, self.license_path)
+        self._record("license.activated",
+                     f"id={evaluation.license_id} type={evaluation.license_type}"
+                     " via=product_key")
+        _logger.info("Activated by product key: %s (%s)", evaluation.license_id,
+                     evaluation.license_type)
+        return self.evaluate()
 
     def import_license(self, source: Path | str) -> LicenseEvaluation:
         """Validate a candidate ``.zlic`` and install it **only if it is good**.

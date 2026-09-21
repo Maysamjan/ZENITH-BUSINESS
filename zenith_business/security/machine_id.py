@@ -212,11 +212,28 @@ def collect(product_id: str, *, overrides: dict[str, str | None] | None = None
 
 
 def match_score(licensed: dict[str, str], current: MachineIdentity) -> int:
-    """Total weight of the traits that still agree with the licensed machine."""
+    """Total weight of the traits that still agree with the licensed machine.
+
+    A licensed trait may be **shorter** than the one measured here: a Product
+    Key packs each trait into four bytes to stay short enough to paste, so it
+    carries the first eight hex characters rather than sixteen. A prefix match
+    is therefore accepted, and only for as many characters as the licence
+    actually committed to.
+
+    That is a deliberate, bounded weakening of a *tolerance* check, not of the
+    binding: a 32-bit prefix collides by accident about once in four billion,
+    and it can only ever matter on a machine that has already failed the
+    128-bit fingerprint comparison. The fingerprint still decides.
+    """
     score = 0
     for name, weight in TRAIT_WEIGHTS.items():
         want = licensed.get(name)
-        if want and current.traits.get(name) == want:
+        have = current.traits.get(name)
+        if not want or not have:
+            continue
+        # Never compare fewer characters than the licence committed to, and
+        # never let a one-character "trait" match anything.
+        if len(want) >= 8 and have[:len(want)] == want:
             score += weight
     return score
 

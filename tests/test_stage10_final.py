@@ -188,7 +188,7 @@ def test_a_licence_that_cannot_be_trusted_lands_on_activation(
     try:
         assert window._stack.currentWidget() is window._activation_page
         # The screen explains THIS failure, not a generic "invalid".
-        assert window._activation_page._why.text()
+        assert window._activation_page._error.text()
     finally:
         window.deleteLater()
 
@@ -223,11 +223,13 @@ def test_the_activation_screen_shows_what_the_vendor_needs(shop, qapp):
     window = _window(shop)
     try:
         page = window._activation_page
-        assert page._values["machine"].text() == shop.licensing.machine.short
-        assert page._values["product"].text()
-        assert page._values["status"].text() == "Not activated"
-        # Nothing to expire, so no date and no reassuring "Never".
-        assert page._values["expires"].text() == "—"
+        assert page._machine_id.text() == shop.licensing.machine.short
+        # A paste box for the key, and the button that uses it.
+        assert page.key_input.placeholderText()
+        assert page.activate_btn.text() == "Activate"
+        assert page._copy_btn.text() == "Copy Request Code"
+        # The file route still exists, but folded away.
+        assert page._advanced.isVisible() is False
     finally:
         window.deleteLater()
 
@@ -237,8 +239,9 @@ def test_the_activation_screen_speaks_dari(shop, qapp):
     try:
         page = window._activation_page
         assert "فعال" in page._title.text()
-        assert "فعال نشده" in page._values["status"].text()
-        assert "Not activated" not in page._values["status"].text()
+        assert "کلید محصول" in page._key_caption.text()
+        assert "کاپی" in page._copy_btn.text()
+        assert "Copy Request Code" not in page._copy_btn.text()
     finally:
         window.deleteLater()
 
@@ -927,3 +930,341 @@ def test_no_screen_hard_codes_a_font_family():
                 continue
             assert any(token in stripped for token in allowed), (
                 f"{path}:{number} hard-codes a font family: {stripped}")
+
+
+# ==========================================================================
+# 14. copy / send / paste / activate — the Product Key workflow
+# ==========================================================================
+
+def _issue_key(shop, *, license_type="FULL", days=None, serial=42,
+               issued_to="Kabul Traders Ltd", request=None):
+    """Do what the vendor tool does: sign the packed payload. Tests only."""
+    from datetime import date as _date
+
+    from tests.tooling.license_signing import sign
+    from zenith_business.security import product_key
+
+    code = request or shop.licensing.request_code()
+    decoded = product_key.decode_request(code)
+    expires = None
+    if days is not None:
+        expires = (_date.today() + timedelta(days=days)).isoformat()
+    payload = product_key.build_license_payload(
+        license_type=license_type, fingerprint=decoded.fingerprint,
+        traits=decoded.traits, issued_at=_date.today().isoformat(),
+        expires_at=expires, serial=serial, issued_to=issued_to)
+    return product_key.encode_license(payload, sign(shop.signing_key, payload))
+
+
+def test_the_request_code_round_trips_through_text(shop):
+    from zenith_business.security import product_key
+
+    code = shop.licensing.request_code()
+    assert code.startswith("ZBR1-")
+    decoded = product_key.decode_request(code)
+    assert decoded.fingerprint == shop.licensing.machine.fingerprint
+    assert decoded.traits == {k: v[:8] for k, v in
+                              shop.licensing.machine.traits.items()}
+    assert decoded.machine_short == shop.licensing.machine.short
+
+
+def test_a_request_code_survives_being_messed_about_in_a_message(shop):
+    """Line breaks, spaces and lower case are what a pasted code looks like."""
+    from zenith_business.security import product_key
+
+    code = shop.licensing.request_code()
+    for mangled in (code.lower(),
+                    # what a message client does: wraps, indents, adds spaces
+                    code[:40] + "\n" + code[40:],
+                    f"  {code}  ",
+                    code.replace("-", " - "),
+                    # and a reflow that swallowed the separator after the prefix
+                    code.replace("ZBR1-", "ZBR1")):
+        assert product_key.decode_request(mangled).fingerprint == \
+            shop.licensing.machine.fingerprint
+
+
+def test_a_request_code_with_a_wrong_character_is_caught_not_guessed(shop):
+    """The vendor must not issue a licence against a mangled machine id."""
+    from zenith_business.security import product_key
+
+    code = shop.licensing.request_code()
+    broken = code[:-4] + ("Q" if code[-4] != "Q" else "R") + code[-3:]
+    with pytest.raises(product_key.ProductKeyError):
+        product_key.decode_request(broken)
+
+
+def test_pasting_a_product_key_activates_and_opens_the_login_page(shop, qapp):
+    window = _window(shop)
+    try:
+        assert window._stack.currentWidget() is window._activation_page
+        window._activation_page.key_input.setPlainText(_issue_key(shop))
+        window._activation_page.activate_btn.click()
+        assert shop.licensing.evaluate().status == LicenseStatus.FULL
+        assert window._stack.currentWidget() is window._login_page
+        window._handle_login("owner", PASSWORD)
+        assert window.authenticated_user is not None
+    finally:
+        window.deleteLater()
+
+
+def test_a_pasted_key_survives_a_restart(shop):
+    shop.licensing.import_product_key(_issue_key(shop, serial=7))
+    fresh_dir = shop.licensing.license_path.parent
+    from zenith_business.services.licensing_service import LicenseService
+
+    fresh = LicenseService(license_dir=fresh_dir,
+                           public_key=shop.licensing._explicit_key)
+    state = fresh.evaluate()
+    assert state.status == LicenseStatus.FULL
+    assert state.license_id == "ZB-FULL-000007"
+
+
+def test_a_demo_product_key_carries_the_vendors_chosen_length(shop):
+    """DEMO days are the vendor's decision; the customer app only reads them."""
+    state = shop.licensing.import_product_key(
+        _issue_key(shop, license_type="DEMO", days=14, serial=3))
+    assert state.status == LicenseStatus.DEMO
+    assert state.license_type == "DEMO"
+    assert state.demo_days_left == 14
+    assert state.license_id == "ZB-DEMO-000003"
+    assert state.issued_to == "Kabul Traders Ltd"
+
+
+@pytest.mark.parametrize("days, expect", [(7, 7), (14, 14), (15, 15), (30, 30)])
+def test_every_demo_length_the_vendor_can_pick_is_carried_exactly(shop, days, expect):
+    state = shop.licensing.import_product_key(
+        _issue_key(shop, license_type="DEMO", days=days))
+    assert state.demo_days_left == expect
+
+
+def test_an_expired_demo_key_is_refused_on_paste(shop):
+    with pytest.raises(LicenseError):
+        shop.licensing.import_product_key(
+            _issue_key(shop, license_type="DEMO", days=-2))
+    assert shop.licensing.evaluate().status == LicenseStatus.UNLICENSED
+
+
+def test_a_product_key_for_another_computer_is_refused(shop):
+    from zenith_business.security import machine_id as machine
+    from zenith_business.security import product_key
+    from zenith_business.security.license_format import PRODUCT_ID
+
+    other = machine.collect(PRODUCT_ID, overrides=OTHER_PC)
+    foreign_request = product_key.encode_request(
+        fingerprint=other.fingerprint, traits=other.traits)
+    key = _issue_key(shop, request=foreign_request)
+    with pytest.raises(LicenseError):
+        shop.licensing.import_product_key(key)
+    assert shop.licensing.evaluate().status == LicenseStatus.UNLICENSED
+
+
+@pytest.mark.parametrize("position", [0, 40, 120, -80, -20, -2])
+def test_changing_any_character_of_a_product_key_invalidates_it(shop, position):
+    key = _issue_key(shop)
+    index = position if position >= 0 else len(key) + position
+    while key[index] == "-":
+        index += 1
+    replacement = "A" if key[index] != "A" else "B"
+    broken = key[:index] + replacement + key[index + 1:]
+    with pytest.raises(LicenseError):
+        shop.licensing.import_product_key(broken)
+    assert shop.licensing.evaluate().status == LicenseStatus.UNLICENSED
+
+
+def test_the_very_last_character_can_carry_unused_bits(shop):
+    """A true property of base32, worth stating rather than discovering later.
+
+    The payload length is not a multiple of five bytes, so the final base32
+    character holds a few bits that decode to nothing. Changing only those bits
+    yields the SAME payload, so the key still activates — which is correct, not
+    a hole: the signature covers the decoded bytes, and an attacker gains
+    nothing from a key that decodes to the licence they already had. It is
+    recorded here so nobody later reads it as tampering that slipped through.
+    """
+    from zenith_business.security import product_key
+
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+    key = _issue_key(shop)
+    original = product_key.decode_license(key)
+
+    # The payload is 129 bytes, so the final character carries 2 real bits in
+    # its HIGH positions and 3 dead ones below. Which characters are equivalent
+    # therefore depends on the signature, and must be computed, not guessed —
+    # a fixed list of letters made this test pass or fail with the random key.
+    value = alphabet.index(key[-1])
+    same_bits = [c for c in alphabet
+                 if alphabet.index(c) >> 3 == value >> 3 and c != key[-1]]
+    other_bits = [c for c in alphabet if alphabet.index(c) >> 3 != value >> 3]
+    assert same_bits and other_bits
+
+    for replacement in same_bits:
+        decoded = product_key.decode_license(key[:-1] + replacement)
+        assert decoded.signed_bytes == original.signed_bytes
+        assert decoded.signature == original.signature
+
+    for replacement in other_bits[:4]:
+        # Real bits moved, so this is a different licence and must be refused.
+        with pytest.raises(LicenseError):
+            shop.licensing.import_product_key(key[:-1] + replacement)
+    assert shop.licensing.evaluate().status == LicenseStatus.UNLICENSED
+
+
+def test_a_truncated_paste_is_refused_with_a_clear_reason(shop):
+    key = _issue_key(shop)
+    with pytest.raises(LicenseError) as caught:
+        shop.licensing.import_product_key(key[:len(key) // 2])
+    assert "damaged" in caught.value.user_message or \
+           "incomplete" in caught.value.user_message
+
+
+def test_pasting_the_request_code_back_says_so_plainly(shop):
+    """The single most likely customer mistake gets its own sentence."""
+    with pytest.raises(LicenseError) as caught:
+        shop.licensing.import_product_key(shop.licensing.request_code())
+    message = caught.value.user_message
+    assert "request code" in message
+    assert "ZB1-" in message
+    assert "JSON" not in message
+
+
+def test_pasting_nonsense_does_not_talk_about_json(shop):
+    with pytest.raises(LicenseError) as caught:
+        shop.licensing.import_product_key("hello there")
+    assert "JSON" not in caught.value.user_message
+    assert "ZB1-" in caught.value.user_message
+
+
+def test_a_failed_paste_leaves_an_existing_licence_alone(shop):
+    good = _issue_key(shop, license_type="DEMO", days=20, serial=11)
+    shop.licensing.import_product_key(good)
+    assert shop.licensing.evaluate().license_id == "ZB-DEMO-000011"
+    for bad in ("", "nonsense", _issue_key(shop, license_type="DEMO", days=-1)):
+        with pytest.raises(LicenseError):
+            shop.licensing.import_product_key(bad)
+    # Still the licence it had before anyone pasted anything.
+    assert shop.licensing.evaluate().license_id == "ZB-DEMO-000011"
+    assert shop.licensing.evaluate().status == LicenseStatus.DEMO
+
+
+def test_copying_the_request_code_puts_it_on_the_clipboard(shop, qapp):
+    from PyQt6.QtWidgets import QApplication
+
+    window = _window(shop)
+    try:
+        window._activation_page._copy_btn.click()
+        assert QApplication.clipboard().text() == shop.licensing.request_code()
+        assert window._activation_page._status_line.text()
+    finally:
+        window.deleteLater()
+
+
+def test_the_advanced_file_route_is_folded_away_but_still_there(shop, qapp):
+    window = _window(shop)
+    try:
+        page = window._activation_page
+        assert page._advanced.isVisible() is False
+        page._advanced_btn.click()
+        assert page._advanced.isVisibleTo(page) is True
+        assert page._import_btn.text() and page._request_btn.text()
+        page._advanced_btn.click()
+        assert page._advanced.isVisible() is False
+    finally:
+        window.deleteLater()
+
+
+def test_a_product_key_never_carries_a_private_key(shop):
+    """It is a signature, not a secret: nothing in it can issue anything."""
+    from zenith_business.security import product_key
+
+    key = _issue_key(shop)
+    decoded = product_key.decode_license(key)
+    assert len(decoded.signature) == 64
+    # The payload is exactly the fields a licence needs, and no key material.
+    assert decoded.machine_fingerprint == shop.licensing.machine.fingerprint
+    assert decoded.product_id == "ZENITH-BUSINESS"
+    assert not hasattr(decoded, "private_key")
+
+
+def test_the_customer_side_codec_cannot_sign(shop):
+    from zenith_business.security import product_key
+
+    source = Path(product_key.__file__).read_text(encoding="utf-8")
+    for forbidden in ("Ed25519PrivateKey", "private_bytes", "def sign("):
+        assert forbidden not in source, f"the codec can {forbidden}"
+
+
+def test_both_sides_pack_the_same_bytes(shop):
+    """The vendor tool and the application must agree byte for byte."""
+    from zenith_business.security import product_key
+
+    decoded = product_key.decode_request(shop.licensing.request_code())
+    payload = product_key.build_license_payload(
+        license_type="FULL", fingerprint=decoded.fingerprint,
+        traits=decoded.traits, issued_at="2026-09-21", expires_at=None,
+        serial=42, issued_to="Kabul Traders Ltd")
+    again = product_key.build_license_payload(
+        license_type="FULL", fingerprint=decoded.fingerprint,
+        traits=decoded.traits, issued_at="2026-09-21", expires_at=None,
+        serial=42, issued_to="Kabul Traders Ltd")
+    assert payload == again
+    assert product_key.decode_license(
+        product_key.encode_license(payload, b"\0" * 64)).issued_at == "2026-09-21"
+
+
+def test_a_product_key_is_short_enough_to_paste(shop):
+    key = _issue_key(shop)
+    assert len(key) < 300, f"a {len(key)}-character key is not pasteable"
+    assert "\n" not in key
+
+
+def test_every_activation_refusal_speaks_dari(shop, qapp):
+    """The service raises English; the screen must not repeat it in a Dari UI."""
+    window = _window(shop, LANG_DARI)
+    try:
+        page = window._activation_page
+        for pasted in ("", "hello there", shop.licensing.request_code(),
+                       _issue_key(shop)[:80]):
+            page.key_input.setPlainText(pasted)
+            page.activate_btn.click()
+            message = page._error.text()
+            assert message, f"no message for {pasted[:20]!r}"
+            assert message.isascii() is False, f"English leaked: {message}"
+    finally:
+        window.deleteLater()
+
+
+def test_a_wrong_machine_key_is_explained_in_dari(shop, qapp):
+    from zenith_business.security import machine_id as machine
+    from zenith_business.security import product_key
+    from zenith_business.security.license_format import PRODUCT_ID
+
+    other = machine.collect(PRODUCT_ID, overrides=OTHER_PC)
+    foreign = product_key.encode_request(fingerprint=other.fingerprint,
+                                         traits=other.traits)
+    window = _window(shop, LANG_DARI)
+    try:
+        window._activation_page.key_input.setPlainText(
+            _issue_key(shop, request=foreign))
+        window._activation_page.activate_btn.click()
+        message = window._activation_page._error.text()
+        assert "کمپیوتر دیگری" in message
+        assert message.isascii() is False
+    finally:
+        window.deleteLater()
+
+
+def test_latin_tokens_inside_dari_text_are_isolated(shop):
+    """Bidi reorders a trailing hyphen, so "ZB1-" reads as "-ZB1" without help.
+
+    Found by reading the rendered Dari screen: the message told the customer
+    their key starts with "-ZB1". Unicode isolates pin the run's direction.
+    """
+    from zenith_business.core.i18n import _CATALOG
+
+    for key in ("act.product_key_ph", "act.err_request_pasted", "act.err_not_a_key"):
+        dari = _CATALOG[key][LANG_DARI]
+        assert "ZB1-" in dari
+        position = dari.index("ZB1-")
+        assert dari[position - 1] == "⁦", f"{key}: no isolate before ZB1-"
+        assert dari[position + 4] == "⁩", f"{key}: no isolate after ZB1-"

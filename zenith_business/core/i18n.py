@@ -489,6 +489,84 @@ _CATALOG: dict[str, dict[str, str]] = {
         LANG_ENGLISH: "This computer needs a license before you can sign in.",
         LANG_DARI: "پیش از ورود، این کمپیوتر به جواز ضرورت دارد.",
     },
+    # ---- copy / send / paste / activate ----------------------------------
+    "act.your_machine_id": {LANG_ENGLISH: "Your Machine ID",
+                            LANG_DARI: "شناسه کمپیوتر شما"},
+    "act.request_hint": {
+        LANG_ENGLISH: "Copy your request code and send it to Zenith Soft. They "
+                      "will send back a product key for this computer only.",
+        LANG_DARI: "کد درخواست خود را کاپی کنید و به زینت سافت بفرستید. آن‌ها کلید "
+                   "محصولی می‌فرستند که تنها روی همین کمپیوتر کار می‌کند.",
+    },
+    "act.copy_request": {LANG_ENGLISH: "Copy Request Code",
+                         LANG_DARI: "کاپی کردن کد درخواست"},
+    "act.request_copied": {
+        LANG_ENGLISH: "Request code copied. Paste it into a message to Zenith Soft.",
+        LANG_DARI: "کد درخواست کاپی شد. آن را در پیام به زینت سافت الصاق کنید.",
+    },
+    "act.product_key": {LANG_ENGLISH: "Product Key", LANG_DARI: "کلید محصول"},
+    "act.product_key_ph": {
+        LANG_ENGLISH: "Paste the product key here — it starts with ZB1-",
+        LANG_DARI: "کلید محصول را اینجا الصاق کنید (با ⁦ZB1-⁩ شروع می‌شود)",
+    },
+    "act.activate": {LANG_ENGLISH: "Activate", LANG_DARI: "فعال‌سازی"},
+    "act.advanced_show": {LANG_ENGLISH: "Advanced — use license files instead",
+                          LANG_DARI: "پیشرفته — استفاده از فایل جواز"},
+    "act.advanced_hide": {LANG_ENGLISH: "Hide advanced options",
+                          LANG_DARI: "پنهان کردن گزینه‌های پیشرفته"},
+    # Refusals the activation screen shows, in the customer's own language.
+    "act.err_key_empty": {
+        LANG_ENGLISH: "Please paste your product key.",
+        LANG_DARI: "لطفاً کلید محصول خود را الصاق کنید.",
+    },
+    "act.err_request_pasted": {
+        LANG_ENGLISH: "That is your request code — the code you send to Zenith "
+                      "Soft. Paste the product key they send back, which starts "
+                      "with ZB1-.",
+        LANG_DARI: "این کد درخواست شماست — همان کدی که به زینت سافت می‌فرستید. "
+                   "کلید محصولی را که برای شما می‌فرستند الصاق کنید؛ آن با ⁦ZB1-⁩ "
+                   "شروع می‌شود.",
+    },
+    "act.err_not_a_key": {
+        LANG_ENGLISH: "That does not look like a product key. A product key "
+                      "starts with ZB1- and is one long line.",
+        LANG_DARI: "این کلید محصول به نظر نمی‌رسد. کلید محصول با ⁦ZB1-⁩ شروع می‌شود "
+                   "و یک خط طولانی است.",
+    },
+    "act.err_key_damaged": {
+        LANG_ENGLISH: "This product key is incomplete or damaged. Please copy the "
+                      "whole key again and paste it.",
+        LANG_DARI: "این کلید محصول ناقص یا خراب است. لطفاً تمام کلید را دوباره "
+                   "کاپی و الصاق کنید.",
+    },
+    "act.reason_bad_signature": {
+        LANG_ENGLISH: "This product key is not genuine, or it was changed after "
+                      "it was issued.",
+        LANG_DARI: "این کلید محصول اصلی نیست، یا پس از صدور تغییر داده شده است.",
+    },
+    "act.reason_wrong_machine": {
+        LANG_ENGLISH: "This product key was issued for a different computer.",
+        LANG_DARI: "این کلید محصول برای کمپیوتر دیگری صادر شده است.",
+    },
+    "act.reason_expired": {
+        LANG_ENGLISH: "This product key has expired. Please contact Zenith Soft.",
+        LANG_DARI: "مدت این کلید محصول تمام شده است. با زینت سافت تماس بگیرید.",
+    },
+    "act.reason_demo_period_over": {
+        LANG_ENGLISH: "This demo key has already finished. Please contact Zenith "
+                      "Soft for a new one.",
+        LANG_DARI: "این کلید آزمایشی قبلاً تمام شده است. برای کلید جدید با زینت "
+                   "سافت تماس بگیرید.",
+    },
+    "act.reason_wrong_product": {
+        LANG_ENGLISH: "This product key is for a different Zenith product.",
+        LANG_DARI: "این کلید محصول برای محصول دیگری از زینت است.",
+    },
+    "act.reason_malformed": {
+        LANG_ENGLISH: "This product key could not be read. Please copy the whole "
+                      "key again.",
+        LANG_DARI: "این کلید محصول خوانده نشد. لطفاً تمام کلید را دوباره کاپی کنید.",
+    },
     "act.f_product": {LANG_ENGLISH: "Product", LANG_DARI: "محصول"},
     "act.f_machine": {LANG_ENGLISH: "Machine ID", LANG_DARI: "شناسه کمپیوتر"},
     "act.f_status": {LANG_ENGLISH: "Status", LANG_DARI: "وضعیت"},
@@ -503,11 +581,11 @@ _CATALOG: dict[str, dict[str, str]] = {
         LANG_DARI: "جواز {id} فعال شد. اکنون می‌توانید وارد شوید.",
     },
     "act.why_unlicensed": {
-        LANG_ENGLISH: "This installation has not been activated yet. Generate an "
-                      "activation request, send it to Zenith Soft, then import "
-                      "the license file you receive.",
-        LANG_DARI: "این نصب هنوز فعال نشده است. درخواست فعال‌سازی بسازید، آن را به "
-                   "زینت سافت بفرستید و سپس فایل جوازی را که دریافت می‌کنید وارد کنید.",
+        LANG_ENGLISH: "This installation has not been activated yet. Copy your "
+                      "request code, send it to Zenith Soft, then paste the "
+                      "product key they send back.",
+        LANG_DARI: "این نصب هنوز فعال نشده است. کد درخواست خود را کاپی کنید، به "
+                   "زینت سافت بفرستید و سپس کلید محصولی را که می‌فرستند الصاق کنید.",
     },
     "act.why_demo_over": {
         LANG_ENGLISH: "The demo period has expired. Please activate Zenith Business.",
