@@ -67,11 +67,15 @@ jobs:
       # The lockout joins them: locking the owner out of their own books is the
       # one security failure that hurts the customer rather than an attacker,
       # and half of it is Qt behaviour that only the shipping platform proves.
-      - name: Verify licensing, backup encryption and the lockout (Windows)
+      # The final pass joins them for a reason of its own: the anti-rollback
+      # clock seals its state with DPAPI, which exists only on Windows. On Linux
+      # the fallback path is what gets exercised, so the real one would never be
+      # tested anywhere if not here.
+      - name: Verify licensing, backup encryption, lockout and the gate (Windows)
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
-          python -m pytest tests/test_stage10_hardening.py tests/test_stage10_licensing.py tests/test_stage10_lockout.py -q
+          python -m pytest tests/test_stage10_hardening.py tests/test_stage10_licensing.py tests/test_stage10_lockout.py tests/test_stage10_final.py -q
 
       - name: Freeze ZenithBusiness.exe
         run: pyinstaller packaging/zenith_business.spec --noconfirm --clean
