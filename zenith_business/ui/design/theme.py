@@ -310,9 +310,14 @@ def build_stylesheet() -> str:
         color: {c.PRIMARY}; font-size: {t.SIZE_SECONDARY}pt; text-align: left;
     }}
     QPushButton[variant="link"]:hover {{ text-decoration: underline; }}
-    /* A secret shown once, meant to be read off the screen and written down. */
+    /* A secret shown once, meant to be read off the screen and written down.
+       It deliberately does NOT override the typeface: the whole application is
+       pinned to the bundled Vazirmatn, and this rule briefly carried the only
+       exception in the codebase. A monospace stack would also have had no
+       Persian glyphs, so a Dari screen would have fallen back to whatever
+       Windows chose — the silent substitution Stage 08 went to some trouble to
+       stop. Size, weight and letter-spacing carry the emphasis instead. */
     QLabel[role="code"] {{
-        font-family: "Consolas", "Courier New", monospace;
         font-size: {t.SIZE_TOTAL}pt; font-weight: {t.WEIGHT_BOLD};
         letter-spacing: 2px; color: {c.TEXT_PRIMARY};
         background: {c.SURFACE_ALT}; border: 1px solid {c.BORDER};

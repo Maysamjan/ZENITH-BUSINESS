@@ -879,3 +879,51 @@ def test_the_verbatim_shipped_files_pass_the_release_auditors_own_rules():
         data = path.read_bytes()
         for label, pattern, why in auditor.FORBIDDEN:
             assert not pattern.search(data), f"{path}: {label} — {why}"
+
+
+# ==========================================================================
+# 13. typography must not drift
+# ==========================================================================
+
+def test_the_stylesheet_declares_exactly_one_font_family():
+    """Dari typography is pinned to the bundled Vazirmatn. It stays pinned.
+
+    A Stage 10 recovery-code label briefly set a monospace family of its own.
+    Two things were wrong with it: it was the only font-family override in the
+    application, and Consolas and Courier New carry no Persian glyphs — so a
+    Dari screen would have fallen back to whatever Windows picked, which is the
+    silent substitution Stage 08 went to trouble to stop.
+    """
+    import re
+
+    from zenith_business.ui.design.theme import build_stylesheet
+    from zenith_business.ui.design.tokens import Typography
+
+    families = re.findall(r"font-family:\s*([^;]+);", build_stylesheet())
+    assert families, "the base rule must still set a font family"
+    for declared in families:
+        assert declared.strip() == Typography.FAMILY.strip(), (
+            f"{declared.strip()!r} is not the bundled family stack")
+
+
+def test_the_bundled_family_still_leads_the_stack():
+    from zenith_business.core.fonts import FONT_FAMILY
+    from zenith_business.ui.design.tokens import Typography
+
+    assert Typography.FAMILY.strip().startswith(f'"{FONT_FAMILY}"')
+
+
+def test_no_screen_hard_codes_a_font_family():
+    """Print sheets may pass a family through, but never a literal name."""
+    root = _repo_root() / "zenith_business"
+    allowed = ("{t.FAMILY}", "{Typography.FAMILY}", "{family}", "{FONT_FAMILY}")
+    for path in root.rglob("*.py"):
+        for number, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1):
+            # A real declaration, not prose that happens to use the word: the
+            # property starts the line and the value is terminated.
+            stripped = line.strip()
+            if not stripped.startswith("font-family:") or ";" not in stripped:
+                continue
+            assert any(token in stripped for token in allowed), (
+                f"{path}:{number} hard-codes a font family: {stripped}")
