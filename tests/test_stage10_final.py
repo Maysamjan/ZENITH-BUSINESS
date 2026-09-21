@@ -1347,3 +1347,103 @@ def test_the_code_label_only_styles_its_box():
         assert banned not in body, f'role="code" sets {banned}'
     # It still has to look like a panel, or it is not doing its job.
     assert "background" in body and "border" in body
+
+
+# ==========================================================================
+# 15. one Persian typeface, everywhere, forever
+# ==========================================================================
+
+def _every_widget(root):
+    """The widget and every descendant, visible or not."""
+    from PyQt6.QtWidgets import QWidget
+
+    yield root
+    yield from root.findChildren(QWidget)
+
+
+def _font_mismatches(root) -> dict[str, list[str]]:
+    from PyQt6.QtGui import QFontInfo
+
+    from zenith_business.core.fonts import FONT_FAMILY
+
+    root.ensurePolished()
+    bad: dict[str, list[str]] = {}
+    for widget in _every_widget(root):
+        family = QFontInfo(widget.font()).family()
+        if family != FONT_FAMILY:
+            bad.setdefault(family, []).append(type(widget).__name__)
+    return bad
+
+
+@pytest.fixture
+def styled_app(qapp):
+    """A QApplication with the bundled font and the real stylesheet loaded.
+
+    Without this the tests run on whatever face the machine defaults to, and a
+    font check would be measuring the test environment instead of the product.
+    """
+    from zenith_business.core.fonts import apply_base_font, is_bundled_available
+    from zenith_business.ui.design.theme import build_stylesheet
+
+    apply_base_font(qapp)
+    qapp.setStyleSheet(build_stylesheet())
+    assert is_bundled_available(), "the bundled Vazirmatn files are missing"
+    return qapp
+
+
+def test_the_gate_uses_the_one_bundled_typeface_everywhere(shop, styled_app):
+    """The owner sent a screenshot of Purchase Return and said: this font,
+    everywhere in the project, no other font. This is that instruction, checked
+    on every widget rather than on the ones somebody remembered to look at."""
+    window = _window(shop, LANG_DARI)
+    try:
+        window.resize(1100, 720)
+        assert _font_mismatches(window) == {}
+        assert sum(1 for _ in _every_widget(window)) > 50
+    finally:
+        window.deleteLater()
+
+
+def test_every_stage_ten_screen_uses_the_one_bundled_typeface(shop, styled_app):
+    from zenith_business.ui.auth.recovery_dialog import RecoveryDialog
+    from zenith_business.ui.documents.account_settings_page import AccountSettingsPage
+    from zenith_business.ui.documents.security_pages import (
+        AuditLogPage,
+        BackupPage,
+        LicensePage,
+    )
+
+    shop.auth.login("owner", PASSWORD)
+    t = Translator(LANG_DARI)
+    screens = {
+        "AuditLogPage": AuditLogPage(shop, t),
+        "BackupPage": BackupPage(shop, t, database_path=str(shop.database_file)),
+        "LicensePage": LicensePage(shop, t),
+        "AccountSettingsPage": AccountSettingsPage(shop, t),
+        "RecoveryDialog": RecoveryDialog(shop, t, username="owner"),
+    }
+    try:
+        for name, page in screens.items():
+            page.resize(1100, 700)
+            assert _font_mismatches(page) == {}, f"{name} uses another font"
+    finally:
+        for page in screens.values():
+            page.deleteLater()
+
+
+def test_the_whole_main_window_uses_the_one_bundled_typeface(shop, styled_app):
+    """The business screens the owner photographed — every page in the shell."""
+    from zenith_business.ui.main_window import MainWindow
+
+    user = shop.auth.login("owner", PASSWORD)
+    cfg = AppConfig()
+    cfg.ui.language = LANG_DARI
+    window = MainWindow(cfg, database=shop.db, current_user=user, context=shop)
+    try:
+        window.resize(1366, 768)
+        mismatches = _font_mismatches(window)
+        assert mismatches == {}, f"another font reached the shell: {mismatches}"
+        # A shell with only a handful of widgets would pass this vacuously.
+        assert sum(1 for _ in _every_widget(window)) > 500
+    finally:
+        window.deleteLater()
