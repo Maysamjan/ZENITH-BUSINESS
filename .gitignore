@@ -22,6 +22,7 @@ wheels/
 
 # Virtual environments
 .venv/
+.buildvenv/
 venv/
 env/
 ENV/
@@ -63,3 +64,8 @@ logs/
 *.swp
 .DS_Store
 Thumbs.db
+
+# Vendor signing keys must NEVER be committed.
+zenith-signing-key*.json
+*.zlic
+*.zreq

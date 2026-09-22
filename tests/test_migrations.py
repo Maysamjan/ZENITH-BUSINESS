@@ -6,9 +6,20 @@ from zenith_business.database.connection import MEMORY, Database
 from zenith_business.database.migrations import MigrationRunner
 from zenith_business.database.schema import PERMISSIONS, ROLES
 from zenith_business.database.schema_stage03 import STAGE03_PERMISSIONS
+from zenith_business.database.schema_stage04 import STAGE04_PERMISSIONS
+from zenith_business.database.schema_stage05 import STAGE05_PERMISSIONS
+from zenith_business.database.schema_owner_fixes import OWNER_FIX_PERMISSIONS
+from zenith_business.database.schema_round2 import ROUND2_PERMISSIONS
+from zenith_business.database.schema_stage07 import STAGE07_PERMISSIONS
+from zenith_business.database.schema_stage09 import STAGE09_PERMISSIONS
 
-# Total permission codes after all forward migrations (Stage 02 baseline + Stage 03).
-_ALL_PERMISSIONS = len(PERMISSIONS) + len(STAGE03_PERMISSIONS)
+# Total permission codes after all forward migrations
+# (baseline + 03 + 04 + 05 + 0006 + 0007 + 0009 + 0011;
+#  0008 and 0010 added none).
+_ALL_PERMISSIONS = (len(PERMISSIONS) + len(STAGE03_PERMISSIONS) + len(STAGE04_PERMISSIONS)
+                   + len(STAGE05_PERMISSIONS) + len(OWNER_FIX_PERMISSIONS)
+                   + len(ROUND2_PERMISSIONS) + len(STAGE07_PERMISSIONS)
+                   + len(STAGE09_PERMISSIONS))
 
 
 def _tables(db: Database) -> set[str]:
@@ -25,12 +36,15 @@ def test_migrate_applies_all_pending() -> None:
     runner = MigrationRunner(db)
     assert runner.current_version() == 0
     applied = runner.migrate()
-    assert applied == [1, 2, 3]  # Stage 02 baseline + Stage 03 master data
+    # baseline + 03/04/05 + owner-fix + round2 + stage06 inventory
+    # + stage07 purchases parity + stage08 costing + stage09 accounting
+    # + stage09 COGS document references + stage10 audit hash chain
+    assert applied == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
     assert runner.current_version() == runner.latest_version()
     tables = _tables(db)
     for expected in ("users", "roles", "permissions", "sales", "purchases",
                      "inventory_movements", "audit_log", "schema_migrations",
-                     "parties", "financial_years"):
+                     "parties", "financial_years", "sales_returns", "purchase_returns"):
         assert expected in tables
     db.close()
 

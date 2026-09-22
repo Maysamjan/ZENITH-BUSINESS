@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from zenith_business.core.i18n import Translator
-from zenith_business.core.money import format_money
+from zenith_business.core.money import D, format_money
 from zenith_business.services.context import ApplicationContext
 from zenith_business.services.exceptions import ZenithError
 from zenith_business.ui.components import (
@@ -35,6 +35,7 @@ from zenith_business.ui.components import (
     page_subtitle,
     page_title,
     primary_button,
+    secondary,
     section_title,
 )
 from zenith_business.ui.design.tokens import FieldWidth, Spacing
@@ -74,9 +75,15 @@ class ItemsPage(_BasePage):
             Column("name", "items.col_name", stretch=True),
             Column("alternate_name", "items.col_altname", width=160),
             Column("barcode", "items.col_barcode", width=120),
-            Column("purchase_display", "items.col_purchase", width=110, align="r"),
+            Column("unit_display", "inv.col_unit", width=80),
             Column("sale_display", "items.col_sale", width=110, align="r"),
-            Column("is_active", "items.col_status", width=110, kind="status"),
+            # Opening stock is the figure entered when the item was created and
+            # never moves; current stock follows every sale/purchase/return.
+            Column("opening_display", "items.col_opening_stock", width=110, align="r"),
+            Column("current_display", "items.col_current_stock", width=110, align="r"),
+            Column("warehouse_display", "inv.col_warehouse", width=150),
+            Column("stock_status", "inv.col_status", width=110),
+            Column("is_active", "items.col_status", width=100, kind="status"),
         ]
         self.page = ManagementPage(
             translator, title_key="items.title", subtitle_key=None, columns=columns,
@@ -88,10 +95,27 @@ class ItemsPage(_BasePage):
         lay.addWidget(self.page)
 
     def reload(self) -> None:
+        from zenith_business.ui.documents.inventory_pages import stock_status_key
         rows = self._ctx.items.list()
+        # One shared read of the movement ledger, so the product list can never
+        # disagree with the Inventory screen or with a sale's stock check.
+        overview = {o["item_id"]: o for o in self._ctx.inventory.stock_overview()}
         for r in rows:
             r["purchase_display"] = format_money(r["purchase_price"])
             r["sale_display"] = format_money(r["default_sale_price"])
+            info = overview.get(r["id"])
+            if info is None:                      # not stock-tracked
+                r["unit_display"] = ""
+                r["opening_display"] = r["current_display"] = "—"
+                r["warehouse_display"] = ""
+                r["stock_status"] = "—"
+                continue
+            r["unit_display"] = info["unit"]
+            r["opening_display"] = format_money(info["opening"])
+            r["current_display"] = format_money(info["current"])
+            r["warehouse_display"] = info["warehouses"]
+            r["stock_status"] = _t(self._t, stock_status_key(info["current"],
+                                                             info["minimum"]))
         self.page.set_rows(rows)
 
     def _dialog(self, existing: dict | None) -> None:
@@ -124,6 +148,33 @@ class ItemsPage(_BasePage):
         g4 = dlg.add_section(_t(t, "items.sec_inventory"))
         dlg.add_field(g4, 0, 0, _t(t, "items.col_min"), minstock, width=FieldWidth.SM)
 
+        # Opening Stock — creating an inventory-controlled item can record its
+        # current stock via the EXISTING inventory.record_opening service (one
+        # OPENING movement). Only offered on create (editing opening stock after
+        # the fact would corrupt stock history — "opening" vs "current" stock).
+        opening_qty = QLineEdit("0")
+        opening_wh = QComboBox()
+        for w in self._ctx.warehouses_repo.list_active():
+            opening_wh.addItem(w["name"], w["id"])
+            if w.get("is_default"):
+                opening_wh.setCurrentIndex(opening_wh.count() - 1)
+        opening_widgets = []
+        if existing is None:
+            dlg.add_field(g4, 0, 1, _t(t, "items.f_opening_qty"), opening_qty,
+                          width=FieldWidth.SM)
+            dlg.add_field(g4, 1, 0, _t(t, "items.f_opening_wh"), opening_wh,
+                          width=FieldWidth.MD)
+            hint = secondary(_t(t, "items.opening_hint")); hint.setWordWrap(True)
+            g4.addWidget(hint, 2, 0, 1, 2)
+            opening_widgets = [opening_qty, opening_wh]
+
+            def _sync_opening() -> None:
+                on = stockable.isChecked()
+                for w in opening_widgets:
+                    w.setEnabled(on)
+            stockable.toggled.connect(lambda _c: _sync_opening())
+            _sync_opening()
+
         if existing:
             code.setText(existing["item_code"]); code.setEnabled(False)
             name.setText(existing["name"]); alt.setText(existing.get("alternate_name") or "")
@@ -135,6 +186,13 @@ class ItemsPage(_BasePage):
             _select(unit, existing["base_unit_id"]); _select(cat, existing.get("category_id"))
 
         def submit() -> None:
+            # Check the opening stock BEFORE creating anything: an operator who
+            # enters a quantity with no warehouse to put it in gets told so, rather
+            # than having the item created and the quantity quietly dropped.
+            if (existing is None and stockable.isChecked()
+                    and D(opening_qty.text() or "0") > 0
+                    and opening_wh.currentData() is None):
+                dlg.set_error(_t(t, "items.msg_opening_needs_wh")); return
             try:
                 if existing:
                     self._ctx.items.update(
@@ -144,12 +202,19 @@ class ItemsPage(_BasePage):
                         default_sale_price=sale.text(), reorder_level=minstock.text(),
                         track_inventory=stockable.isChecked())
                 else:
-                    self._ctx.items.create(
+                    new_id = self._ctx.items.create(
                         item_code=code.text(), name=name.text(), base_unit_id=unit.currentData(),
                         barcode=barcode.text(), alternate_name=alt.text(),
                         category_id=cat.currentData(), purchase_price=purchase.text(),
                         default_sale_price=sale.text(), reorder_level=minstock.text(),
                         track_inventory=stockable.isChecked())
+                    # Record opening stock via the EXISTING inventory service (one
+                    # OPENING movement) when a stockable item is created with a
+                    # positive opening quantity.
+                    if stockable.isChecked() and D(opening_qty.text() or "0") > 0:
+                        self._ctx.inventory.record_opening(
+                            item_id=new_id, warehouse_id=opening_wh.currentData(),
+                            quantity_on_hand=opening_qty.text())
             except ZenithError as exc:
                 dlg.set_error(exc.user_message); return
             dlg.accept(); self.reload()
@@ -171,31 +236,63 @@ class ItemsPage(_BasePage):
 # ----------------------------------------------------------------- Persons --
 
 class PersonsPage(_BasePage):
-    def __init__(self, ctx, translator, parent=None) -> None:
-        super().__init__(ctx, translator, parent)
-        columns = [
+    """People master data — one table, one form, whatever screen opens it.
+
+    The page is assembled from overridable pieces (:meth:`_page_columns`,
+    :meth:`_page_config`, :meth:`_role_filter_choices`) so a role-focused view —
+    Suppliers — is the SAME page configured differently, never a second screen
+    built beside this one.
+    """
+
+    #: Which role a NEW person starts with; a role-focused view overrides it.
+    _default_role = "customer"
+
+    def _page_columns(self) -> list[Column]:
+        return [
             Column("party_code", "persons.col_code", width=110),
             Column("name", "persons.col_name", stretch=True),
             Column("company_name", "persons.col_company", width=180),
             Column("phone", "persons.col_phone", width=130),
             Column("roles_display", "persons.col_roles", width=160),
+            # What this person owes us, or we owe them, derived from the ledger —
+            # so managing a supplier does not mean opening their account to find
+            # out whether anything is outstanding.
+            Column("balance_display", "persons.col_balance", width=130),
             Column("is_active", "persons.col_status", width=110, kind="status"),
         ]
+
+    def _page_config(self) -> dict:
+        return {"title_key": "persons.title", "new_label_key": "persons.new",
+                "view_label_key": "md.view"}
+
+    def _role_filter_choices(self) -> list[tuple[str, str | None]]:
+        """Role filter entries; empty means the view is already role-scoped."""
+        return [("md.all", None), ("persons.role_customer", "customer"),
+                ("persons.role_supplier", "supplier"), ("persons.role_both", "both")]
+
+    def __init__(self, ctx, translator, parent=None) -> None:
+        super().__init__(ctx, translator, parent)
+        self._on_view_account = None  # set by main window (contextual ledger, round 2)
+        cfg = self._page_config()
         self.page = ManagementPage(
-            translator, title_key="persons.title", subtitle_key=None, columns=columns,
-            new_label_key="persons.new", on_new=self._new, on_edit=self._edit,
-            on_toggle_active=self._toggle)
+            translator, title_key=cfg["title_key"], subtitle_key=None,
+            columns=self._page_columns(), new_label_key=cfg["new_label_key"],
+            on_new=self._new, on_edit=self._edit, on_toggle_active=self._toggle,
+            on_view=self._view, view_label_key=cfg["view_label_key"])
         self.page.connect_refresh(self.reload)
-        self._role_filter = QComboBox()
-        for key, val in (("md.all", None), ("persons.role_customer", "customer"),
-                         ("persons.role_supplier", "supplier"), ("persons.role_both", "both")):
-            self._role_filter.addItem(_t(translator, key), val)
-        self._role_filter.currentIndexChanged.connect(lambda _i: self.reload())
-        self.page.add_filter(self._role_filter)
+        self._role_filter = None
+        choices = self._role_filter_choices()
+        if choices:
+            self._role_filter = QComboBox()
+            for key, val in choices:
+                self._role_filter.addItem(_t(translator, key), val)
+            self._role_filter.currentIndexChanged.connect(lambda _i: self.reload())
+            self.page.add_filter(self._role_filter)
         lay = QVBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0); lay.addWidget(self.page)
+        self.reload()
 
     def reload(self) -> None:
-        role = self._role_filter.currentData()
+        role = self._role_filter.currentData() if self._role_filter is not None else None
         rows = self._ctx.parties.list(role=role)
         for r in rows:
             marks = []
@@ -204,7 +301,36 @@ class PersonsPage(_BasePage):
             if r["is_supplier"]:
                 marks.append(_t(self._t, "persons.f_supplier"))
             r["roles_display"] = " + ".join(marks)
+            r["balance_display"] = self._balance_text(r)
         self.page.set_rows(rows)
+
+    def _balance_text(self, row: dict) -> str:
+        """Receivable for a customer, payable for a supplier — both from the ledger.
+
+        Someone who is both shows each side labelled, because netting a customer
+        balance against a supplier balance would hide two real obligations behind
+        one number.
+        """
+        parts = []
+        if row["is_customer"]:
+            receivable = self._ctx.sales_documents.receivable(row["id"])
+            if D(receivable) != 0:
+                parts.append(f"{_t(self._t, 'persons.bal_receivable')}: {format_money(receivable)}")
+        if row["is_supplier"]:
+            payable = self._ctx.purchase_documents.payable(row["id"])
+            if D(payable) != 0:
+                parts.append(f"{_t(self._t, 'persons.bal_payable')}: {format_money(payable)}")
+        return " · ".join(parts) or "—"
+
+    def set_view_account_handler(self, handler) -> None:
+        """Wire the contextual 'View Account' action (party_id, role) -> ledger."""
+        self._on_view_account = handler
+
+    def _view(self, row: dict) -> None:
+        if self._on_view_account is None:
+            return
+        role = "customer" if row.get("is_customer") else "supplier"
+        self._on_view_account(row["id"], role)
 
     def _dialog(self, existing: dict | None) -> None:
         t = self._t
@@ -212,8 +338,13 @@ class PersonsPage(_BasePage):
         dlg = FormDialog(t, title, parent=self.window())
         g1 = dlg.add_section(_t(t, "persons.sec_identity"))
         code = QLineEdit(); name = QLineEdit(); company = QLineEdit()
-        is_cust = QCheckBox(_t(t, "persons.f_customer")); is_cust.setChecked(True)
+        # ONE person form for every screen that manages people. Opening it from
+        # the Suppliers screen just pre-ticks Supplier; there is no second form
+        # and no second table behind it.
+        is_cust = QCheckBox(_t(t, "persons.f_customer"))
         is_sup = QCheckBox(_t(t, "persons.f_supplier"))
+        is_cust.setChecked(self._default_role != "supplier")
+        is_sup.setChecked(self._default_role == "supplier")
         dlg.add_field(g1, 0, 0, _t(t, "persons.col_code"), code, width=FieldWidth.SM)
         dlg.add_field(g1, 0, 1, _t(t, "persons.col_company"), company, width=FieldWidth.LG)
         dlg.add_field(g1, 1, 0, _t(t, "persons.col_name"), name, width=FieldWidth.LG)
@@ -274,6 +405,74 @@ class PersonsPage(_BasePage):
     def _toggle(self, row: dict) -> None:
         self._ctx.parties.set_active(row["id"], not bool(row.get("is_active", 1)))
         self.reload()
+
+
+# --------------------------------------------------------------- Suppliers --
+
+class SuppliersPage(PersonsPage):
+    """A supplier-shaped VIEW of the shared people, not a second supplier table.
+
+    Same page class, same person form, same ``parties`` master data and the same
+    party ledger the Supplier Ledger screen reads — only the columns, the labels
+    and the role scope differ. A party who both buys and sells stays ONE record.
+    """
+
+    _default_role = "supplier"
+
+    def _page_columns(self) -> list[Column]:
+        return [
+            Column("party_code", "sup.col_code", width=120),
+            Column("name", "sup.col_name", stretch=True),
+            Column("company_name", "sup.col_business", width=170),
+            Column("phone", "sup.col_phone", width=120),
+            Column("balance_display", "sup.col_balance", width=130, align="r"),
+            Column("purchases_display", "sup.col_purchases", width=120, align="r"),
+            Column("paid_display", "sup.col_paid", width=110, align="r"),
+            Column("payable_display", "sup.col_payable", width=140, align="r"),
+            Column("is_active", "sup.col_status", width=100, kind="status"),
+        ]
+
+    def _page_config(self) -> dict:
+        return {"title_key": "sup.title", "new_label_key": "sup.new",
+                "view_label_key": "sup.view_ledger"}
+
+    def _role_filter_choices(self) -> list[tuple[str, str | None]]:
+        return []          # already scoped to suppliers; a role filter would lie
+
+    def reload(self) -> None:
+        rows = self._ctx.parties.list(role="supplier")
+        for r in rows:
+            # ONE read of the authoritative party ledger per supplier — the same
+            # totals the Supplier Ledger screen shows, so the two can never
+            # disagree and no balance is computed a second way.
+            totals = self._ctx.party_ledger.supplier_ledger(r["id"])["totals"]
+            r["purchases_display"] = format_money(totals["total_purchases"])
+            r["paid_display"] = format_money(totals["total_paid"])
+            r["payable_display"] = format_money(totals["payable"])
+            r["balance_display"] = self._account_balance(r)
+        self.page.set_rows(rows)
+
+    def _account_balance(self, row: dict) -> str:
+        """The supplier's overall account position.
+
+        For a supplier-only party this is the payable. A party who is ALSO a
+        customer has two real obligations running in opposite directions, so both
+        are named rather than netted into one misleading figure.
+        """
+        payable = self._ctx.purchase_documents.payable(row["id"])
+        if not row["is_customer"]:
+            return format_money(payable)
+        receivable = self._ctx.sales_documents.receivable(row["id"])
+        if D(receivable) == 0:
+            return format_money(payable)
+        return (f"{_t(self._t, 'persons.bal_payable')}: {format_money(payable)}"
+                f" · {_t(self._t, 'persons.bal_receivable')}: {format_money(receivable)}")
+
+    def _view(self, row: dict) -> None:
+        """Open this supplier's account in the existing Supplier Ledger."""
+        if self._on_view_account is None:
+            return
+        self._on_view_account(row["id"], "supplier")
 
 
 # -------------------------------------------------------------- Warehouses --
@@ -673,8 +872,10 @@ class RolesPage(_BasePage):
         t = self._t
         dlg = FormDialog(t, f"{row['name']} — {_t(t, 'role.edit_perms')}", parent=self.window())
         current = self._ctx.roles.permissions_for_role(row["id"])
-        scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setMinimumHeight(360)
-        holder = QWidget(); col = QVBoxLayout(holder); col.setSpacing(Spacing.SM)
+        # The FormDialog body scrolls natively now (Pass 1), so the permission
+        # groups are added straight into it — no nested QScrollArea needed.
+        holder = QWidget(); col = QVBoxLayout(holder)
+        col.setContentsMargins(0, 0, 0, 0); col.setSpacing(Spacing.SM)
         checks: dict[str, QCheckBox] = {}
         for group, pairs in self._ctx.roles.permission_groups():
             col.addWidget(section_title(group.title()))
@@ -682,9 +883,7 @@ class RolesPage(_BasePage):
                 cb = QCheckBox(label); cb.setChecked(code in current)
                 checks[code] = cb
                 col.addWidget(cb)
-        col.addStretch(1)
-        scroll.setWidget(holder)
-        dlg._body.addWidget(scroll)  # noqa: SLF001
+        dlg._body.addWidget(holder)  # noqa: SLF001
 
         def submit() -> None:
             selected = [c for c, cb in checks.items() if cb.isChecked()]
