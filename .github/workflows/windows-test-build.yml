@@ -20,6 +20,7 @@ on:
     paths:
       - "zenith_business/**"
       - "packaging/**"
+      - "vendor/**"
       - ".github/workflows/windows-test-build.yml"
 
 permissions:
@@ -151,21 +152,11 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
-      - name: Upload the vendor License Manager
-        uses: actions/upload-artifact@v4
-        with:
-          name: ZenithSoft-LicenseManager-win64
-          path: dist/ZenithLicenseManager
-          retention-days: 14
-          if-no-files-found: error
-
-      # Delivery-only: zip the portable package and attach it to a GitHub Release
-      # so it has a permanent, one-click Download link (no Actions navigation, no
-      # expiry). This does not change the application or any source.
       # The VENDOR tool, built as a separate download. It is never placed
       # inside the customer package - that is the whole point of the pairing -
       # so it is frozen from its own spec, into its own folder, and zipped on
-      # its own.
+      # its own. It is frozen AFTER the customer package is assembled and
+      # audited, so nothing it produces can leak into the scan above.
       - name: Freeze the vendor License Manager
         run: pyinstaller packaging/zenith_license_manager.spec --noconfirm --clean
 
@@ -179,6 +170,18 @@ jobs:
             -ErrorAction SilentlyContinue
           if ($found) { throw "the vendor License Manager reached the customer package" }
           Write-Host "Customer package contains no License Manager."
+
+      - name: Upload the vendor License Manager
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZenithSoft-LicenseManager-win64
+          path: dist/ZenithLicenseManager
+          retention-days: 14
+          if-no-files-found: error
+
+      # Delivery-only: zip the portable package and attach it to a GitHub Release
+      # so it has a permanent, one-click Download link (no Actions navigation, no
+      # expiry). This does not change the application or any source.
 
       - name: Zip the portable package
         shell: pwsh
