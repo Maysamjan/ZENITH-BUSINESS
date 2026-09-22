@@ -434,6 +434,11 @@ jobs:
         shell: pwsh
         env:
           QT_QPA_PLATFORM: offscreen
+          # A Windows console is cp1252 by default, and the first run of this
+          # step died encoding its own banner rather than checking anything.
+          # The script forces UTF-8 on its streams as well; this is the belt to
+          # that pair of braces.
+          PYTHONUTF8: "1"
         run: |
           $ErrorActionPreference = "Stop"
           $mgrDir = Join-Path $env:RUNNER_TEMP "verify-ZenithSoft-LicenseManager-win64"

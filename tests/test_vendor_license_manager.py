@@ -748,3 +748,31 @@ def test_a_blocked_generate_click_produces_no_key_and_no_history(vendor, custome
         assert History(vendor["history"]).load() == []
     finally:
         window.deleteLater()
+
+
+def test_the_end_to_end_check_prints_only_ascii():
+    """It runs on a Windows console, which is still cp1252 by default.
+
+    The first real run of this script died on its own banner: a '→' in the
+    title raised UnicodeEncodeError before a single check had executed, and
+    the build failed with a message about licences that had nothing to do with
+    licences. The script now forces UTF-8 on its streams AND keeps its printed
+    text to ASCII, because a progress banner is not worth a second failure
+    mode.
+    """
+    import ast
+
+    source = Path("packaging/end_to_end_licence_check.py").read_text(encoding="utf-8")
+    offenders = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        if getattr(node.func, "id", "") not in {"print", "check"}:
+            continue
+        for part in ast.walk(node):
+            if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                offenders += [(part.lineno, ch) for ch in part.value if ord(ch) > 126]
+    assert not offenders, f"non-ASCII in printed text: {offenders}"
+
+    # And the streams are reconfigured, so a stray character still cannot kill it.
+    assert 'reconfigure(encoding="utf-8"' in source

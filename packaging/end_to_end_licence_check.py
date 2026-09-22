@@ -43,6 +43,16 @@ _REPO = Path(__file__).resolve().parent.parent
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
+# Windows consoles still default to cp1252, which cannot encode an arrow or an
+# em dash — and a build that fails because its own progress banner could not be
+# printed tells nobody anything useful. Output is forced to UTF-8 here, and the
+# text below sticks to ASCII anyway, so neither half depends on the other.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):            # pragma: no cover
+        pass
+
 FAILURES: list[str] = []
 STEPS: list[str] = []
 
@@ -51,7 +61,7 @@ def check(label: str, condition: bool, detail: str = "") -> bool:
     mark = "OK  " if condition else "FAIL"
     line = f"  {mark}  {label}"
     if detail:
-        line += f"  —  {detail}"
+        line += f"  --  {detail}"
     print(line, flush=True)
     STEPS.append(line)
     if not condition:
@@ -69,7 +79,7 @@ def main(manager_dir: Path, app_dir: Path) -> int:
     )
 
     print("=" * 70)
-    print("END-TO-END LICENCE CHECK — vendor Manager → packaged Zenith Business")
+    print("END-TO-END LICENCE CHECK: vendor Manager -> packaged Zenith Business")
     print("=" * 70)
     print(f"  Manager package    : {manager_dir}")
     print(f"  Application package: {app_dir}")
@@ -115,7 +125,7 @@ def main(manager_dir: Path, app_dir: Path) -> int:
     result = preflight.self_test(product, seed)
     check("the Manager's self-test passes", result.ok, result.summary)
     for item in result.checks:
-        check(f"  self-test · {item.name}", item.ok, item.detail)
+        check(f"  self-test: {item.name}", item.ok, item.detail)
 
     # ---- 2. a request code, the way a customer produces one -------------
     home = Path(tempfile.mkdtemp(prefix="e2e-customer-"))
@@ -128,7 +138,7 @@ def main(manager_dir: Path, app_dir: Path) -> int:
 
         request_code = service.request_code()
         check("the application produced a request code",
-              request_code.startswith("ZBR1-"), request_code[:24] + "…")
+              request_code.startswith("ZBR1-"), request_code[:24] + "...")
         machine = issuing.parse_request(request_code)
 
         # ---- 3. issue both licence types --------------------------------
@@ -215,11 +225,11 @@ def main(manager_dir: Path, app_dir: Path) -> int:
 
     print()
     if FAILURES:
-        print(f"FAILED — {len(FAILURES)} check(s) did not pass:")
+        print(f"FAILED: {len(FAILURES)} check(s) did not pass:")
         for name in FAILURES:
             print("  *", name)
         return 1
-    print(f"PASSED — all {len(STEPS)} checks. A licence issued by the vendor "
+    print(f"PASSED: all {len(STEPS)} checks. A licence issued by the vendor "
           "Manager activates in the packaged application.")
     return 0
 
