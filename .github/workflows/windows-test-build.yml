@@ -197,9 +197,10 @@ jobs:
       # Compress-Archive is a PowerShell wrapper over .NET's ZipArchive and has
       # a long history of producing archives that Windows' own Explorer
       # extractor then rejects; 7-Zip is the tool everything else in the
-      # Windows world reads without complaint. The layout is unchanged - the
-      # contents of each folder sit at the root of its ZIP, exactly as before -
-      # so nothing a customer sees after unzipping moves.
+      # Windows world reads without complaint. The layout must stay as it was -
+      # the contents of each folder at the root of its ZIP - and swapping the
+      # tool is exactly how that gets broken, so the verify step below asserts
+      # the exact paths rather than trusting this step to have got it right.
       - name: Zip both packages
         shell: pwsh
         run: |
@@ -209,14 +210,27 @@ jobs:
           }
           Copy-Item -Force "vendor/README-VENDOR.md" "dist/ZenithLicenseManager/READ-ME-VENDOR.txt"
 
-          $zip  = "ZenithBusiness-Stage${env:STAGE}-TestBuild-win64.zip"
-          $vzip = "ZenithSoft-LicenseManager-win64.zip"
+          $root = (Get-Location).Path
+          $zip  = Join-Path $root "ZenithBusiness-Stage${env:STAGE}-TestBuild-win64.zip"
+          $vzip = Join-Path $root "ZenithSoft-LicenseManager-win64.zip"
           Remove-Item -Force $zip, $vzip -ErrorAction SilentlyContinue
 
-          & 7z a -tzip -mx5 -bso0 -bsp0 $zip  "dist/package/*"
-          if ($LASTEXITCODE -ne 0) { throw "failed to create $zip" }
-          & 7z a -tzip -mx5 -bso0 -bsp0 $vzip "dist/ZenithLicenseManager/*"
-          if ($LASTEXITCODE -ne 0) { throw "failed to create $vzip" }
+          # Zip from INSIDE each folder, so its contents land at the root of the
+          # archive. 7-Zip stores the path it is given, so `7z a out.zip
+          # dist/package/*` would bury everything under dist/package/ and the
+          # owner would unzip to a folder with no Run-ZenithBusiness.bat in it.
+          # Compress-Archive -Path dist/package/* flattened it implicitly; this
+          # is the same result, stated on purpose.
+          function New-PackageZip($sourceDir, $target) {
+            Push-Location $sourceDir
+            try {
+              & 7z a -tzip -mx5 -bso0 -bsp0 $target "*"
+              if ($LASTEXITCODE -ne 0) { throw "failed to create $target" }
+            } finally { Pop-Location }
+          }
+
+          New-PackageZip "dist/package"              $zip
+          New-PackageZip "dist/ZenithLicenseManager" $vzip
 
           Write-Host ("App zip    : {0:N1} MB" -f ((Get-Item $zip).Length/1MB))
           Write-Host ("Manager zip: {0:N1} MB" -f ((Get-Item $vzip).Length/1MB))
@@ -247,19 +261,27 @@ jobs:
             & 7z x $zip "-o$out" -y -bso0 -bsp0 | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "$zip FAILED to extract" }
 
-            # 3. The files that must be present, opened and read.
-            foreach ($name in $required) {
-              $hit = Get-ChildItem -Recurse -File $out -Filter $name | Select-Object -First 1
-              if (-not $hit) { throw "$zip extracted WITHOUT $name" }
-              $stream = [IO.File]::OpenRead($hit.FullName)
+            # 3. The files that must be present, at the EXACT path the owner will
+            #    find them at, opened and read. Searching recursively for a name
+            #    would pass an archive that put the whole package one folder
+            #    deeper - which is precisely the mistake this check exists to
+            #    catch, since a package that unzips to the wrong shape is broken
+            #    even though every byte in it is perfect.
+            foreach ($rel in $required) {
+              $full = Join-Path $out $rel
+              if (-not (Test-Path -PathType Leaf $full)) {
+                throw "$zip extracted WITHOUT $rel (wrong layout, or file missing)"
+              }
+              $item = Get-Item $full
+              $stream = [IO.File]::OpenRead($full)
               try {
                 $head = New-Object byte[] 2
-                if ($stream.Read($head, 0, 2) -ne 2) { throw "$name is not readable" }
-                if ($head[0] -ne 0x4D -or $head[1] -ne 0x5A) {
-                  throw "$name is not a valid Windows binary (no MZ header)"
+                if ($stream.Read($head, 0, 2) -ne 2) { throw "$rel is not readable" }
+                if ($rel -match '\.(dll|exe|pyd)$' -and ($head[0] -ne 0x4D -or $head[1] -ne 0x5A)) {
+                  throw "$rel is not a valid Windows binary (no MZ header)"
                 }
               } finally { $stream.Dispose() }
-              Write-Host ("  OK  {0,-28} {1,12:N0} bytes" -f $hit.Name, $hit.Length)
+              Write-Host ("  OK  {0,-46} {1,12:N0} bytes" -f $rel, $item.Length)
             }
 
             # 4. Every other executable in the package, checked the same way. The
@@ -284,10 +306,20 @@ jobs:
             return $hash
           }
 
-          $appHash = Test-Package "ZenithBusiness-Stage${env:STAGE}-TestBuild-win64.zip" `
-                                  @("ZenithBusiness.exe", "Qt6Gui.dll", "Qt6Pdf.dll")
-          $mgrHash = Test-Package "ZenithSoft-LicenseManager-win64.zip" `
-                                  @("ZenithLicenseManager.exe", "Qt6Gui.dll", "Qt6Pdf.dll")
+          # Exact paths, relative to the root of each ZIP - the layout the owner
+          # gets after Extract All, including the launcher they double-click.
+          $appHash = Test-Package "ZenithBusiness-Stage${env:STAGE}-TestBuild-win64.zip" @(
+            "Run-ZenithBusiness.bat",
+            "READ-ME-FIRST.txt",
+            "app\ZenithBusiness.exe",
+            "app\_internal\PyQt6\Qt6\bin\Qt6Gui.dll",
+            "app\_internal\PyQt6\Qt6\bin\Qt6Pdf.dll")
+
+          $mgrHash = Test-Package "ZenithSoft-LicenseManager-win64.zip" @(
+            "READ-ME-VENDOR.txt",
+            "ZenithLicenseManager.exe",
+            "_internal\PyQt6\Qt6\bin\Qt6Gui.dll",
+            "_internal\PyQt6\Qt6\bin\Qt6Pdf.dll")
 
           # Published in the release notes so a customer can tell a damaged
           # DOWNLOAD apart from a damaged BUILD without asking anybody.
