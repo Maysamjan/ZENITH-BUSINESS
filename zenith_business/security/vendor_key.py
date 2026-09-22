@@ -20,10 +20,19 @@ from __future__ import annotations
 import base64
 import os
 
-#: Base64 of the 32-byte Ed25519 public key. Empty until the vendor key exists:
-#: an unconfigured build must report "no vendor key" honestly rather than
-#: pretend to verify, so licences cannot appear to pass against a placeholder.
-EMBEDDED_PUBLIC_KEY_B64 = ""
+#: Base64 of the 32-byte Ed25519 **public** key — the verification half, and the
+#: only key material in this application. Its private counterpart was generated
+#: in the Zenith Soft License Manager, is held encrypted on the vendor's own
+#: machine, and has never been in this repository.
+#:
+#: This is safe to publish. A public key can check a signature and cannot make
+#: one; anyone reading it gains the ability to verify Zenith Soft's licences,
+#: which is exactly what every customer already does.
+#:
+#: An empty value here is not a failure mode to paper over: a build without a
+#: key reports "no vendor key" and refuses to accept anything, rather than
+#: appearing to verify against a placeholder.
+EMBEDDED_PUBLIC_KEY_B64 = "aGixbaybmvVDEFA6RaqvCfLZmemWn/IE+hoPb1xT9S0="
 
 #: Environment override, for acceptance testing with a temporary key.
 PUBLIC_KEY_ENV = "ZENITH_LICENSE_PUBLIC_KEY"

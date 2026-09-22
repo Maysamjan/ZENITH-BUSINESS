@@ -75,7 +75,7 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
-          python -m pytest tests/test_stage10_hardening.py tests/test_stage10_licensing.py tests/test_stage10_lockout.py tests/test_stage10_final.py -q
+          python -m pytest tests/test_stage10_hardening.py tests/test_stage10_licensing.py tests/test_stage10_lockout.py tests/test_stage10_final.py tests/test_vendor_license_manager.py -q
 
       - name: Freeze ZenithBusiness.exe
         run: pyinstaller packaging/zenith_business.spec --noconfirm --clean
@@ -151,15 +151,45 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+      - name: Upload the vendor License Manager
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZenithSoft-LicenseManager-win64
+          path: dist/ZenithLicenseManager
+          retention-days: 14
+          if-no-files-found: error
+
       # Delivery-only: zip the portable package and attach it to a GitHub Release
       # so it has a permanent, one-click Download link (no Actions navigation, no
       # expiry). This does not change the application or any source.
+      # The VENDOR tool, built as a separate download. It is never placed
+      # inside the customer package - that is the whole point of the pairing -
+      # so it is frozen from its own spec, into its own folder, and zipped on
+      # its own.
+      - name: Freeze the vendor License Manager
+        run: pyinstaller packaging/zenith_license_manager.spec --noconfirm --clean
+
+      # Asked of the CUSTOMER package: it must not contain the vendor tool.
+      # The audit step above already fails on the module name; this proves the
+      # executable itself is absent, which is the thing a person would look for.
+      - name: Confirm the vendor tool is NOT in the customer package
+        shell: pwsh
+        run: |
+          $found = Get-ChildItem -Recurse dist/package -Filter "*LicenseManager*" `
+            -ErrorAction SilentlyContinue
+          if ($found) { throw "the vendor License Manager reached the customer package" }
+          Write-Host "Customer package contains no License Manager."
+
       - name: Zip the portable package
         shell: pwsh
         run: |
           $zip = "ZenithBusiness-Stage${env:STAGE}-TestBuild-win64.zip"
           Compress-Archive -Path dist/package/* -DestinationPath $zip -Force
           Write-Host ("Zip size: {0:N1} MB" -f ((Get-Item $zip).Length/1MB))
+          $vzip = "ZenithSoft-LicenseManager-win64.zip"
+          Copy-Item -Force "vendor/README-VENDOR.md" "dist/ZenithLicenseManager/READ-ME-VENDOR.txt"
+          Compress-Archive -Path dist/ZenithLicenseManager/* -DestinationPath $vzip -Force
+          Write-Host ("Manager zip: {0:N1} MB" -f ((Get-Item $vzip).Length/1MB))
 
       - name: Publish as a GitHub Release
         shell: bash
@@ -169,6 +199,7 @@ jobs:
           set -euo pipefail
           TAG="stage${STAGE}-test-build"
           ZIP="ZenithBusiness-Stage${STAGE}-TestBuild-win64.zip"
+          MANAGER_ZIP="ZenithSoft-LicenseManager-win64.zip"
 
           # PROVE we can publish BEFORE destroying what the owner is currently
           # downloading. This step used to delete the existing release first and
@@ -191,11 +222,11 @@ jobs:
 
           # Replace any previous copy so the download link is always the latest build.
           gh release delete "$TAG" --cleanup-tag --yes || true
-          gh release create "$TAG" "$ZIP" \
+          gh release create "$TAG" "$ZIP" "$MANAGER_ZIP" \
             --target "$GITHUB_SHA" \
             --prerelease \
             --title "Zenith Business — Stage ${STAGE} Windows Test Build" \
-            --notes "Self-contained Windows test build including the locked Stages 01-09 and Stage 10 (Single-PC Security, Backup & Licensing), with a fresh pre-seeded sample database. Download the ZIP, unzip, and double-click Run-ZenithBusiness.bat. IMPORTANT — licensing is now checked BEFORE login: the first screen is Activation, and an unlicensed computer cannot reach the login form or the program behind it. This build embeds no vendor signing key yet, so it stops at that screen and reads Unlicensed build. That is the gate working; it does NOT fall back to a demo, because a demo is now a signed licence like any other. Once a licence is imported the same window moves on to login (admin / Admin@123). Full click-by-click test steps are in READ-ME-FIRST inside the package. This is a TEST build for owner acceptance — Stage 10 is not locked or merged."
+            --notes "Self-contained Windows test build including the locked Stages 01-09 and Stage 10 (Single-PC Security, Backup & Licensing), with a fresh pre-seeded sample database. Download the ZIP, unzip, and double-click Run-ZenithBusiness.bat. IMPORTANT — licensing is now checked BEFORE login: the first screen is Activation, and an unlicensed computer cannot reach the login form or the program behind it. Copy the Request Code, send it to Zenith Soft, paste back the Product Key, press Activate - then log in (admin / Admin@123). ZenithSoft-LicenseManager-win64.zip on this release is the VENDOR tool that issues those keys: it is for Zenith Soft only and must never be given to a customer. Full click-by-click test steps are in READ-ME-FIRST inside the package. This is a TEST build for owner acceptance — Stage 10 is not locked or merged."
           # Retire the earlier stage's release so only one download link exists.
           for old in $SUPERSEDED_TAGS; do
             gh release delete "$old" --cleanup-tag --yes || true

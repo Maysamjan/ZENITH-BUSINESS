@@ -3817,6 +3817,81 @@ an attacker gains nothing from a key that decodes to the licence they had.
 +39 tests. The file route stays under **Advanced**: a long code can be mangled
 by an email client and a file cannot.
 
+### 14E.11 The Zenith Soft License Manager (owner-requested, 2026-09-22)
+
+A second Windows application, built from the D-Clinic workflow the owner sent:
+paste a request code, choose FULL or DEMO, press one button, copy one line. It
+is the half of the licensing system that can **issue**; Zenith Business is the
+half that can only **check**, and that asymmetry is the security model.
+
+`vendor/zenith_license_manager/` — never collected by the customer build, never
+imported by it, and asserted so by three tests and a CI step that looks for the
+executable inside the customer package.
+
+#### Where the private key lives, and how
+
+Not in this repository, and not in any build. A signing key is created by the
+Manager at run time and written to `%APPDATA%\ZenithSoft\LicenseManager\keys\`
+as an encrypted `.zkey`: **AES-256-GCM** with the key derived by **scrypt at
+n=2¹⁷** — four times the backup container's work factor, because a backup
+protects one customer's books while this protects the ability to issue licences
+at all. The header carries the product and the public half and is readable, so
+the Manager can list keys without unlocking any; it is fed to GCM as additional
+data, so it cannot be edited either.
+
+The passphrase is not stored. Losing it means every licence must be reissued
+under a new key with a rebuilt application, and the Manager says so before
+creating one rather than after.
+
+The raw seed exists in memory only while a key is unlocked, is used in exactly
+one function, and never reaches the interface, a log, the history file or an
+error message. Neither *Create key* nor *Import key* will overwrite an existing
+key file, because overwriting a signing key invalidates everything issued under
+it.
+
+#### What it does
+
+**Generate License** — product, request code (with the Machine ID shown back as
+it is pasted, so a wrong code is caught before a licence is bound to a machine
+that does not exist), customer name, phone, city, notes; FULL or DEMO with
+7/14/15/30/custom days or an explicit date; a licence number suggested from
+history and editable.
+
+**License History** — every issue, searchable by anything a vendor would
+remember. Append-only: a reissue writes a new row and a used number is reported
+rather than replaced, because "we sent a 14-day demo, then a full licence in
+May" is exactly the history that matters.
+
+#### Multi-product
+
+`products.py` is the catalogue: product id, key file, licence rules. D-Clinic is
+registered and **greyed out** — it uses a different key format, and claiming
+support before that exists would produce keys that silently do not work.
+
+#### The vendor key is now embedded
+
+`EMBEDDED_PUBLIC_KEY_B64` carries the **public** half of a keypair generated in
+the Manager. Its private counterpart has never been in this repository. Proven
+end to end against the real embedded key: a fresh install reads UNLICENSED, a
+DEMO key activates with the vendor's 14 days, a FULL key activates with no
+expiry, activation survives a restart, and a wrong-machine key, a key signed by
+a different key, and a key with one character changed are all refused with the
+licence already in place left untouched.
+
+A consequence worth recording: `public_key=None` used to mean "no key" and now
+means "use the embedded one". A test that relied on the old reading had to take
+the embedded key away explicitly to keep asking its real question — what an
+UNKEYED build does.
+
+**Honest note on custody.** This keypair was generated here, so its private half
+has passed through a message. That is acceptable for acceptance testing and not
+for production: the Manager's *Create key* makes a fresh one that has never left
+the vendor's machine, and the application then needs rebuilding with its public
+half.
+
++51 tests; **993 pass**, schema v13 (no migration — none of this touches the
+database).
+
 ### 14E.6 Known limitations (carried into review)
 
 * **No vendor key is embedded yet.** The build reports *Unlicensed build* and
@@ -3851,6 +3926,7 @@ by an email client and a file cannot.
 
 | Date | PROJECT_MASTER version | Change |
 |------|------------------------|--------|
+| 2026-09-22 | 6.6 | **Zenith Soft License Manager — the vendor application (Stage 10 still NOT locked, NOT merged).** A second Windows program, built to the D-Clinic workflow the owner sent: paste a request code, pick FULL or DEMO, press one button, copy one line. It is the half that can **issue**; Zenith Business is the half that can only **check**, and that asymmetry is the security model rather than a convention. Lives in `vendor/`, never collected by the customer build, never imported by it, and asserted so by three tests plus a CI step that hunts for the executable inside the customer package. **The private key never touches this repository:** the Manager creates one at run time and writes it to the vendor's own AppData as an AES-256-GCM `.zkey` with the key derived by scrypt at n=2¹⁷ — four times the backup work factor, because a backup guards one customer's books while this guards the ability to issue licences at all. The passphrase is not stored, neither Create nor Import will overwrite an existing key, and the raw seed is used in one function and never reaches the screen, a log or the history. **Generate License** shows the Machine ID back as the code is pasted, so a mangled code is caught before a licence is bound to a machine that does not exist; **License History** is append-only and searchable, so a reissue never erases what was sent before. `products.py` makes it multi-product, with D-Clinic registered but greyed out because it uses a different key format and claiming support would ship keys that silently fail. **The vendor public key is now embedded**, so the build verifies for real: proven end to end that DEMO and FULL activate, survive a restart, and that wrong-machine, wrong-signer and altered keys are refused with the existing licence untouched. One consequence recorded: `public_key=None` used to mean "no key" and now means "the embedded one", so a test had to take the key away explicitly to keep asking what an unkeyed build does. Custody is stated honestly — this keypair was generated here, which is fine for acceptance and not for production; Create key makes one that never leaves the vendor's machine. +51 tests; **993 pass**, schema v13. See §14E.11. |
 | 2026-09-21 | 6.5 | **Stage 10 — activation by copy and paste (still NOT locked, NOT merged).** The owner compared the flow with their other product and asked for its shape, and they were right: the first version made a customer save a `.zreq`, attach it, receive a `.zlic`, find it on disk and import it — four file operations for someone who only wants to start work. Activation is now **copy a code, send it, paste a key, activate**, with the file route folded away under Advanced because a long code can be mangled by an email client and a file cannot. **Nothing about the security model changed:** a Product Key is the same Ed25519-signed, machine-bound licence a `.zlic` holds, with the same signature, binding, expiry, refusals and public-key-only verification — only the packaging differs, and `parse_any_license` feeds both shapes through **one** evaluation so a second judgement routine cannot drift from the first. A `ZBR1-` request code carries the fingerprint and hashed traits (a short Machine ID could not: the traits are what let a licence survive a disk swap) plus a CRC, so a code mangled in a message is caught **before** the vendor issues a licence against a machine that does not exist. A `ZB1-` key is ~250 characters, because an Ed25519 signature is 64 bytes and cannot be shortened; the payload is packed binary rather than JSON, which ran past a thousand. Trait comparison now accepts a prefix, since a key packs each trait into four bytes — a bounded weakening of a *tolerance* check that only ever matters on a machine which already failed the 128-bit fingerprint. Vendor side gains `issue`, which takes a request code and prints a key with **the vendor choosing the DEMO length**, and records customer/phone/city to a history file that never ships. **Three defects found by reading the rendered screens:** the Dari UI reported every refusal in English, so `LicenseError` now carries a catalogue key; `ZB1-` rendered as `-ZB1` because bidi reorders a trailing hyphen, fixed with directional isolates; and a fresh install showed its instructions in red, which reads as a fault when nothing is wrong. Two behaviours were discovered rather than designed and are recorded so they are not later mistaken for bugs: a paste survives line breaks, case and a lost separator; and the final character of a key carries dead bits, so changing only those leaves the same licence — the signature covers the decoded bytes. +33 tests. See §14E.10. |
 | 2026-09-21 | 6.4 | **Stage 10 — final real-Windows fixes (still NOT locked, NOT merged).** Ten issues from the owner testing the packaged build, one of them architectural: **the licence gate was in the wrong place.** Licensing was a screen under Tools, so an unlicensed installation reached login and the whole workspace and looked at its licence afterwards — a gate behind an open door. Activation is now a page in the same window as login, in front of it, with no route to the login form except a licence that evaluates FULL or DEMO, re-asked on the way through because a licence can lapse while the screen sits open. **A missing licence is no longer a free demo:** `NO_LICENSE_FILE` used to grant 30 days from a settings row, so deleting the licence granted access; there is now an `UNLICENSED` status, and a demo is a vendor-signed, machine-bound licence with its own expiry like any other. **A clock a demo cannot be cheated out of:** the installation remembers the latest moment it has ever seen and never believes an earlier one, kept in a DPAPI-sealed file, a database mirror and the licence's own signed `issued_at` as a floor, highest of the three winning — and an expiry that falls while the program is open returns it to activation within a minute instead of waiting for a restart. **The Persian-keyboard inconsistency was real and was not a keyboard conversion:** creating a backup never verified the typed text against the account despite its docstring claiming so, so a backup made under a Persian layout was locked with a string the owner never chose — which Check accepted (it *was* the passphrase) and Restore refused (it also re-authenticates). Creating a backup now verifies first and refuses otherwise. Also: the pre-restore safety copy is no longer a plain readable `.db` of the live books; `bad_passphrase` no longer reaches the screen, replaced by a message naming all three causes in EN and Dari; "Expires: Never" with no licence became "—"; every screen reads one evaluated status and now words it from the catalogue, so Dari stops reporting its licence in English; activation requests carry the customer's real business name or none at all; and recovery, built in Stage 10 behind no button, is now on the login screen and in My Account. **Honest limit recorded:** anti-rollback raises the cost of a clock change, it does not prevent one — a local Administrator can delete both stores, and only the signed floor survives that. +53 tests; **907 pass**, schema v13 (no migration). Acceptance items B–H sit behind the gate and need the owner's vendor key before they can be run on the real build. See §14E.9. |
 | 2026-09-20 | 6.3 | **Stage 10 — lockout polish (still NOT locked, NOT merged).** The owner asked what the lockout actually does before asking for anything to change, and reading it out on a real on-disk database found a defect the code review had missed: **waiting out the fifteen minutes did not give the five attempts back.** Clearing a lock moved `is_locked` and `locked_until` but left `failed_login_attempts` at the threshold, so the next single wrong password re-locked the account for another full quarter of an hour — the owner served the wait and got one try, not five, and each further typo cost another fifteen minutes, which is indistinguishable from an account that has stopped working. Every path that lifts a lock (expiry at the login screen, expiry during sensitive-action re-authentication, and a recovery code) now goes through one `UserRepository.clear_lockout` that clears the flags **and** the count, and writes an `auth.lockout_expired` audit entry so a lock disappearing is recorded rather than silent. The login screen now counts the wait down to the second — *"Account locked. Try again in 12m 34s."* — in EN and Dari, re-rendered on a mid-lock language switch, surviving a repeated Sign In press, and ending in the neutral colour with "the lock has ended" instead of going blank. Everything else is deliberately unchanged and pinned by tests: fifth wrong password, fifteen minutes, attempts during the lock do not extend it, the correct password is still refused while it runs, it survives app and PC restart, a successful login or recovery clears it, and an unknown username locks nothing. **Expiry is judged against the PC's own clock** — someone at the machine can end a lock early by moving the Windows clock forward, recorded as a limitation rather than claimed away. +30 tests; **853 pass**, schema v13 (no migration). See §14E.8. |

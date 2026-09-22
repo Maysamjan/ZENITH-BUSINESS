@@ -272,11 +272,39 @@ def test_a_rejected_import_leaves_the_working_licence_in_place(
 
 
 def test_an_unconfigured_build_reports_itself_rather_than_letting_anything_through(
-        tmp_path):
+        tmp_path, monkeypatch):
+    """A build with no vendor key refuses everything instead of guessing.
+
+    ``public_key=None`` no longer means "no key": since the vendor key was
+    embedded it means "use the built-in one", which is the right default and the
+    reason this test now has to take the embedded key away explicitly. Removing
+    it is the whole point — the question is what an UNKEYED build does.
+    """
+    import zenith_business.security.vendor_key as vendor_key
+
+    monkeypatch.delenv(vendor_key.PUBLIC_KEY_ENV, raising=False)
+    monkeypatch.setattr(vendor_key, "EMBEDDED_PUBLIC_KEY_B64", "")
+    assert vendor_key.is_configured() is False
+
     service = LicenseService(license_dir=tmp_path, public_key=None,
                              machine_overrides=THIS_PC)
     assert service.evaluate().status == LicenseStatus.NO_VENDOR_KEY
+    assert service.evaluate().allows_login is False
     assert service.is_full() is False
+
+
+def test_the_shipped_build_now_carries_a_vendor_key(monkeypatch):
+    """The other half: the build the customer receives CAN verify a licence.
+
+    An empty key was correct while no vendor key existed and would be a defect
+    now — every activation would be refused with "no vendor key" no matter what
+    the Manager issued.
+    """
+    import zenith_business.security.vendor_key as vendor_key
+
+    monkeypatch.delenv(vendor_key.PUBLIC_KEY_ENV, raising=False)
+    assert vendor_key.is_configured() is True
+    assert len(vendor_key.public_key()) == 32
 
 
 def test_the_shipped_package_embeds_no_private_key():
