@@ -21,7 +21,13 @@ import pytest
 
 pytest.importorskip("cryptography", reason="signing needs a crypto backend")
 
-from vendor.zenith_license_manager import issuing, keystore, products  # noqa: E402
+from vendor.zenith_license_manager import (                            # noqa: E402
+    issuing,
+    keystore,
+    preflight,
+    products,
+)
+from zenith_business.security import vendor_key                        # noqa: E402
 from vendor.zenith_license_manager.history import History              # noqa: E402
 from zenith_business.core.config import AppConfig, LANG_ENGLISH        # noqa: E402
 from zenith_business.database.connection import Database               # noqa: E402
@@ -47,10 +53,22 @@ def no_modal_dialogs(monkeypatch):
 
 
 @pytest.fixture
-def vendor(tmp_path):
-    """A vendor installation: an encrypted signing key and an empty history."""
+def vendor(tmp_path, monkeypatch):
+    """A vendor installation: an encrypted signing key and an empty history.
+
+    The throwaway key is also installed as the key THIS BUILD verifies with, via
+    the documented environment override. That is not a convenience: the Manager
+    now refuses to issue under a key the application would not accept, so a test
+    whose signing key differed from the application's would be testing the
+    refusal rather than the licence. Making them the same here is what the real
+    pairing looks like.
+    """
+    import base64
+
     key_dir = tmp_path / "vendor" / "keys"
     seed, public = keystore.generate_seed()
+    monkeypatch.setenv(vendor_key.PUBLIC_KEY_ENV,
+                       base64.b64encode(public).decode("ascii"))
     key_dir.mkdir(parents=True)
     keystore.write_key(key_dir / products.ZENITH_BUSINESS.key_filename, seed,
                        PASSPHRASE, product_id="ZENITH-BUSINESS",
@@ -205,14 +223,47 @@ def test_a_key_for_another_machine_is_refused(vendor, customer):
 
 
 def test_a_key_signed_by_a_different_vendor_is_refused(vendor, customer):
-    """A second signing key is a different vendor, and is not this one."""
+    """A second signing key is a different vendor, and is not this one.
+
+    Forged with the codec directly rather than through ``issuing.issue``,
+    because the Manager now refuses to sign under a key the application would
+    not accept — and someone forging a licence would not be using our Manager
+    anyway. This is the customer-side guarantee: a well-formed key signed by
+    the wrong hand is refused.
+    """
+    from zenith_business.security import product_key as pk
+
     impostor, _public = keystore.generate_seed()
-    issued = issuing.issue(
-        product=products.ZENITH_BUSINESS, seed=impostor,
-        request_code=customer.licensing.request_code(),
-        license_type="FULL", serial=1)
+    request = issuing.parse_request(customer.licensing.request_code())
+    payload = pk.build_license_payload(
+        license_type="FULL", fingerprint=request.fingerprint,
+        traits=request.traits, issued_at=date.today().isoformat(),
+        expires_at=None, serial=1, issued_to="Kabul Traders Ltd")
+    forged = pk.encode_license(payload, keystore.sign(impostor, payload))
+
+    assert forged.startswith("ZB1-")          # well-formed in every other way
     with pytest.raises(LicenseError):
-        customer.licensing.import_product_key(issued.product_key)
+        customer.licensing.import_product_key(forged)
+
+
+def test_the_manager_refuses_to_sign_with_a_key_the_application_rejects(vendor,
+                                                                        customer):
+    """The failure the owner actually hit, now caught before a key exists.
+
+    Pressing "Create key…" makes a perfectly valid signing key that the shipped
+    application has never heard of. Every licence under it looked right in the
+    Manager and was refused at the customer as "not genuine", with nothing on
+    either side naming the cause.
+    """
+    stranger, _public = keystore.generate_seed()
+    with pytest.raises(issuing.IssueError) as raised:
+        issuing.issue(product=products.ZENITH_BUSINESS, seed=stranger,
+                      request_code=customer.licensing.request_code(),
+                      license_type="FULL", serial=1)
+    assert preflight.WRONG_KEY_MESSAGE in str(raised.value)
+    # And it says WHICH key, so the vendor can tell the two apart.
+    assert products.fingerprint(keystore.public_key_for(stranger)) in str(raised.value)
+    assert products.ZENITH_BUSINESS.expected_fingerprint() in str(raised.value)
 
 
 def test_activation_survives_a_restart(vendor, customer, tmp_path):
@@ -340,6 +391,20 @@ def _manager(vendor, qapp):
                                 license_dir=vendor["licenses"])
 
 
+def _unlocked(vendor, qapp):
+    """A Manager with the signing key loaded, exactly as unlocking leaves it.
+
+    The refresh is the point, not a detail: issuing is enabled by the
+    self-test and by nothing else, so a test that only dropped a seed into
+    ``_seeds`` would find Generate disabled — which is the behaviour, not a
+    bug in the test.
+    """
+    window = _manager(vendor, qapp)
+    window._seeds["ZENITH-BUSINESS"] = vendor["seed"]
+    window._refresh_key_state()
+    return window
+
+
 def test_the_manager_opens_and_reports_its_key_state(vendor, qapp):
     window = _manager(vendor, qapp)
     try:
@@ -353,9 +418,8 @@ def test_the_manager_opens_and_reports_its_key_state(vendor, qapp):
 
 
 def test_the_manager_generates_a_key_the_customer_accepts(vendor, customer, qapp):
-    window = _manager(vendor, qapp)
+    window = _unlocked(vendor, qapp)
     try:
-        window._seeds["ZENITH-BUSINESS"] = vendor["seed"]
         page = window.generate_page
         page.request.setPlainText(customer.licensing.request_code())
         page.customer_name.setText("Kabul Traders Ltd")
@@ -415,9 +479,8 @@ def test_choosing_days_fills_in_the_expiry_date(vendor, qapp):
 
 
 def test_the_licence_number_is_suggested_and_editable(vendor, customer, qapp):
-    window = _manager(vendor, qapp)
+    window = _unlocked(vendor, qapp)
     try:
-        window._seeds["ZENITH-BUSINESS"] = vendor["seed"]
         page = window.generate_page
         assert page.license_id.text() == "ZB-FULL-000001"
         page.license_id.setText("ZB-FULL-000777")
@@ -431,9 +494,8 @@ def test_the_licence_number_is_suggested_and_editable(vendor, customer, qapp):
 
 
 def test_the_history_tab_lists_and_finds_what_was_issued(vendor, customer, qapp):
-    window = _manager(vendor, qapp)
+    window = _unlocked(vendor, qapp)
     try:
-        window._seeds["ZENITH-BUSINESS"] = vendor["seed"]
         page = window.generate_page
         page.request.setPlainText(customer.licensing.request_code())
         page.customer_name.setText("Herat Traders")
@@ -494,3 +556,195 @@ def test_no_signing_key_file_is_committed():
         found = [p for p in repo.rglob(pattern)
                  if ".git" not in p.parts and "tmp" not in p.parts]
         assert not found, f"{pattern} committed: {found}"
+
+
+# ==========================================================================
+# 6. keypair consistency — the pass that exists because a real licence was
+#    issued under a key the shipped application had never heard of
+# ==========================================================================
+
+def test_the_product_reads_its_expected_key_from_the_application(vendor):
+    """One source of truth: the Manager asks the application, it does not copy.
+
+    A constant here would be right on the day it was written and wrong the
+    first time a build was re-keyed — which is exactly the failure being fixed.
+    """
+    import base64
+
+    expected = products.ZENITH_BUSINESS.expected_public_key()
+    assert expected == vendor_key.public_key()
+    assert expected == vendor["public"]
+    assert products.ZENITH_BUSINESS.expected_fingerprint() == \
+        products.fingerprint(base64.b64encode(vendor["public"]).decode())
+
+
+def test_a_fingerprint_is_short_enough_for_a_person_to_compare(vendor):
+    fp = products.fingerprint(vendor["public"])
+    assert len(fp) == 19 and fp.count("-") == 3          # XXXX-XXXX-XXXX-XXXX
+    assert products.fingerprint(None) == "—"
+    assert products.fingerprint("not base64 at all") == "—"
+    # Different keys must not share a fingerprint.
+    other, _ = keystore.generate_seed()
+    assert products.fingerprint(keystore.public_key_for(other)) != fp
+
+
+def test_the_self_test_passes_only_for_the_applications_own_key(vendor):
+    right = preflight.self_test(products.ZENITH_BUSINESS, vendor["seed"])
+    assert right.ok
+    assert right.fingerprint == right.expected_fingerprint
+    assert [c.name for c in right.checks] == [
+        "Signing key loaded", "Crypto backend", "Public key derives",
+        "Sign/verify round-trip", "Product", "Matches the application's key"]
+
+    stranger, _ = keystore.generate_seed()
+    wrong = preflight.self_test(products.ZENITH_BUSINESS, stranger)
+    assert not wrong.ok
+    assert [c.name for c in wrong.failures] == ["Matches the application's key"]
+    assert preflight.WRONG_KEY_MESSAGE in wrong.summary
+    # Everything else about the stranger's key is genuinely fine, and the
+    # report says so rather than blaming the key material.
+    assert wrong.fingerprint != wrong.expected_fingerprint
+
+
+def test_the_self_test_reports_no_key_without_raising():
+    result = preflight.self_test(products.ZENITH_BUSINESS, None)
+    assert not result.ok
+    assert result.summary == "No signing key is unlocked."
+    assert result.fingerprint == "—"
+
+
+def test_a_key_filed_under_another_product_is_caught_by_name(vendor):
+    result = preflight.self_test(products.ZENITH_BUSINESS, vendor["seed"],
+                                 key_product_id="D-CLINIC")
+    assert not result.ok
+    assert any(c.name == "Product" and not c.ok for c in result.checks)
+
+
+def test_a_build_with_no_embedded_key_cannot_confirm_any_signing_key(
+        vendor, monkeypatch):
+    """Honest about the one case where the check cannot be made."""
+    monkeypatch.delenv(vendor_key.PUBLIC_KEY_ENV, raising=False)
+    monkeypatch.setattr(vendor_key, "EMBEDDED_PUBLIC_KEY_B64", "")
+    result = preflight.self_test(products.ZENITH_BUSINESS, vendor["seed"])
+    assert not result.ok
+    assert "carries no verification key" in result.summary
+
+
+def test_every_issued_key_is_verified_before_it_is_returned(vendor, customer,
+                                                            monkeypatch):
+    """A key that fails the read-back must never reach the vendor's screen.
+
+    Corrupted at the point the key is ASSEMBLED, after the signing key has
+    already passed its own self-test — otherwise the earlier round-trip check
+    catches it and the read-back is never reached. This is the failure no
+    amount of checking the inputs would find: good key, good payload, damaged
+    output.
+    """
+    real_encode = issuing.product_key.encode_license
+
+    def damaged(payload, signature):
+        return real_encode(payload, bytes([signature[0] ^ 0xFF]) + signature[1:])
+
+    monkeypatch.setattr(issuing.product_key, "encode_license", damaged)
+    with pytest.raises(issuing.IssueError) as raised:
+        _issue(vendor, customer)
+    assert "failed verification" in str(raised.value)
+    assert "has not been issued" in str(raised.value)
+
+    monkeypatch.setattr(issuing.product_key, "encode_license", real_encode)
+    assert _issue(vendor, customer).product_key.startswith("ZB1-")
+
+
+def test_a_key_that_signs_but_cannot_verify_is_caught_before_issuing(vendor,
+                                                                     customer,
+                                                                     monkeypatch):
+    """The other half: a signing key whose own signatures do not verify."""
+    monkeypatch.setattr(issuing.keystore, "sign", lambda seed, msg: bytes(64))
+    with pytest.raises(issuing.IssueError) as raised:
+        _issue(vendor, customer)
+    assert "does not verify" in str(raised.value)
+
+
+def test_the_read_back_checks_what_was_asked_for_not_just_the_signature(vendor,
+                                                                        customer):
+    """Type, machine and expiry are re-read from the finished key."""
+    issued = _issue(vendor, customer, license_type="DEMO", days=14, serial=7)
+    request = issuing.parse_request(customer.licensing.request_code())
+
+    preflight.verify_issued(products.ZENITH_BUSINESS, issued.product_key,
+                            expect_fingerprint=request.fingerprint,
+                            expect_type="DEMO", expect_expiry=issued.expires_at)
+
+    for kwargs, complaint in (
+            (dict(expect_type="FULL"), "licence type"),
+            (dict(expect_fingerprint="0" * 32), "wrong machine"),
+            (dict(expect_expiry=None), "expiry")):
+        args = dict(expect_fingerprint=request.fingerprint, expect_type="DEMO",
+                    expect_expiry=issued.expires_at)
+        args.update(kwargs)
+        with pytest.raises(preflight.PreflightError) as raised:
+            preflight.verify_issued(products.ZENITH_BUSINESS,
+                                    issued.product_key, **args)
+        assert complaint in str(raised.value)
+
+
+def test_the_window_disables_issuing_until_the_right_key_is_loaded(vendor, qapp):
+    """The button is the guarantee, not a label beside it."""
+    window = _manager(vendor, qapp)
+    try:
+        assert window.generate_page.generate.isEnabled() is False
+        assert "locked" in window.key_state.text().lower()
+
+        window._seeds["ZENITH-BUSINESS"] = vendor["seed"]
+        window._refresh_key_state()
+        assert window.generate_page.generate.isEnabled() is True
+        assert "verified" in window.key_state.text().lower()
+
+        stranger, _ = keystore.generate_seed()
+        window._seeds["ZENITH-BUSINESS"] = stranger
+        window._refresh_key_state()
+        assert window.generate_page.generate.isEnabled() is False
+        assert "wrong signing key" in window.key_state.text().lower()
+        assert preflight.WRONG_KEY_MESSAGE in window.diag_verdict.text()
+    finally:
+        window.deleteLater()
+
+
+def test_the_window_shows_both_fingerprints_so_they_can_be_compared(vendor, qapp):
+    window = _unlocked(vendor, qapp)
+    try:
+        own = products.fingerprint(vendor["public"])
+        assert own in window.diag_fingerprint.text()
+        assert own in window.diag_expected.text()      # they match, so both show it
+        assert "Zenith Business" in window.diag_product.text()
+        assert "unlocked" in window.diag_status.text()
+
+        stranger, _ = keystore.generate_seed()
+        window._seeds["ZENITH-BUSINESS"] = stranger
+        window._refresh_key_state()
+        # Now they differ, and the strip shows BOTH so the vendor can see which.
+        assert products.fingerprint(keystore.public_key_for(stranger)) in \
+            window.diag_fingerprint.text()
+        assert own in window.diag_expected.text()
+    finally:
+        window.deleteLater()
+
+
+def test_a_blocked_generate_click_produces_no_key_and_no_history(vendor, customer,
+                                                                 qapp):
+    """Clicking Generate with the wrong key must leave nothing behind."""
+    window = _manager(vendor, qapp)
+    try:
+        stranger, _ = keystore.generate_seed()
+        window._seeds["ZENITH-BUSINESS"] = stranger
+        window._refresh_key_state()
+
+        page = window.generate_page
+        page.request.setPlainText(customer.licensing.request_code())
+        page.generate.click()
+
+        assert page.key_box.toPlainText() == ""
+        assert page.copy_button.isEnabled() is False
+        assert History(vendor["history"]).load() == []
+    finally:
+        window.deleteLater()

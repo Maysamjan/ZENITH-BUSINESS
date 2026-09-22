@@ -36,10 +36,54 @@ cannot be. The customer imports it under **Advanced** on the activation screen.
 ## Keys
 
 - **Create key…** makes a new signing key for the selected product and shows its
-  public half. Send only that to whoever builds the application.
+  public half and fingerprint. Send only that to whoever builds the application.
 - **Import key…** takes custody of an existing key, encrypting it on the way in.
+- **Unlock signing key…** opens the key already on this computer.
 - Replacing a key invalidates every license issued under it, so neither button
   will overwrite an existing key file.
+
+### The key has to be the one the application verifies with
+
+A signing key can be perfectly valid and still be the *wrong* key. Only the
+counterpart of the public key built into the shipped application will produce
+licenses that application accepts; anything else produces a Product Key that
+looks flawless here and is refused at the customer as **"This product key is
+not genuine, or it was changed after it was issued."**
+
+That is not left to memory. The strip under the toolbar always shows:
+
+```
+Product:                       Zenith Business (ZENITH-BUSINESS)
+Key status:                    unlocked
+Signing key fingerprint:       D618-6880-46FB-61C1
+Zenith Business expects:       D618-6880-46FB-61C1
+Key created / imported:        2026-09-22
+✓  Signing key verified against the product's own key.
+```
+
+If those two fingerprints differ, **Generate License is disabled** and the strip
+says so. Nothing will produce a Product Key in that state — not the button, not
+the engine underneath it, not a script calling `issuing.issue`.
+
+**A newly created key never matches an existing build.** That is the normal
+sequence and the Manager says so when it makes one:
+
+1. **Create key…** → copy the `PUBLIC KEY:` line.
+2. Zenith Business is rebuilt with that public key
+   (`zenith_business/security/vendor_key.py`).
+3. Install the new build. Generate License becomes available.
+
+Until step 3, licenses cannot be issued under that key — which is correct, since
+no application in existence would accept them.
+
+### Every license is checked before you see it
+
+After signing, the Manager re-reads the finished Product Key through the
+**customer's own** parser and verifier and checks the signature, the machine it
+is bound to, the license type and the expiry. A key that fails is not shown, not
+copied, not saved and not written to the history; you get the technical reason
+instead. Verifying with the code that issued it would only prove the Manager
+agrees with itself.
 
 ## Adding another product
 

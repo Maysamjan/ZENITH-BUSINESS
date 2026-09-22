@@ -67,6 +67,19 @@ QPushButton#GenerateButton:hover { background: #0B6557; }
 QPushButton#GenerateButton:disabled { background: #B7CFCA; }
 
 QLabel[role="hint"] { color: #6B7A8C; font-size: 9pt; }
+
+/* The signing-key diagnostics strip. Monospaced on purpose: its whole job is
+   letting a person compare two key fingerprints character by character, and
+   proportional digits make that harder than it needs to be. */
+QWidget#Diagnostics { background: #F4F7FA; border-bottom: 1px solid #DCE4EC; }
+QLabel[role="diag"] {
+    color: #33414F;
+    font-family: "Consolas", "DejaVu Sans Mono", monospace;
+    font-size: 9pt;
+}
+QLabel#DiagVerdict { margin-top: 4px; padding: 4px 8px; border-radius: 4px; }
+QLabel#DiagVerdict[state="ok"]  { color: #0E7C6B; background: #E3F5F1; }
+QLabel#DiagVerdict[state="bad"] { color: #A32A2A; background: #FCE8E8; font-weight: 600; }
 QLabel[role="summary"] { color: #16212F; font-weight: 600; }
 QLabel[role="preview"] { color: #0E7C6B; font-weight: 700; }
 

@@ -21,6 +21,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QFileDialog,
+    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -37,7 +38,12 @@ _REPO = Path(__file__).resolve().parent.parent.parent.parent
 if str(_REPO) not in sys.path:                      # pragma: no cover - path setup
     sys.path.insert(0, str(_REPO))
 
-from vendor.zenith_license_manager import issuing, keystore, products  # noqa: E402
+from vendor.zenith_license_manager import (                            # noqa: E402
+    issuing,
+    keystore,
+    preflight,
+    products,
+)
 from vendor.zenith_license_manager.history import (                    # noqa: E402
     History,
     default_license_dir,
@@ -106,9 +112,49 @@ class LicenseManagerWindow(QMainWindow):
         warning.setWordWrap(True)
         col.addWidget(warning)
 
+        # The diagnostics strip. It exists because the failure it reports -
+        # signing with a key the application does not verify with - produces a
+        # Product Key that looks perfect here and is refused there. Nobody can
+        # be expected to remember which key they imported months ago, so the
+        # Manager states it every time instead of asking.
+        self.diagnostics = QWidget()
+        self.diagnostics.setObjectName("Diagnostics")
+        diag = QGridLayout(self.diagnostics)
+        diag.setContentsMargins(20, 6, 20, 6)
+        diag.setHorizontalSpacing(24)
+        diag.setVerticalSpacing(2)
+
+        self.diag_product = QLabel("")
+        self.diag_status = QLabel("")
+        self.diag_created = QLabel("")
+        self.diag_fingerprint = QLabel("")
+        self.diag_expected = QLabel("")
+        self.diag_verdict = QLabel("")
+        self.diag_verdict.setObjectName("DiagVerdict")
+        self.diag_verdict.setWordWrap(True)
+        for label in (self.diag_product, self.diag_status, self.diag_created,
+                      self.diag_fingerprint, self.diag_expected):
+            label.setProperty("role", "diag")
+            label.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse)
+        # Three rows rather than six: the strip sits above the form, and every
+        # line it takes is a line the form loses.
+        diag.addWidget(self.diag_product, 0, 0)
+        diag.addWidget(self.diag_status, 0, 1)
+        diag.addWidget(self.diag_created, 0, 2)
+        # The two fingerprints are the reason this strip exists, so they get a
+        # row of their own and sit in the same columns - directly one above the
+        # other, which is what makes them comparable at a glance.
+        diag.addWidget(self.diag_fingerprint, 1, 0, 1, 2)
+        diag.addWidget(self.diag_expected, 2, 0, 1, 2)
+        diag.addWidget(self.diag_verdict, 3, 0, 1, 3)
+        diag.setColumnStretch(2, 1)
+        col.addWidget(self.diagnostics)
+
         self.tabs = QTabWidget()
         self.generate_page = GeneratePage(
-            on_generate=self._generate, next_serial=self._history.next_serial)
+            on_generate=self._generate, next_serial=self._history.next_serial,
+            on_product_changed=self._refresh_key_state)
         self.history_page = HistoryPage(
             load=self._history.search, on_reexport=self._reexport)
         self.tabs.addTab(self.generate_page, "Generate License")
@@ -126,13 +172,42 @@ class LicenseManagerWindow(QMainWindow):
     def _key_path(self, product: products.Product) -> Path:
         return self._key_dir / product.key_filename
 
-    def _refresh_key_state(self) -> None:
+    def _key_info(self, product: products.Product) -> keystore.KeyInfo | None:
+        path = self._key_path(product)
+        if not path.is_file():
+            return None
+        try:
+            return keystore.read_info(path)
+        except keystore.KeystoreError:
+            return None
+
+    def current_self_test(self) -> preflight.SelfTest:
+        """Run every check against the key currently loaded for this product."""
         product = self.generate_page.current_product()
+        info = self._key_info(product)
+        return preflight.self_test(
+            product, self._seeds.get(product.product_id),
+            key_product_id=info.product_id if info else None)
+
+    def _refresh_key_state(self) -> None:
+        """Re-run the self-test and let it decide what may happen next.
+
+        Issuing is ENABLED by this method and by nothing else, so a key that
+        cannot pass the checks cannot produce a licence however the interface is
+        driven.
+        """
+        product = self.generate_page.current_product()
+        info = self._key_info(product)
         unlocked = product.product_id in self._seeds
-        if unlocked:
-            self.key_state.setText("🔓  Private key loaded")
+        result = self.current_self_test()
+
+        if unlocked and result.ok:
+            self.key_state.setText("🔓  Private key verified")
             self.key_state.setProperty("state", "ok")
-        elif self._key_path(product).is_file():
+        elif unlocked:
+            self.key_state.setText("⛔  Wrong signing key")
+            self.key_state.setProperty("state", "missing")
+        elif info is not None:
             self.key_state.setText("🔒  Signing key locked")
             self.key_state.setProperty("state", "locked")
         else:
@@ -140,6 +215,33 @@ class LicenseManagerWindow(QMainWindow):
             self.key_state.setProperty("state", "missing")
         self.key_state.style().unpolish(self.key_state)
         self.key_state.style().polish(self.key_state)
+
+        if info is None:
+            status = "no key file on this computer"
+        elif unlocked:
+            status = "unlocked"
+        else:
+            status = "locked — unlock it to issue"
+        self.diag_product.setText(
+            f"Product: {product.display_name} ({product.product_id})")
+        self.diag_status.setText(f"Key status: {status}")
+        self.diag_created.setText(
+            "Key created / imported: "
+            f"{(info.created_at[:10] if info and info.created_at else '—')}")
+        # Padded to the same width so the two fingerprints line up vertically,
+        # which is the whole point of showing them together.
+        self.diag_fingerprint.setText(
+            f"{'Signing key fingerprint':<24}: {result.fingerprint}")
+        self.diag_expected.setText(
+            f"{product.display_name + ' expects':<24}: {result.expected_fingerprint}")
+
+        self.diag_verdict.setText(
+            ("✓  " if result.ok else "⛔  ") + result.summary)
+        self.diag_verdict.setProperty("state", "ok" if result.ok else "bad")
+        self.diag_verdict.style().unpolish(self.diag_verdict)
+        self.diag_verdict.style().polish(self.diag_verdict)
+
+        self.generate_page.set_issuing_allowed(result.ok, result.summary)
 
     def _unlock_key(self) -> None:
         product = self.generate_page.current_product()
@@ -165,6 +267,29 @@ class LicenseManagerWindow(QMainWindow):
             QMessageBox.critical(self, "Cannot open key", str(exc))
             return
         self._refresh_key_state()
+        self._report_self_test(product)
+
+    def _report_self_test(self, product: products.Product) -> None:
+        """Say plainly whether the key just loaded can issue, and why not.
+
+        Shown after every unlock, create and import. A key that decrypts is not
+        the same as a key that works, and the gap between those two is where the
+        licences that get rejected at the customer come from.
+        """
+        result = self.current_self_test()
+        if result.ok:
+            return
+        detail = "\n".join(f"  ✗  {check.name}: {check.detail}"
+                           for check in result.failures)
+        QMessageBox.critical(
+            self, "This key cannot issue licenses",
+            f"{result.summary}\n\n{detail}\n\n"
+            f"Signing key fingerprint : {result.fingerprint}\n"
+            f"{product.display_name} accepts     : {result.expected_fingerprint}\n\n"
+            "Generate License stays disabled until the right key is loaded. "
+            "Either import the signing key whose public half is built into "
+            f"{product.display_name}, or rebuild {product.display_name} with "
+            "this key's public half.")
 
     def _create_key(self) -> None:
         """Make a NEW signing key. The public half is shown, to send onward."""
@@ -203,13 +328,25 @@ class LicenseManagerWindow(QMainWindow):
             return
         self._seeds[product.product_id] = seed
         self._refresh_key_state()
+        # A NEW key is by definition not the one any existing build verifies
+        # with, so say so here rather than letting the vendor discover it from a
+        # customer. The old text implied the key was ready to use.
+        matches = product.key_matches(keystore.public_key_for(seed))
+        follow_up = ("" if matches else
+                     f"\n\nThis is a NEW key, so the current {product.display_name} "
+                     f"build does NOT accept it yet — it verifies against "
+                     f"{product.expected_fingerprint()}. Generate License stays "
+                     f"disabled until {product.display_name} is rebuilt with the "
+                     "public key below.")
         QMessageBox.information(
             self, "Signing key created",
             f"Saved to:\n{info.path}\n\n"
             "Send ONLY the public key below to whoever builds "
             f"{product.display_name}. Keep the file and the passphrase private, "
-            "and back the file up somewhere safe.\n\n"
-            f"PUBLIC KEY: {info.public_key_b64}")
+            "and back the file up somewhere safe."
+            f"{follow_up}\n\n"
+            f"PUBLIC KEY: {info.public_key_b64}\n"
+            f"FINGERPRINT: {products.fingerprint(info.public_key_b64)}")
 
     def _import_key(self) -> None:
         """Take custody of an existing signing key, encrypting it on the way in.
@@ -266,7 +403,9 @@ class LicenseManagerWindow(QMainWindow):
             f"Encrypted and saved to:\n{info.path}\n\n"
             "Delete the copy you pasted from — this file and your passphrase "
             "are now the only things needed to issue licenses.\n\n"
-            f"PUBLIC KEY: {info.public_key_b64}")
+            f"PUBLIC KEY: {info.public_key_b64}\n"
+            f"FINGERPRINT: {products.fingerprint(info.public_key_b64)}")
+        self._report_self_test(product)
 
     # ---- issuing ---------------------------------------------------------
 
@@ -278,6 +417,21 @@ class LicenseManagerWindow(QMainWindow):
             seed = self._seeds.get(product.product_id)
             if seed is None:
                 return
+
+        # Asked again at the moment of issuing, not only when the key was
+        # loaded: the button may have been enabled before the product was
+        # switched, and the engine refuses anyway, but the vendor deserves the
+        # readable reason rather than a raised exception.
+        result = self.current_self_test()
+        if not result.ok:
+            self._refresh_key_state()
+            QMessageBox.critical(
+                self, "Cannot issue this license",
+                f"{result.summary}\n\n"
+                f"Signing key fingerprint : {result.fingerprint}\n"
+                f"{product.display_name} accepts     : {result.expected_fingerprint}\n\n"
+                "No license was generated.")
+            return
 
         license_id = values.get("license_id") or ""
         serial = _serial_from(license_id) or self._history.next_serial(

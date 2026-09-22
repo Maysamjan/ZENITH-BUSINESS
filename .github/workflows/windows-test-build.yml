@@ -425,6 +425,24 @@ jobs:
           $env:ZENITH_DATA_HOME = Join-Path $env:RUNNER_TEMP "launch-home"
           Start-FromExtract (Join-Path $appDir "app\ZenithBusiness.exe") "Zenith Business"
 
+      # The check that would have caught the Product Key rejection. Everything
+      # else here proves the packages EXTRACT and START; this one proves they
+      # WORK TOGETHER - a licence issued by the vendor Manager is accepted by
+      # the packaged application, and the four things that must be refused are.
+      # Run against the extracted packages, and before anything is published.
+      - name: Vendor Manager issues → packaged Zenith Business activates
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $ErrorActionPreference = "Stop"
+          $mgrDir = Join-Path $env:RUNNER_TEMP "verify-ZenithSoft-LicenseManager-win64"
+          $appDir = Join-Path $env:RUNNER_TEMP "verify-ZenithBusiness-Stage${env:STAGE}-TestBuild-win64"
+          python packaging/end_to_end_licence_check.py $mgrDir (Join-Path $appDir "app")
+          if ($LASTEXITCODE -ne 0) {
+            throw "a licence issued by the Manager is NOT accepted by the packaged application"
+          }
+
       - name: Publish as a GitHub Release
         shell: bash
         env:

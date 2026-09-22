@@ -31,6 +31,7 @@ from zenith_business.security.license_format import (                # noqa: E40
     canonical_bytes,
 )
 from vendor.zenith_license_manager import keystore                   # noqa: E402
+from vendor.zenith_license_manager import preflight                  # noqa: E402
 from vendor.zenith_license_manager.products import Product           # noqa: E402
 
 
@@ -118,6 +119,15 @@ def issue(*, product: Product, seed: bytes, request_code: str, license_type: str
     if license_type not in product.types:
         raise IssueError(f"{product.display_name} has no {license_type!r} licence.")
 
+    # The signing key must be the one the product's application verifies with.
+    # This is checked HERE rather than only in the interface, because an issue
+    # made from a script or a test would otherwise skip it — and a licence
+    # signed by the wrong key is indistinguishable from a good one until it
+    # reaches the customer, where it is refused as "not genuine".
+    check = preflight.self_test(product, seed)
+    if not check.ok:
+        raise IssueError(check.summary)
+
     request = parse_request(request_code)
     issued_at = issued_at or date.today().isoformat()
     expiry = expiry_for(license_type, days=demo_days, explicit=expires_at,
@@ -128,6 +138,17 @@ def issue(*, product: Product, seed: bytes, request_code: str, license_type: str
         traits=request.traits, issued_at=issued_at, expires_at=expiry,
         serial=int(serial), issued_to=issued_to)
     key = product_key.encode_license(payload, keystore.sign(seed, payload))
+
+    # Read the finished key back through the CUSTOMER's parser and verifier
+    # before anyone can see it. A key that fails here is never returned, so it
+    # cannot be copied, saved, recorded in the history or sent to anybody.
+    try:
+        preflight.verify_issued(product, key, expect_fingerprint=request.fingerprint,
+                                expect_type=license_type, expect_expiry=expiry)
+    except preflight.PreflightError as exc:
+        raise IssueError(
+            "The license was signed but failed verification, so it has not "
+            f"been issued. Technical reason: {exc}") from exc
 
     return IssuedLicense(
         product_id=product.product_id,

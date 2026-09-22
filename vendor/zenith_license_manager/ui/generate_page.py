@@ -45,11 +45,17 @@ class GeneratePage(QWidget):
 
     def __init__(self, *, on_generate: Callable[[dict], None],
                  next_serial: Callable[[str, str], int],
+                 on_product_changed: Callable[[], None] | None = None,
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._on_generate = on_generate
         self._next_serial = next_serial
+        self._on_product_changed = on_product_changed
         self._issued = None
+        #: Set by the window from the signing-key self-test. Issuing is refused
+        #: unless this is true, so a wrong key cannot produce a Product Key.
+        self._issuing_allowed = False
+        self._issuing_blocked_reason = "No signing key loaded."
         # Checking a radio button emits toggled immediately, so the handlers run
         # while the rest of the page is still being built. They wait.
         self._building = True
@@ -80,6 +86,7 @@ class GeneratePage(QWidget):
                                             else "  (not yet supported)")
             self.product.addItem(label, product.product_id)
         self.product.currentIndexChanged.connect(self._sync_type)
+        self.product.currentIndexChanged.connect(self._product_changed)
         form.addRow("Product", self.product)
 
         # The request code is long, so it gets a box rather than a line: a
@@ -209,6 +216,24 @@ class GeneratePage(QWidget):
     def current_product(self) -> products.Product:
         return products.by_id(self.product.currentData()) or products.ZENITH_BUSINESS
 
+    def _product_changed(self) -> None:
+        """Switching product changes which signing key applies, so re-check."""
+        if self._building:
+            return
+        if self._on_product_changed is not None:
+            self._on_product_changed()
+
+    def set_issuing_allowed(self, allowed: bool, reason: str = "") -> None:
+        """Enable or disable issuing, from the signing-key self-test.
+
+        The button's tooltip carries the reason, so hovering a disabled button
+        answers "why can't I?" without a dialog.
+        """
+        self._issuing_allowed = bool(allowed)
+        self._issuing_blocked_reason = reason or "No signing key loaded."
+        self.generate.setEnabled(self._issuing_allowed)
+        self.generate.setToolTip("" if allowed else self._issuing_blocked_reason)
+
     def _sync_type(self) -> None:
         if self._building:
             return
@@ -288,6 +313,10 @@ class GeneratePage(QWidget):
             "expires_at": self.expiry.text().strip() or None,
             "license_id": self.license_id.text().strip() or None,
         }
+        if not self._issuing_allowed:
+            QMessageBox.critical(self, "Cannot issue this license",
+                                 self._issuing_blocked_reason)
+            return
         if not values["request_code"]:
             QMessageBox.warning(self, "Machine ID required",
                                 "Paste the request code the customer sent you.")
