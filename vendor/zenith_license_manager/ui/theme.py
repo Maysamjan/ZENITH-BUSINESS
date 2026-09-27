@@ -81,7 +81,22 @@ QLabel#DiagVerdict { margin-top: 4px; padding: 4px 8px; border-radius: 4px; }
 QLabel#DiagVerdict[state="ok"]  { color: #0E7C6B; background: #E3F5F1; }
 QLabel#DiagVerdict[state="bad"] { color: #A32A2A; background: #FCE8E8; font-weight: 600; }
 QLabel[role="summary"] { color: #16212F; font-weight: 600; }
+
+/* Form captions. They sit ABOVE their control on a line of their own, so they
+   have the full panel width and cannot be clipped however long the text gets -
+   which is what a Dari label needs, and what the old two-column form could not
+   give. */
+QLabel[role="field-label"] { color: #33414F; font-weight: 600; padding-left: 1px; }
+
+/* The Machine ID echo. A read-only field, so it matches the form around it and
+   can be copied, but it is plainly not somewhere to type. */
 QLabel[role="preview"] { color: #0E7C6B; font-weight: 700; }
+QLineEdit[role="preview"] {
+    color: #0E7C6B;
+    font-weight: 700;
+    background: #F1F8F6;
+    border-color: #BFDDD5;
+}
 
 QTableWidget {
     background: #FFFFFF; border: 1px solid #D7DEE7; border-radius: 6px;

@@ -307,6 +307,38 @@ def test_the_shipped_build_now_carries_a_vendor_key(monkeypatch):
     assert len(vendor_key.public_key()) == 32
 
 
+def test_the_shipped_build_carries_the_production_key(monkeypatch):
+    """Pinned to the vendor's PRODUCTION key, by fingerprint.
+
+    Changing this value invalidates every licence ever issued, so it is not a
+    line to edit casually — and the last time it changed, it changed from an
+    acceptance-testing key whose private half had passed through a message. The
+    fingerprint is written out in full so that altering the key without meaning
+    to fails here, loudly, rather than at a customer who cannot activate.
+
+    Fingerprints are compared, not raw base64, because the fingerprint is what
+    the vendor sees in the License Manager: this test and the vendor's screen
+    are reading the same number.
+    """
+    import sys
+    from pathlib import Path
+
+    import zenith_business.security.vendor_key as vendor_key
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from vendor.zenith_license_manager import products
+
+    monkeypatch.delenv(vendor_key.PUBLIC_KEY_ENV, raising=False)
+    assert vendor_key.EMBEDDED_PUBLIC_KEY_B64 == \
+        "G1M7xped6Xkmf7+TfmrrBw5UrBDUR0qj3pMROGehm3o="
+    assert products.fingerprint(vendor_key.EMBEDDED_PUBLIC_KEY_B64) == \
+        "0301-9BCB-AF59-F44B"
+    assert products.ZENITH_BUSINESS.expected_fingerprint() == "0301-9BCB-AF59-F44B"
+
+    # And the superseded acceptance-testing key is genuinely gone.
+    assert "aGixbaybmvVDEFA6RaqvCfLZmemWn" not in vendor_key.EMBEDDED_PUBLIC_KEY_B64
+
+
 def test_the_shipped_package_embeds_no_private_key():
     """The application may verify. It must not be able to sign."""
     import zenith_business.security.vendor_key as vendor_key

@@ -22,7 +22,6 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QComboBox,
-    QFormLayout,
     QFrame,
     QGroupBox,
     QHBoxLayout,
@@ -32,6 +31,8 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QRadioButton,
+    QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -63,12 +64,63 @@ class GeneratePage(QWidget):
         root = QHBoxLayout(self)
         root.setContentsMargins(16, 16, 16, 16)
         root.setSpacing(16)
-        root.addWidget(self._build_input(), 5)
+
+        # The input column scrolls. Without this Qt has nowhere to take the
+        # space from on a short window and squeezes the FIRST group box until
+        # its labels sit on top of its fields - which is exactly how the
+        # "Customer & machine" section came to look broken. A scroll area lets
+        # every row keep the height it asked for and moves the shortfall into a
+        # scrollbar, so the form is correct at any window size rather than only
+        # at a tall one.
+        self.input_scroll = QScrollArea()
+        self.input_scroll.setWidget(self._build_input())
+        self.input_scroll.setWidgetResizable(True)
+        self.input_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.input_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        # Generate License sits OUTSIDE the scroll area. It is the one control
+        # that must never be somewhere the vendor has to scroll to find.
+        self.generate = QPushButton("⚙  Generate License")
+        self.generate.setObjectName("GenerateButton")
+        self.generate.setMinimumHeight(42)
+        self.generate.clicked.connect(self._submit)
+
+        left = QWidget()
+        left_col = QVBoxLayout(left)
+        left_col.setContentsMargins(0, 0, 0, 0)
+        left_col.setSpacing(12)
+        left_col.addWidget(self.input_scroll, 1)
+        left_col.addWidget(self.generate)
+
+        root.addWidget(left, 5)
         root.addWidget(self._build_output(), 4)
         self._building = False
         self._sync_type()
 
     # ---- left: what to issue --------------------------------------------
+
+    @staticmethod
+    def _field(label: str, widget: QWidget) -> QWidget:
+        """One labelled row: caption on its own line, control full width.
+
+        Returned as a single widget so a caller adds one thing per row and the
+        spacing between rows is set in exactly one place.
+        """
+        holder = QWidget()
+        box = QVBoxLayout(holder)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(4)
+        caption = QLabel(label)
+        caption.setProperty("role", "field-label")
+        # The caption never truncates: it is on its own line, and it is allowed
+        # to wrap rather than being cut off, which is what a long Dari label
+        # needs.
+        caption.setWordWrap(True)
+        caption.setBuddy(widget)
+        box.addWidget(caption)
+        box.addWidget(widget)
+        return holder
 
     def _build_input(self) -> QWidget:
         panel = QWidget()
@@ -76,9 +128,18 @@ class GeneratePage(QWidget):
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(12)
 
-        customer = QGroupBox("Customer && machine")
-        form = QFormLayout(customer)
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        customer = QGroupBox("Customer && Machine")
+        # Each label sits ABOVE its field rather than beside it. A two-column
+        # QFormLayout was clipping "Machine ID / Request Code" and overlapping
+        # the rows below it: the label column is sized to the widest label, and
+        # labels carrying a line break got a narrow column and a two-line
+        # height that the row never reserved. Stacking removes the failure
+        # instead of tuning around it - every label gets the full panel width,
+        # so nothing can be cut off however long the text is, and it lays out
+        # identically in Dari, where a label column would have to flip side.
+        form = QVBoxLayout(customer)
+        form.setContentsMargins(14, 16, 14, 14)
+        form.setSpacing(10)
 
         self.product = QComboBox()
         for product in products.CATALOGUE:
@@ -87,39 +148,54 @@ class GeneratePage(QWidget):
             self.product.addItem(label, product.product_id)
         self.product.currentIndexChanged.connect(self._sync_type)
         self.product.currentIndexChanged.connect(self._product_changed)
-        form.addRow("Product", self.product)
+        form.addWidget(self._field("Product", self.product))
 
         # The request code is long, so it gets a box rather than a line: a
-        # vendor must be able to SEE that the whole thing was pasted.
+        # vendor must be able to SEE that the whole thing was pasted. Sized to
+        # hold the full 81-character ZBR1 code on three lines at any sensible
+        # panel width, and it grows with the window rather than staying fixed.
         self.request = QPlainTextEdit()
         self.request.setPlaceholderText(
             "Paste the customer's request code here — it starts with ZBR1-")
-        self.request.setFixedHeight(64)
+        # Tall enough for the whole 81-character code with room to spare even
+        # when it wraps to three lines on a narrow window, and capped so it
+        # cannot swallow the rest of the form.
+        self.request.setMinimumHeight(78)
+        self.request.setMaximumHeight(104)
+        self.request.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                   QSizePolicy.Policy.Fixed)
         self.request.textChanged.connect(self._preview_machine)
-        form.addRow("Machine ID /\nRequest Code *", self.request)
+        form.addWidget(self._field("Request Code *", self.request))
 
-        self.machine_preview = QLabel("—")
+        # A read-only field rather than a bare label: it looks like the rest of
+        # the form, it can be selected and copied, and it cannot be typed into.
+        self.machine_preview = QLineEdit()
+        self.machine_preview.setReadOnly(True)
+        self.machine_preview.setPlaceholderText(
+            "appears when a valid request code is pasted")
         self.machine_preview.setProperty("role", "preview")
-        self.machine_preview.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse)
-        form.addRow("Machine ID", self.machine_preview)
+        form.addWidget(self._field("Machine ID", self.machine_preview))
 
         self.customer_name = QLineEdit()
         self.customer_name.setPlaceholderText("Business or customer name")
-        form.addRow("Customer /\nBusiness Name", self.customer_name)
+        form.addWidget(self._field("Customer / Business Name",
+                                   self.customer_name))
         self.phone = QLineEdit()
-        form.addRow("Phone", self.phone)
+        form.addWidget(self._field("Phone", self.phone))
         self.city = QLineEdit()
-        form.addRow("City", self.city)
+        form.addWidget(self._field("City", self.city))
         self.notes = QLineEdit()
         self.notes.setPlaceholderText("Optional")
-        form.addRow("Notes", self.notes)
+        form.addWidget(self._field("Notes", self.notes))
         col.addWidget(customer)
 
         licence = QGroupBox("License")
         lic = QVBoxLayout(licence)
+        lic.setContentsMargins(14, 16, 14, 14)
+        lic.setSpacing(10)
 
         row = QHBoxLayout()
+        row.setSpacing(18)
         self.type_group = QButtonGroup(self)
         self.type_full = QRadioButton("FULL")
         self.type_demo = QRadioButton("DEMO")
@@ -134,7 +210,10 @@ class GeneratePage(QWidget):
         self.demo_row = QWidget()
         demo = QHBoxLayout(self.demo_row)
         demo.setContentsMargins(0, 0, 0, 0)
-        demo.addWidget(QLabel("Demo days"))
+        demo.setSpacing(12)
+        _demo_caption = QLabel("Demo days")
+        _demo_caption.setProperty("role", "field-label")
+        demo.addWidget(_demo_caption)
         self.days_group = QButtonGroup(self)
         self.day_buttons: list[QRadioButton] = []
         for days in products.ZENITH_BUSINESS.demo_days:
@@ -157,21 +236,14 @@ class GeneratePage(QWidget):
         self.day_buttons[1].setChecked(True)          # 14 days, the common case
         lic.addWidget(self.demo_row)
 
-        detail = QFormLayout()
         self.expiry = QLineEdit()
         self.expiry.setPlaceholderText("YYYY-MM-DD")
         self.expiry.textEdited.connect(self._expiry_typed)
-        detail.addRow("Expiry date", self.expiry)
+        lic.addWidget(self._field("Expiry date", self.expiry))
         self.license_id = QLineEdit()
-        detail.addRow("License ID", self.license_id)
-        lic.addLayout(detail)
+        lic.addWidget(self._field("License ID", self.license_id))
         col.addWidget(licence)
 
-        self.generate = QPushButton("⚙  Generate License")
-        self.generate.setObjectName("GenerateButton")
-        self.generate.setMinimumHeight(42)
-        self.generate.clicked.connect(self._submit)
-        col.addWidget(self.generate)
         col.addStretch(1)
         return panel
 

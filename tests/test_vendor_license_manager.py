@@ -776,3 +776,150 @@ def test_the_end_to_end_check_prints_only_ascii():
 
     # And the streams are reconfigured, so a stray character still cannot kill it.
     assert 'reconfigure(encoding="utf-8"' in source
+
+
+# ==========================================================================
+# 7. the Generate form's layout — it looked broken, and looking broken in a
+#    tool that issues licences is not cosmetic
+# ==========================================================================
+
+def _captions(page):
+    from PyQt6.QtWidgets import QLabel
+
+    return [w for w in page.findChildren(QLabel)
+            if w.property("role") == "field-label"]
+
+
+def _laid_out(window, qapp, width=1180, height=820):
+    """Show and size the window so its layouts have actually run.
+
+    Without this every widget reports its default geometry, and a test that
+    asks "is anything clipped?" answers no because nothing has a real size
+    yet - passing while proving nothing.
+    """
+    window.resize(width, height)
+    window.show()
+    qapp.processEvents()
+    return window
+
+
+def test_no_form_caption_is_clipped(vendor, qapp):
+    """Every caption must have room for the text it draws.
+
+    The old two-column form sized its label column to the widest label and
+    then had to fit "Machine ID / Request Code" into it, so the caption was
+    cut off and the row below it was overlapped. Captions now sit on their own
+    line, and this asserts the consequence rather than the arrangement.
+    """
+    window = _unlocked(vendor, qapp)
+    try:
+        _laid_out(window, qapp, 1100, 720)
+        clipped = []
+        for label in _captions(window.generate_page):
+            needed = label.fontMetrics().boundingRect(label.text()).width()
+            if label.width() + 1 < needed:
+                clipped.append((label.text(), label.width(), needed))
+        assert not clipped, f"clipped captions: {clipped}"
+    finally:
+        window.deleteLater()
+
+
+def test_no_caption_overlaps_the_control_it_names(vendor, qapp):
+    """A caption must sit ABOVE its field, never on top of it."""
+    window = _unlocked(vendor, qapp)
+    try:
+        _laid_out(window, qapp)
+        overlaps = []
+        for label in _captions(window.generate_page):
+            partner = label.buddy()
+            if partner is None or partner.parentWidget() is not label.parentWidget():
+                continue
+            # Both are direct children of the same row holder, so their
+            # geometries are already in one coordinate system - which mapTo()
+            # through a scroll viewport is not.
+            if label.geometry().bottom() > partner.geometry().top():
+                overlaps.append(
+                    (label.text(), label.geometry().bottom(), partner.geometry().top()))
+        assert not overlaps, f"caption overlaps its field: {overlaps}"
+        assert len(_captions(window.generate_page)) >= 9   # the check ran
+    finally:
+        window.deleteLater()
+
+
+def test_captions_carry_no_embedded_line_breaks(vendor, qapp):
+    """A '\\n' in a label was how the clipping got in. It cannot come back."""
+    window = _unlocked(vendor, qapp)
+    try:
+        for label in _captions(window.generate_page):
+            assert "\n" not in label.text(), f"{label.text()!r} has a line break"
+    finally:
+        window.deleteLater()
+
+
+def test_the_form_lays_out_in_dari_too(vendor, qapp):
+    """Dari is right-to-left; a label column would have to flip, a stack does not."""
+    from PyQt6.QtCore import Qt
+
+    window = _unlocked(vendor, qapp)
+    try:
+        qapp.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        _laid_out(window, qapp)
+        clipped = [label.text() for label in _captions(window.generate_page)
+                   if label.width() + 1
+                   < label.fontMetrics().boundingRect(label.text()).width()]
+        assert not clipped, f"clipped in RTL: {clipped}"
+    finally:
+        qapp.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        window.deleteLater()
+
+
+def test_the_request_box_holds_a_whole_request_code(vendor, customer, qapp):
+    """A vendor must be able to SEE that the entire code was pasted."""
+    window = _unlocked(vendor, qapp)
+    try:
+        page = window.generate_page
+        code = customer.licensing.request_code()
+        page.request.setPlainText(code)
+        _laid_out(window, qapp)
+        assert page.request.toPlainText() == code
+        assert page.request.height() >= 78
+        # And the machine id it decodes to is shown, read-only.
+        assert page.machine_preview.text() == customer.licensing.machine.short
+        assert page.machine_preview.isReadOnly() is True
+    finally:
+        window.deleteLater()
+
+
+def test_generate_is_reachable_without_scrolling(vendor, qapp):
+    """The one control that must never be hidden below the fold."""
+    window = _unlocked(vendor, qapp)
+    try:
+        _laid_out(window, qapp, 1100, 700)
+        page = window.generate_page
+        # It is a sibling of the scroll area, not a child of it.
+        assert not page.input_scroll.isAncestorOf(page.generate)
+        assert page.generate.isVisible() or not window.isVisible()
+    finally:
+        window.deleteLater()
+
+
+def test_a_short_window_scrolls_instead_of_crushing_the_form(vendor, qapp):
+    """The actual defect: Qt took the missing height out of the first group.
+
+    With nowhere to put the shortfall, the "Customer & machine" box was
+    squeezed until its captions sat on its fields. The input column scrolls
+    now, so the rows keep the height they asked for at any window size.
+    """
+    window = _unlocked(vendor, qapp)
+    try:
+        page = window.generate_page
+        _laid_out(window, qapp, 1100, 620)
+        tall = page.input_scroll.widget().sizeHint().height()
+        assert tall > page.input_scroll.viewport().height(), \
+            "this window is not short enough to exercise the scroll path"
+        # Every field keeps a usable height rather than collapsing.
+        for widget in (page.customer_name, page.phone, page.city, page.notes,
+                       page.machine_preview):
+            assert widget.height() >= 20, f"{widget} collapsed to {widget.height()}"
+    finally:
+        window.deleteLater()
