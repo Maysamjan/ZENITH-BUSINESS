@@ -9,12 +9,18 @@ from zenith_business.core.i18n import Direction
 
 
 @pytest.fixture
-def auth_window(qapp, context):
+def auth_window(qapp, licensed_context):
+    """An ACTIVATED installation — otherwise the gate never reaches these pages.
+
+    Licensing is checked before login from Stage 10 final onwards, so a window
+    built on an unlicensed context correctly shows the activation page and none
+    of the setup/login assertions below would mean anything.
+    """
     from zenith_business.ui.auth.auth_window import AuthWindow
 
     cfg = AppConfig()
     cfg.ui.language = LANG_ENGLISH
-    return AuthWindow(context, cfg), context
+    return AuthWindow(licensed_context, cfg), licensed_context
 
 
 def test_first_run_shows_setup_page(auth_window) -> None:

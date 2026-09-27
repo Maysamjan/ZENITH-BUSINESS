@@ -69,3 +69,39 @@ def admin_context(context):
         company_name="Test Co.")
     context.auth.login("admin", "Str0ngPass!")
     return context
+
+
+# ---- Stage 10 final: licensing ------------------------------------------
+
+
+def activate_for_tests(ctx, *, license_type: str = "FULL",
+                       expires_at: str | None = None) -> bytes:
+    """Give a context a genuine, signed licence for the machine running it.
+
+    Licensing is a **pre-login gate** from Stage 10 final onwards: an
+    unactivated installation stops at the activation screen and never reaches
+    login or the workspace. Every test about something behind that gate
+    therefore needs a real licence, not a bypass — there is no bypass, which is
+    the point. The keypair is generated per call, lives in memory, and the
+    private half never leaves this process.
+    """
+    from tests.tooling.license_signing import generate_keypair, make_license
+
+    private, public = generate_keypair()
+    ctx.licensing._explicit_key = public
+    me = ctx.licensing.machine
+    text = make_license(private, machine_fingerprint=me.fingerprint,
+                        machine_traits=me.traits, license_type=license_type,
+                        license_id=f"ZB-{license_type}-TEST01",
+                        expires_at=expires_at)
+    ctx.licensing.license_path.parent.mkdir(parents=True, exist_ok=True)
+    ctx.licensing.license_path.write_text(text, encoding="utf-8")
+    return public
+
+
+@pytest.fixture
+def licensed_context(context):
+    """A fully-migrated context that has been activated, so the gate lets it by."""
+    pytest.importorskip("cryptography", reason="test signing tooling only")
+    activate_for_tests(context)
+    return context

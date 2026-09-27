@@ -38,25 +38,59 @@ class BackupService:
         self._session = session
         self._authz = authz
 
-    def create_backup(self) -> Path:
-        """Write a consistent ``.db`` snapshot to the backups directory."""
+    def create_backup(self, *, passphrase: str | None = None,
+                      hint: str = "") -> Path:
+        """Write a consistent snapshot to the backups directory.
+
+        With a ``passphrase`` the snapshot is wrapped in an authenticated,
+        encrypted ``.zbak`` container (Stage 10 hardening §2) and the plain
+        intermediate is removed. Without one it stays a plain ``.db``, which is
+        what every backup written before this existed already is.
+        """
         self._authz.require("backup.create")
         self._backups_dir.mkdir(parents=True, exist_ok=True)
         stamp = now_utc().strftime("%Y%m%d-%H%M%S")
-        target = self._backups_dir / f"zenith-backup-{stamp}.db"
+        plain = self._backups_dir / f"zenith-backup-{stamp}.db"
 
         source = self._db.connection()
-        dest = sqlite3.connect(target)
+        dest = sqlite3.connect(plain)
         try:
             source.backup(dest)
         finally:
             dest.close()
 
+        target = plain
+        encrypted = False
+        if passphrase:
+            from zenith_business.core.identity import APP_VERSION, PRODUCT_NAME
+            from zenith_business.security import backup_crypto
+
+            schema = None
+            try:
+                row = self._db.connection().execute(
+                    "SELECT MAX(version) FROM schema_migrations").fetchone()
+                schema = int(row[0]) if row and row[0] is not None else None
+            except sqlite3.Error:
+                pass
+            header = backup_crypto.BackupHeader(
+                created_at=now_utc().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                schema_version=schema, app_version=APP_VERSION,
+                product=PRODUCT_NAME, hint=hint)
+            target = self._backups_dir / f"zenith-backup-{stamp}.zbak"
+            try:
+                backup_crypto.encrypt_file(plain, target, passphrase, header=header)
+            finally:
+                # The plain copy must not survive: leaving it would defeat the
+                # encryption entirely.
+                plain.unlink(missing_ok=True)
+            encrypted = True
+
         with self._db.transaction():
             self._audit.record(
                 action="backup.create", user_id=self._session.user_id,
-                username=self._session.username, details=f"file={target.name}")
-        _logger.info("Database backup written: %s", target)
+                username=self._session.username,
+                details=f"file={target.name} encrypted={encrypted}")
+        _logger.info("Database backup written: %s (encrypted=%s)", target, encrypted)
         return target
 
     def validate_backup(self, path: str | Path) -> bool:

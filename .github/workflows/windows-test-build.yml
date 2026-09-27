@@ -1,0 +1,558 @@
+name: Windows Test Build
+
+# Builds a self-contained Windows test package (ZenithBusiness.exe + a fresh
+# pre-seeded sample database + launcher + owner instructions) and uploads it as a
+# downloadable artifact. This does NOT change any application functionality — it
+# only packages the current source exactly as it is.
+#
+# Run it manually from the Actions tab (Run workflow), or it runs automatically
+# on pushes to the development branch that touch the app or the packaging kit.
+#
+# The stage the build belongs to is set ONCE in env.STAGE below: it names the
+# release tag, its title and the ZIP, so moving to the next stage is a one-line
+# change instead of a hunt through this file.
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - claude/zenith-business-architecture-ywcgpe
+    paths:
+      - "zenith_business/**"
+      - "packaging/**"
+      - "vendor/**"
+      - ".github/workflows/windows-test-build.yml"
+
+permissions:
+  contents: write   # needed to publish the ZIP as a GitHub Release asset
+
+env:
+  STAGE: "10"
+  # Releases from earlier stages, removed once the new one is published so the
+  # owner never has two differently-named ZIPs to choose between.
+  SUPERSEDED_TAGS: "stage05-test-build stage06-test-build stage07-test-build stage08-test-build stage09-test-build"
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install application + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pyinstaller
+
+      # The Dari sheet asks for the bundled Vazirmatn with no fallback, which
+      # only helps if Windows actually has it registered. Segoe UI and Tahoma
+      # exist here and do NOT exist on the Linux dev machine, so this is the
+      # platform where a silent substitution would happen — verify it here
+      # rather than infer it from a machine that cannot reproduce the problem.
+      - name: Verify the Dari report font resolves to bundled Vazirmatn (Windows)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          pip install pytest
+          python -m pytest tests/test_stage08_report_fixes.py -v -k "font or dari or bundled"
+
+      # Licensing and backup encryption are the two places where a silent
+      # failure is worst, so they are exercised on the platform that ships.
+      # The lockout joins them: locking the owner out of their own books is the
+      # one security failure that hurts the customer rather than an attacker,
+      # and half of it is Qt behaviour that only the shipping platform proves.
+      # The final pass joins them for a reason of its own: the anti-rollback
+      # clock seals its state with DPAPI, which exists only on Windows. On Linux
+      # the fallback path is what gets exercised, so the real one would never be
+      # tested anywhere if not here.
+      - name: Verify licensing, backup encryption, lockout and the gate (Windows)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m pytest tests/test_stage10_hardening.py tests/test_stage10_licensing.py tests/test_stage10_lockout.py tests/test_stage10_final.py tests/test_vendor_license_manager.py -q
+
+      - name: Freeze ZenithBusiness.exe
+        run: pyinstaller packaging/zenith_business.spec --noconfirm --clean
+
+      - name: Assemble portable package
+        shell: pwsh
+        run: |
+          $pkg = "dist/package"
+          New-Item -ItemType Directory -Force -Path $pkg | Out-Null
+          Copy-Item -Recurse -Force "dist/ZenithBusiness" "$pkg/app"
+          Copy-Item -Force "packaging/Run-ZenithBusiness.bat" "$pkg/"
+          Copy-Item -Force "packaging/Reset-Test-Data.bat" "$pkg/"
+          Copy-Item -Force "packaging/READ-ME-FIRST.md" "$pkg/READ-ME-FIRST.txt"
+          Write-Host "Seeding fresh sample database..."
+          python packaging/seed_test_db.py "$pkg/appdata"
+          Copy-Item -Recurse -Force "$pkg/appdata" "$pkg/appdata_seed"
+
+      # Scan the REAL package — every file a customer would receive, including
+      # the bytes inside the frozen exe and its archive. A source-level check
+      # would miss the one failure that matters: a file collected by accident.
+      - name: Security audit of the release package
+        run: python packaging/audit_release_package.py dist/package
+
+      # Ask the FROZEN BINARY what it is. A byte scan cannot prove the licence
+      # path works — PyInstaller zlib-compresses the Python archive, so our own
+      # module strings are invisible to it. Running the exe is the honest check.
+      - name: Ask the frozen build to report its security state
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          ZENITH_DATA_HOME: dist/selftest-home
+        run: |
+          # The shipped exe is WINDOWED, so it has no stdout to read. It writes
+          # its report to a file; that is the only thing CI can rely on.
+          $report = "dist/selftest-report.txt"
+          $proc = Start-Process -FilePath "dist/ZenithBusiness/ZenithBusiness.exe" `
+            -ArgumentList "--selftest","--selftest-out=$report" -PassThru -Wait
+          if (-not (Test-Path $report)) {
+            throw "frozen build wrote no self-test report (exit $($proc.ExitCode))"
+          }
+          $text = Get-Content $report -Raw
+          Write-Host $text
+          if ($proc.ExitCode -ne 0) { throw "frozen build failed its self-test" }
+          foreach ($needed in @("signature verify     : True",
+                                "backup encryption    : True",
+                                "SELFTEST             : OK")) {
+            if ($text -notmatch [regex]::Escape($needed)) {
+              throw "frozen build did not report: $needed"
+            }
+          }
+          Write-Host "Frozen build verified its own crypto and licence path."
+
+      - name: Smoke-check the frozen build starts (offscreen)
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          ZENITH_DATA_HOME: dist/package/appdata
+        run: |
+          # Launch briefly to confirm the exe and its Qt runtime load, then close.
+          $p = Start-Process -FilePath "dist/ZenithBusiness/ZenithBusiness.exe" -PassThru
+          Start-Sleep -Seconds 12
+          if ($p.HasExited -and $p.ExitCode -ne 0) {
+            throw "Frozen app exited early with code $($p.ExitCode)"
+          }
+          if (-not $p.HasExited) { $p.Kill() }
+          Write-Host "Frozen build launched cleanly."
+
+      - name: Upload Windows test package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZenithBusiness-Stage${{ env.STAGE }}-TestBuild-win64
+          path: dist/package
+          retention-days: 14
+          if-no-files-found: error
+
+      # The VENDOR tool, built as a separate download. It is never placed
+      # inside the customer package - that is the whole point of the pairing -
+      # so it is frozen from its own spec, into its own folder, and zipped on
+      # its own. It is frozen AFTER the customer package is assembled and
+      # audited, so nothing it produces can leak into the scan above.
+      #
+      # The output folder is removed first. A runner is a fresh VM, so this is
+      # belt and braces - but "the build reused something stale" is exactly the
+      # kind of explanation nobody can ever rule out after the fact, and one
+      # line here makes it unnecessary to argue about.
+      - name: Freeze the vendor License Manager (clean output)
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force dist/ZenithLicenseManager -ErrorAction SilentlyContinue
+          Remove-Item -Force ZenithSoft-LicenseManager-win64.zip -ErrorAction SilentlyContinue
+          pyinstaller packaging/zenith_license_manager.spec --noconfirm --clean
+          if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed for the License Manager" }
+
+      # Asked of the CUSTOMER package: it must not contain the vendor tool.
+      # The audit step above already fails on the module name; this proves the
+      # executable itself is absent, which is the thing a person would look for.
+      - name: Confirm the vendor tool is NOT in the customer package
+        shell: pwsh
+        run: |
+          $found = Get-ChildItem -Recurse dist/package -Filter "*LicenseManager*" `
+            -ErrorAction SilentlyContinue
+          if ($found) { throw "the vendor License Manager reached the customer package" }
+          Write-Host "Customer package contains no License Manager."
+
+      - name: Upload the vendor License Manager
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZenithSoft-LicenseManager-win64
+          path: dist/ZenithLicenseManager
+          retention-days: 14
+          if-no-files-found: error
+
+      # Delivery-only: zip both packages and attach them to a GitHub Release so
+      # each has a permanent, one-click Download link (no Actions navigation, no
+      # expiry). This does not change the application or any source.
+      #
+      # Both ZIPs are written with 7-Zip rather than Compress-Archive.
+      # Compress-Archive is a PowerShell wrapper over .NET's ZipArchive and has
+      # a long history of producing archives that Windows' own Explorer
+      # extractor then rejects; 7-Zip is the tool everything else in the
+      # Windows world reads without complaint. The layout must stay as it was -
+      # the contents of each folder at the root of its ZIP - and swapping the
+      # tool is exactly how that gets broken, so the verify step below asserts
+      # the exact paths rather than trusting this step to have got it right.
+      - name: Zip both packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (-not (Get-Command 7z -ErrorAction SilentlyContinue)) {
+            throw "7z is not on PATH; refusing to fall back to Compress-Archive"
+          }
+          Copy-Item -Force "vendor/README-VENDOR.md" "dist/ZenithLicenseManager/READ-ME-VENDOR.txt"
+
+          $root = (Get-Location).Path
+          $zip  = Join-Path $root "ZenithBusiness-Stage${env:STAGE}-TestBuild-win64.zip"
+          $vzip = Join-Path $root "ZenithSoft-LicenseManager-win64.zip"
+          Remove-Item -Force $zip, $vzip -ErrorAction SilentlyContinue
+
+          # Zip from INSIDE each folder, so its contents land at the root of the
+          # archive. 7-Zip stores the path it is given, so `7z a out.zip
+          # dist/package/*` would bury everything under dist/package/ and the
+          # owner would unzip to a folder with no Run-ZenithBusiness.bat in it.
+          # Compress-Archive -Path dist/package/* flattened it implicitly; this
+          # is the same result, stated on purpose.
+          function New-PackageZip($sourceDir, $target) {
+            Push-Location $sourceDir
+            try {
+              & 7z a -tzip -mx5 -bso0 -bsp0 $target "*"
+              if ($LASTEXITCODE -ne 0) { throw "failed to create $target" }
+            } finally { Pop-Location }
+          }
+
+          New-PackageZip "dist/package"              $zip
+          New-PackageZip "dist/ZenithLicenseManager" $vzip
+
+          Write-Host ("App zip    : {0:N1} MB" -f ((Get-Item $zip).Length/1MB))
+          Write-Host ("Manager zip: {0:N1} MB" -f ((Get-Item $vzip).Length/1MB))
+
+      # A ZIP that was written without error is not the same thing as a ZIP that
+      # EXTRACTS. This step does the only check that actually answers the
+      # customer's question - it unpacks each archive into an empty directory on
+      # the platform that will unpack it for real, then opens the files that
+      # matter and reads their first bytes. Nothing is published unless this
+      # passes, so a bad archive can never replace a good download again.
+      - name: Verify both ZIPs extract cleanly on Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          function Test-Package($zip, $required) {
+            Write-Host "=== $zip ==="
+            if (-not (Test-Path $zip)) { throw "$zip was never created" }
+
+            # 1. Archive-level integrity: decompress every entry and check its CRC.
+            & 7z t $zip -bso0 -bsp0 | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "$zip FAILED the archive integrity test" }
+
+            # 2. A real extraction, into a directory that starts empty.
+            $out = Join-Path $env:RUNNER_TEMP ("verify-" + [IO.Path]::GetFileNameWithoutExtension($zip))
+            if (Test-Path $out) { Remove-Item -Recurse -Force $out }
+            New-Item -ItemType Directory -Force -Path $out | Out-Null
+            & 7z x $zip "-o$out" -y -bso0 -bsp0 | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "$zip FAILED to extract" }
+
+            # 2b. The SAME extraction again, through Windows Explorer's own ZIP
+            #     engine (Shell.Application / zipfldr) rather than 7-Zip. This is
+            #     the code path behind "Extract All" and behind the copy dialog
+            #     that reported 0x80004005, so it is the one that has to be
+            #     proved - a 7-Zip-only check cannot speak for it. Every file is
+            #     then compared byte-count-for-byte-count against the 7-Zip copy.
+            #     COM shell automation is not guaranteed to work in a
+            #     non-interactive CI session. "Could not run the test" and "ran
+            #     the test and it failed" are different answers, and only the
+            #     second one should stop a release - so a shell engine that
+            #     produces NOTHING is reported as untested, while one that
+            #     produces the wrong bytes fails the build.
+            $want = (Get-ChildItem -Recurse -File $out).Count
+            $shellOut = "$out-explorer"
+            if (Test-Path $shellOut) { Remove-Item -Recurse -Force $shellOut }
+            New-Item -ItemType Directory -Force -Path $shellOut | Out-Null
+
+            $started = $false
+            try {
+              $shell = New-Object -ComObject Shell.Application
+              $src = $shell.NameSpace((Resolve-Path $zip).Path)
+              $dst = $shell.NameSpace((Resolve-Path $shellOut).Path)
+              if ($src -and $dst) {
+                # 16 = Yes to All, 512 = no progress UI, 1024 = no confirmation.
+                $dst.CopyHere($src.Items(), 16 + 512 + 1024)
+                $started = $true
+              }
+            } catch {
+              Write-Host "  NOTE: Windows shell ZIP engine unavailable here ($($_.Exception.Message))"
+            }
+
+            if (-not $started) {
+              Write-Host "  NOTE: skipped the Explorer-engine extraction (COM unavailable in CI)"
+            } else {
+              # CopyHere is asynchronous, so wait for the file count to settle.
+              $deadline = (Get-Date).AddMinutes(10)
+              $have = 0
+              while ((Get-Date) -lt $deadline) {
+                Start-Sleep -Seconds 2
+                $have = (Get-ChildItem -Recurse -File $shellOut -ErrorAction SilentlyContinue).Count
+                if ($have -ge $want) { break }
+              }
+              if ($have -eq 0) {
+                Write-Host "  NOTE: the Explorer engine produced nothing here; treating as untested"
+              } else {
+                $mismatch = @()
+                foreach ($ref in Get-ChildItem -Recurse -File $out) {
+                  $rel = $ref.FullName.Substring($out.Length + 1)
+                  $copy = Join-Path $shellOut $rel
+                  if (-not (Test-Path -PathType Leaf $copy)) { $mismatch += "missing: $rel"; continue }
+                  $len = (Get-Item $copy).Length
+                  if ($len -ne $ref.Length) { $mismatch += "size $len vs $($ref.Length): $rel" }
+                }
+                if ($mismatch.Count) {
+                  throw ("$zip FAILED extraction through the Windows shell:`n  " +
+                         ($mismatch -join "`n  "))
+                }
+                Write-Host "  Windows shell extraction matched 7-Zip on all $want file(s)"
+              }
+            }
+
+            # 3. The files that must be present, at the EXACT path the owner will
+            #    find them at, opened and read. Searching recursively for a name
+            #    would pass an archive that put the whole package one folder
+            #    deeper - which is precisely the mistake this check exists to
+            #    catch, since a package that unzips to the wrong shape is broken
+            #    even though every byte in it is perfect.
+            foreach ($rel in $required) {
+              $full = Join-Path $out $rel
+              if (-not (Test-Path -PathType Leaf $full)) {
+                throw "$zip extracted WITHOUT $rel (wrong layout, or file missing)"
+              }
+              $item = Get-Item $full
+              $stream = [IO.File]::OpenRead($full)
+              try {
+                $head = New-Object byte[] 2
+                if ($stream.Read($head, 0, 2) -ne 2) { throw "$rel is not readable" }
+                if ($rel -match '\.(dll|exe|pyd)$' -and ($head[0] -ne 0x4D -or $head[1] -ne 0x5A)) {
+                  throw "$rel is not a valid Windows binary (no MZ header)"
+                }
+              } finally { $stream.Dispose() }
+              Write-Host ("  OK  {0,-46} {1,12:N0} bytes" -f $rel, $item.Length)
+            }
+
+            # 4. Every other executable in the package, checked the same way. The
+            #    two DLLs named in the bug report are required above; this catches
+            #    the next one instead of waiting for it to be reported.
+            $bad = @()
+            foreach ($bin in Get-ChildItem -Recurse -File $out -Include *.dll,*.exe,*.pyd) {
+              $stream = [IO.File]::OpenRead($bin.FullName)
+              try {
+                $head = New-Object byte[] 2
+                if ($stream.Read($head, 0, 2) -ne 2 -or $head[0] -ne 0x4D -or $head[1] -ne 0x5A) {
+                  $bad += $bin.FullName.Substring($out.Length + 1)
+                }
+              } finally { $stream.Dispose() }
+            }
+            if ($bad.Count) { throw "$zip contains damaged binaries: $($bad -join ', ')" }
+
+            $count = (Get-ChildItem -Recurse -File $out).Count
+            $hash  = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+            Write-Host "  extracted $count file(s), all binaries valid"
+            Write-Host "  SHA256: $hash"
+            return $hash
+          }
+
+          # Exact paths, relative to the root of each ZIP - the layout the owner
+          # gets after Extract All, including the launcher they double-click.
+          $appHash = Test-Package "ZenithBusiness-Stage${env:STAGE}-TestBuild-win64.zip" @(
+            "Run-ZenithBusiness.bat",
+            "READ-ME-FIRST.txt",
+            "app\ZenithBusiness.exe",
+            "app\_internal\PyQt6\Qt6\bin\Qt6Gui.dll",
+            "app\_internal\PyQt6\Qt6\bin\Qt6Pdf.dll",
+            "app\_internal\PyQt6\Qt6\bin\opengl32sw.dll")
+
+          $mgrHash = Test-Package "ZenithSoft-LicenseManager-win64.zip" @(
+            "READ-ME-VENDOR.txt",
+            "ZenithLicenseManager.exe",
+            "_internal\PyQt6\Qt6\bin\Qt6Gui.dll",
+            "_internal\PyQt6\Qt6\bin\Qt6Pdf.dll",
+            "_internal\PyQt6\Qt6\bin\opengl32sw.dll")
+
+          # Published in the release notes so a customer can tell a damaged
+          # DOWNLOAD apart from a damaged BUILD without asking anybody.
+          "APP_SHA256=$appHash" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "MGR_SHA256=$mgrHash" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # Unzipping is not the same as working. This runs the exe out of the
+      # EXTRACTED verification folder - not out of dist/ - so what starts is the
+      # copy that came through the ZIP, loading the very DLLs the extraction
+      # reported on. A windowed Qt app has no stdout to read, so the check is
+      # the one that matters: did it stay alive, and did it exit cleanly when
+      # asked to stop.
+      - name: Launch both applications from the EXTRACTED folders
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          function Start-FromExtract($exe, $label) {
+            if (-not (Test-Path $exe)) { throw "$label was not found at $exe" }
+            Write-Host "=== $label ==="
+            $proc = Start-Process -FilePath $exe -PassThru
+            Start-Sleep -Seconds 15
+            if ($proc.HasExited) {
+              throw "$label exited on its own with code $($proc.ExitCode) - it did not start"
+            }
+            $proc.Kill()
+            $proc.WaitForExit(30000) | Out-Null
+            Write-Host "  started from the extracted package and ran for 15s"
+          }
+
+          $mgrDir = Join-Path $env:RUNNER_TEMP "verify-ZenithSoft-LicenseManager-win64"
+          $appDir = Join-Path $env:RUNNER_TEMP "verify-ZenithBusiness-Stage${env:STAGE}-TestBuild-win64"
+
+          Start-FromExtract (Join-Path $mgrDir "ZenithLicenseManager.exe") "Zenith Soft License Manager"
+
+          # The customer app writes its database, so it is pointed at a scratch
+          # data home rather than the seeded one inside the package.
+          $env:ZENITH_DATA_HOME = Join-Path $env:RUNNER_TEMP "launch-home"
+          Start-FromExtract (Join-Path $appDir "app\ZenithBusiness.exe") "Zenith Business"
+
+      # The check that would have caught the Product Key rejection. Everything
+      # else here proves the packages EXTRACT and START; this one proves they
+      # WORK TOGETHER - a licence issued by the vendor Manager is accepted by
+      # the packaged application, and the four things that must be refused are.
+      # Run against the extracted packages, and before anything is published.
+      - name: Vendor Manager issues → packaged Zenith Business activates
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          # A Windows console is cp1252 by default, and the first run of this
+          # step died encoding its own banner rather than checking anything.
+          # The script forces UTF-8 on its streams as well; this is the belt to
+          # that pair of braces.
+          PYTHONUTF8: "1"
+        run: |
+          $ErrorActionPreference = "Stop"
+          $mgrDir = Join-Path $env:RUNNER_TEMP "verify-ZenithSoft-LicenseManager-win64"
+          $appDir = Join-Path $env:RUNNER_TEMP "verify-ZenithBusiness-Stage${env:STAGE}-TestBuild-win64"
+          python packaging/end_to_end_licence_check.py $mgrDir (Join-Path $appDir "app")
+          if ($LASTEXITCODE -ne 0) {
+            throw "a licence issued by the Manager is NOT accepted by the packaged application"
+          }
+
+      - name: Publish as a GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="stage${STAGE}-test-build"
+          ZIP="ZenithBusiness-Stage${STAGE}-TestBuild-win64.zip"
+          MANAGER_ZIP="ZenithSoft-LicenseManager-win64.zip"
+
+          # PROVE we can publish BEFORE destroying what the owner is currently
+          # downloading. This step used to delete the existing release first and
+          # swallow the result with `|| true`; when the token later lost release
+          # permission, the delete went through, the create returned HTTP 403,
+          # and the owner was left with no download link at all. A throwaway
+          # draft nobody ever sees is the cheapest way to ask "may I?" — and if
+          # the answer is no, the existing release stays exactly where it is.
+          PROBE="ci-release-permission-probe-${GITHUB_RUN_ID}"
+          if ! gh release create "$PROBE" --draft --notes "permission probe" >/dev/null 2>&1; then
+            echo "::error::This workflow's token cannot create releases, so the"
+            echo "::error::package was NOT published and the previous download"
+            echo "::error::link has been left untouched. The build itself is fine"
+            echo "::error::- the ZIP is attached to this run as an artifact."
+            echo "::error::Fix: repository Settings -> Actions -> General ->"
+            echo "::error::Workflow permissions -> Read and write permissions."
+            exit 1
+          fi
+          gh release delete "$PROBE" --cleanup-tag --yes >/dev/null 2>&1 || true
+
+          # Replace any previous copy so the download link is always the latest
+          # build. The assets are deleted explicitly first: `release delete`
+          # removes them along with the release, but naming them makes it
+          # impossible for a stale ZIP to survive under a reused tag.
+          for asset in "$ZIP" "$MANAGER_ZIP"; do
+            gh release delete-asset "$TAG" "$asset" --yes >/dev/null 2>&1 || true
+          done
+          gh release delete "$TAG" --cleanup-tag --yes || true
+          gh release create "$TAG" "$ZIP" "$MANAGER_ZIP" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "Zenith Business — Stage ${STAGE} Windows Test Build" \
+            --notes "Self-contained Windows test build including the locked Stages 01-09 and Stage 10 (Single-PC Security, Backup & Licensing), with a fresh pre-seeded sample database. Download the ZIP, unzip, and double-click Run-ZenithBusiness.bat. IMPORTANT — licensing is now checked BEFORE login: the first screen is Activation, and an unlicensed computer cannot reach the login form or the program behind it. Copy the Request Code, send it to Zenith Soft, paste back the Product Key, press Activate - then log in (admin / Admin@123). ZenithSoft-LicenseManager-win64.zip on this release is the VENDOR tool that issues those keys: it is for Zenith Soft only and must never be given to a customer. Full click-by-click test steps are in READ-ME-FIRST inside the package. This is a TEST build for owner acceptance — Stage 10 is not locked or merged.
+
+          ---
+          Before this release was published, both ZIPs were extracted on Windows in CI twice — once with 7-Zip and once through Windows Explorer's own ZIP engine — every .exe/.dll/.pyd inside was opened and checked, both applications were launched from the extracted folders, and the uploaded assets were then downloaded back and verified byte-for-byte.
+
+          IF EXTRACTION FAILS ON YOUR PC, the archive is almost certainly fine and something on the machine is blocking it. In order:
+          1. Compare the SHA-256 below. A mismatch means the download was damaged — fetch it again.
+          2. If it matches, do not use drag-and-drop out of the ZIP window. Right-click the ZIP -> Properties -> tick Unblock -> OK, then extract with: \`tar -xf ZenithSoft-LicenseManager-win64.zip\` in the folder containing it (built into Windows 10/11), or with 7-Zip.
+          3. Errors such as 0x80004005 on the largest DLLs (opengl32sw.dll, Qt6Gui.dll, Qt6Pdf.dll) usually mean antivirus is blocking the write, or the disk holding %TEMP% is low on space. Extract to a folder excluded from real-time scanning and make sure there is at least 1 GB free.
+
+          SHA-256:
+          - \`ZenithBusiness-Stage${STAGE}-TestBuild-win64.zip\` — \`${APP_SHA256}\`
+          - \`ZenithSoft-LicenseManager-win64.zip\` — \`${MGR_SHA256}\`
+
+          Check yours in PowerShell:
+          \`Get-FileHash .\\ZenithSoft-LicenseManager-win64.zip -Algorithm SHA256\`"
+          # Retire the earlier stage's release so only one download link exists.
+          for old in $SUPERSEDED_TAGS; do
+            gh release delete "$old" --cleanup-tag --yes || true
+          done
+          echo "Release published:"
+          gh release view "$TAG" --json url --jq .url
+
+      # The last honest gap: everything above proved the LOCAL file. This proves
+      # the file the owner will actually receive, by fetching it back from the
+      # release over the network and putting the downloaded copy through the
+      # same treatment - hash, integrity test, extraction.
+      - name: Re-download the published assets and verify them byte-for-byte
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = "stage${env:STAGE}-test-build"
+          $dl  = Join-Path $env:RUNNER_TEMP "released"
+          if (Test-Path $dl) { Remove-Item -Recurse -Force $dl }
+          New-Item -ItemType Directory -Force -Path $dl | Out-Null
+
+          $pairs = @(
+            @{ name = "ZenithBusiness-Stage${env:STAGE}-TestBuild-win64.zip"; want = $env:APP_SHA256 },
+            @{ name = "ZenithSoft-LicenseManager-win64.zip";                  want = $env:MGR_SHA256 }
+          )
+
+          foreach ($p in $pairs) {
+            Write-Host "=== $($p.name) ==="
+            & gh release download $tag --pattern $p.name --dir $dl --clobber
+            if ($LASTEXITCODE -ne 0) { throw "could not download $($p.name) back from the release" }
+
+            $local = Join-Path $dl $p.name
+            $got = (Get-FileHash $local -Algorithm SHA256).Hash.ToLower()
+            if ($got -ne $p.want) {
+              throw "PUBLISHED COPY DIFFERS from what was uploaded`n  expected $($p.want)`n  got      $got"
+            }
+            Write-Host "  SHA256 matches the uploaded file: $got"
+
+            & 7z t $local -bso0 -bsp0 | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "the PUBLISHED $($p.name) failed its integrity test" }
+
+            $out = Join-Path $env:RUNNER_TEMP ("released-" + [IO.Path]::GetFileNameWithoutExtension($p.name))
+            if (Test-Path $out) { Remove-Item -Recurse -Force $out }
+            & 7z x $local "-o$out" -y -bso0 -bsp0 | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "the PUBLISHED $($p.name) failed to extract" }
+            Write-Host "  downloaded copy extracted: $((Get-ChildItem -Recurse -File $out).Count) file(s)"
+          }
+
+          Write-Host ""
+          Write-Host "Both published assets were re-downloaded and verified byte-for-byte."

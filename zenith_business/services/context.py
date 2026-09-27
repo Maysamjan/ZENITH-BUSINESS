@@ -35,8 +35,25 @@ from zenith_business.repositories.master import (
     UnitRepository,
     WarehouseRepository,
 )
+from zenith_business.repositories.documents_s4 import (
+    PartyBalanceRepository,
+    PurchaseExtRepository,
+    PurchaseReturnRepository,
+    SalesExtRepository,
+    SalesReturnRepository,
+)
+from zenith_business.repositories.money_s5 import (
+    ExpenseCategoryRepository,
+    ExpenseExtRepository,
+    FundRepository,
+    PaymentExtRepository,
+    ReceiptExtRepository,
+)
 from zenith_business.repositories.financial_years import FinancialYearRepository
+from zenith_business.repositories.inventory_s6 import InventoryReadRepository
+from zenith_business.repositories.ledger_s6 import PartyLedgerRepository
 from zenith_business.repositories.parties import PartyRepository
+from zenith_business.repositories.reports import SalesReportRepository
 from zenith_business.repositories.system import (
     AppSettingsRepository,
     AuditRepository,
@@ -55,18 +72,37 @@ from zenith_business.services.company import CompanyService
 from zenith_business.services.financial import FinancialService
 from zenith_business.services.financial_year import FinancialYearService
 from zenith_business.services.inventory import InventoryService
+from zenith_business.services.inventory_reports import InventoryReportService
 from zenith_business.services.items import ItemService
 from zenith_business.services.master_data import (
     CategoryService,
     UnitService,
     WarehouseService,
 )
+from zenith_business.services.money_documents import (
+    ExpenseService,
+    PaymentService,
+    ReceiptService,
+)
 from zenith_business.services.numbering import DocumentNumberService
 from zenith_business.services.parties import PartyService
+from zenith_business.services.party_ledger import PartyLedgerService
+from zenith_business.services.purchase_documents import PurchaseDocumentService
 from zenith_business.services.purchases import PurchaseService
+from zenith_business.services.sales_documents import SalesDocumentService
 from zenith_business.services.roles import RoleService
 from zenith_business.services.sales import SalesService
+from zenith_business.services.sales_reports import SalesReportService
+from zenith_business.repositories.costing_s8 import CostingReadRepository
+from zenith_business.services.costing_reports import CostingReportService
+from zenith_business.repositories.accounting_s9 import AccountingReadRepository
+from zenith_business.services.accounting_reports import AccountingReportService
+from zenith_business.services.cogs_posting import CogsPostingService
+from zenith_business.services.audit_chain import AuditChainService
+from zenith_business.services.licensing_service import LicenseService
+from zenith_business.services.safe_restore import SafeRestoreService
 from zenith_business.services.search_providers import ItemSearchProvider, PartySearchProvider
+from zenith_business.services.security_service import SecurityService
 from zenith_business.services.session import SessionContext
 from zenith_business.services.setup import InitialSetupService
 from zenith_business.services.users import UserService
@@ -78,7 +114,8 @@ class ApplicationContext:
     """Composition root holding all repositories and services for one database."""
 
     def __init__(self, db: Database, *, backups_dir: Path | None = None,
-                 logo_dir: Path | None = None) -> None:
+                 logo_dir: Path | None = None,
+                 license_dir: Path | None = None) -> None:
         self.db = db
         self.session = SessionContext()
 
@@ -109,6 +146,20 @@ class ApplicationContext:
         # Stage 03 repositories
         self.parties_repo = PartyRepository(db)
         self.financial_years_repo = FinancialYearRepository(db)
+        # Stage 04 repositories
+        self.sales_ext_repo = SalesExtRepository(db)
+        self.purchases_ext_repo = PurchaseExtRepository(db)
+        self.sales_returns_repo = SalesReturnRepository(db)
+        self.purchase_returns_repo = PurchaseReturnRepository(db)
+        self.party_balances_repo = PartyBalanceRepository(db)
+        # Stage 05 money-movement repositories
+        self.receipts_ext_repo = ReceiptExtRepository(db)
+        self.payments_ext_repo = PaymentExtRepository(db)
+        self.expenses_ext_repo = ExpenseExtRepository(db)
+        self.funds_repo = FundRepository(db)
+        self.expense_categories_repo = ExpenseCategoryRepository(db)
+        # Owner-fix (defect #4) party account-ledger repository
+        self.party_ledger_repo = PartyLedgerRepository(db)
 
         # ---- services ----
         self.authz = AuthorizationService(self.session)
@@ -129,8 +180,10 @@ class ApplicationContext:
             db, self.purchases_repo, self.inventory_repo, self.financial_repo,
             self.accounts_repo, self.currencies_repo, self.items_repo, self.numbering,
             self.audit_repo, self.session, self.authz)
+        self.inventory_read_repo = InventoryReadRepository(db)
         self.inventory = InventoryService(
-            db, self.inventory_repo, self.audit_repo, self.session, self.authz)
+            db, self.inventory_repo, self.audit_repo, self.session, self.authz,
+            read=self.inventory_read_repo)
         self.backup = BackupService(
             db, backups_dir or Path("."), self.audit_repo, self.session, self.authz)
 
@@ -154,6 +207,80 @@ class ApplicationContext:
             db, self.roles_repo, self.permissions_repo, self.audit_repo, self.session,
             self.authz)
 
+        # ---- Stage 04 document services ----
+        self.sales_documents = SalesDocumentService(
+            db, self.sales_repo, self.sales_ext_repo, self.sales_returns_repo,
+            self.inventory_repo, self.financial_repo, self.accounts_repo, self.currencies_repo,
+            self.items_repo, self.warehouses_repo, self.parties_repo, self.party_balances_repo,
+            self.numbering, self.audit_repo, self.session, self.authz, self.financial_years)
+        self.purchase_documents = PurchaseDocumentService(
+            db, self.purchases_repo, self.purchases_ext_repo, self.purchase_returns_repo,
+            self.inventory_repo, self.financial_repo, self.accounts_repo, self.currencies_repo,
+            self.items_repo, self.warehouses_repo, self.parties_repo, self.party_balances_repo,
+            self.numbering, self.audit_repo, self.session, self.authz, self.financial_years)
+
+        # ---- Stage 05 money-movement services ----
+        self.receipts = ReceiptService(
+            db, self.receipts_repo, self.receipts_ext_repo, self.financial_repo,
+            self.accounts_repo, self.currencies_repo, self.parties_repo,
+            self.party_balances_repo, self.funds_repo, self.numbering, self.audit_repo,
+            self.session, self.authz, self.financial_years)
+        self.payments = PaymentService(
+            db, self.payments_repo, self.payments_ext_repo, self.financial_repo,
+            self.accounts_repo, self.currencies_repo, self.parties_repo,
+            self.party_balances_repo, self.funds_repo, self.numbering, self.audit_repo,
+            self.session, self.authz, self.financial_years)
+        self.expenses = ExpenseService(
+            db, self.expenses_repo, self.expenses_ext_repo, self.expense_categories_repo,
+            self.financial_repo, self.accounts_repo, self.currencies_repo, self.parties_repo,
+            self.party_balances_repo, self.funds_repo, self.numbering, self.audit_repo,
+            self.session, self.authz, self.financial_years)
+
+        # ---- owner-fix party ledger service (defect #4) ----
+        self.party_ledger = PartyLedgerService(
+            self.party_ledger_repo, self.parties_repo, self.authz)
+
+        # ---- Stage 06 inventory reports (read-only over the movement ledger) ----
+        self.inventory_reports = InventoryReportService(self.inventory, self.authz)
+
+        # ---- Sales Reporting (read-only over authoritative POSTED documents) ----
+        self.sales_report_repo = SalesReportRepository(db)
+        self.sales_reports = SalesReportService(
+            self.sales_report_repo, self.session, self.authz)
+
+        # ---- Stage 08 costing & valuation (read-only over the costed ledger) ----
+        # Sales reporting is passed in rather than re-implemented: net sales has
+        # exactly one definition, and it belongs to the module above.
+        self.costing_repo = CostingReadRepository(db)
+        self.costing_reports = CostingReportService(
+            self.costing_repo, self.sales_reports, self.authz)
+
+        # ---- Stage 09 accounting reports over the double-entry ledger ----
+        # The COGS posting service charges Stage 08's movement cost to the
+        # accounts; the reports sync it before every read, so the statements are
+        # never missing a cost and no locked posting path had to change.
+        self.cogs_posting = CogsPostingService(
+            db, self.financial_repo, self.accounts_repo, self.numbering,
+            self.session, self.authz, self.audit)
+        self.accounting_repo = AccountingReadRepository(db)
+        self.accounting_reports = AccountingReportService(
+            self.accounting_repo, self.cogs_posting, self.sales_reports,
+            self.party_ledger, self.authz)
+
+        # ---- Stage 10: single-PC security, backup safety and licensing ----
+        # Each of these EXTENDS what Stage 02 built rather than replacing it:
+        # authentication, hashing, the audit trail and the backup writer are
+        # untouched, and no locked service changed to accommodate them.
+        self.audit_chain = AuditChainService(db)
+        self.security = SecurityService(
+            db, self.users_repo, self.settings_repo, self.audit_repo, self.session)
+        self.safe_restore = SafeRestoreService(
+            db, backups_dir or Path("."), audit=self.audit_repo,
+            session=self.session, authz=self.authz)
+        self.licensing = LicenseService(
+            license_dir=license_dir or (Path(backups_dir or ".") / "license"),
+            settings_repo=self.settings_repo, audit=self.audit_repo, db=db)
+
         # ---- reusable search providers (§12, §16) ----
         self.item_search = ItemSearchProvider(self.items_repo)
         self.customer_search = PartySearchProvider(self.parties_repo, role="customer")
@@ -171,7 +298,8 @@ class ApplicationContext:
 
 
 def open_application_context(
-    db: Database, *, backups_dir: Path | None = None, logo_dir: Path | None = None
+    db: Database, *, backups_dir: Path | None = None, logo_dir: Path | None = None,
+    license_dir: Path | None = None,
 ) -> ApplicationContext:
     """Run pending migrations, then build the application context.
 
@@ -182,4 +310,16 @@ def open_application_context(
     applied = MigrationRunner(db).migrate()
     if applied:
         _logger.info("Database migrated to schema (applied %s).", applied)
-    return ApplicationContext(db, backups_dir=backups_dir, logo_dir=logo_dir)
+    context = ApplicationContext(db, backups_dir=backups_dir, logo_dir=logo_dir,
+                                 license_dir=license_dir)
+    # Extend the audit hash chain over anything written since the last run. It
+    # must never be what stops the application opening, so a failure is logged
+    # and the application continues with the chain simply not yet caught up.
+    try:
+        sealed = context.audit_chain.seal()
+        if sealed:
+            _logger.info("Sealed %d audit entr%s into the hash chain.",
+                         sealed, "y" if sealed == 1 else "ies")
+    except Exception:
+        _logger.warning("Could not extend the audit hash chain.", exc_info=True)
+    return context

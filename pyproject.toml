@@ -12,10 +12,14 @@ license = { text = "Proprietary" }
 authors = [{ name = "Zenith Soft" }]
 
 # Runtime dependencies are intentionally minimal (Master Spec §2, Prompt 01 §2).
-# Only PyQt6 is required at runtime. Windows-safe data locations are resolved
-# with the standard library (no extra dependency).
+# Two, and each is justified:
+#   PyQt6        - the user interface.
+#   cryptography - Ed25519 licence verification. Deliberately NOT hand-written:
+#                  the one piece of code whose failure mode is silent belongs in
+#                  a well-vetted, widely-audited library (Stage 10 hardening §4).
 dependencies = [
     "PyQt6>=6.6",
+    "cryptography>=42.0",
 ]
 
 [project.optional-dependencies]
